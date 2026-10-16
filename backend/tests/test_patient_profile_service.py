@@ -213,7 +213,6 @@ def test_consent_versions_must_match_server_bound_notice_hash() -> None:
                 "patient@example.com",
                 "correct-horse-battery",
                 1990,
-                None,
                 privacy_version,
                 True,
                 health_version,

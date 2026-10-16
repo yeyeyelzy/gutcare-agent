@@ -11,6 +11,7 @@ from gutcare.auth.models import Base
 from gutcare.config import Settings
 from gutcare.files import models as _file_models  # noqa: F401
 from gutcare.medication import models as _medication_models  # noqa: F401
+from gutcare.mood import models as _mood_models  # noqa: F401
 from gutcare.privacy import models as _privacy_models  # noqa: F401
 
 config = context.config

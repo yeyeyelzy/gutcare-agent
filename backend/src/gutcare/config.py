@@ -158,6 +158,16 @@ class Settings(BaseSettings):
             "AUTH__EMAIL_LOOKUP_PEPPER", "AUTH_EMAIL_LOOKUP_PEPPER", "email_lookup_pepper"
         ),
     )
+    mood_idempotency_hmac_key: str | None = Field(
+        default=None,
+        repr=False,
+        min_length=32,
+        validation_alias=AliasChoices(
+            "MOOD__IDEMPOTENCY_HMAC_KEY",
+            "MOOD_IDEMPOTENCY_HMAC_KEY",
+            "mood_idempotency_hmac_key",
+        ),
+    )
     email_encryption_key: str | None = Field(
         default=None,
         repr=False,
@@ -230,6 +240,22 @@ class Settings(BaseSettings):
             "health_data_processing_summary_hash",
         ),
     )
+    mood_data_processing_summary_hash: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "PRIVACY__MOOD_DATA_PROCESSING_SUMMARY_HASH",
+            "MOOD_DATA_PROCESSING_SUMMARY_HASH",
+            "mood_data_processing_summary_hash",
+        ),
+    )
+    mood_ai_sharing_summary_hash: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "PRIVACY__MOOD_AI_SHARING_SUMMARY_HASH",
+            "MOOD_AI_SHARING_SUMMARY_HASH",
+            "mood_ai_sharing_summary_hash",
+        ),
+    )
     sensitive_image_summary_hash: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
@@ -266,6 +292,22 @@ class Settings(BaseSettings):
             "PRIVACY__HEALTH_DATA_PROCESSING_POLICY_VERSION",
             "HEALTH_DATA_PROCESSING_POLICY_VERSION",
             "health_data_processing_policy_version",
+        ),
+    )
+    mood_data_processing_policy_version: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "PRIVACY__MOOD_DATA_PROCESSING_POLICY_VERSION",
+            "MOOD_DATA_PROCESSING_POLICY_VERSION",
+            "mood_data_processing_policy_version",
+        ),
+    )
+    mood_ai_sharing_policy_version: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "PRIVACY__MOOD_AI_SHARING_POLICY_VERSION",
+            "MOOD_AI_SHARING_POLICY_VERSION",
+            "mood_ai_sharing_policy_version",
         ),
     )
     sensitive_image_policy_version: str | None = Field(

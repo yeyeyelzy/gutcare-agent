@@ -128,6 +128,7 @@ def test_activity_and_history_openapi_are_present_and_strict() -> None:
         "diet_record",
         "stool_record",
         "symptom_record",
+        "mood_record",
         "medication_checkin",
         "activity_record",
         "advice",

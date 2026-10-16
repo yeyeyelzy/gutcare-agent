@@ -27,7 +27,6 @@ class AuthServicePort(Protocol):
         email_value: str,
         password: str,
         birth_year: int,
-        nickname: str | None,
         privacy_policy_version: str,
         health_data_processing_consent: bool,
         health_data_processing_policy_version: str,
@@ -74,7 +73,6 @@ class RegisterRequest(BaseModel):
     email: EmailStr = Field(max_length=254)
     password: str = Field(min_length=12, max_length=128)
     birth_year: int = Field(ge=1900, le=2100)
-    nickname: str | None = Field(default=None, max_length=64)
     privacy_policy_version: str = Field(min_length=1, max_length=32)
     health_data_processing_consent: Literal[True]
     health_data_processing_policy_version: str = Field(min_length=1, max_length=32)
@@ -144,6 +142,8 @@ class ConsentDecisionRequest(BaseModel):
 
     consent_type: Literal[
         "health_data_processing",
+        "mood_data_processing",
+        "mood_ai_sharing",
         "sensitive_image",
         "third_party_ai",
         "push_notification",
@@ -249,7 +249,6 @@ def register(
         str(body.email),
         body.password,
         body.birth_year,
-        body.nickname,
         body.privacy_policy_version,
         body.health_data_processing_consent,
         body.health_data_processing_policy_version,

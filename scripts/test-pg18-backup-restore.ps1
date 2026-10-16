@@ -38,6 +38,23 @@ VALUES(md5('__PATIENT__')||md5('__PATIENT__x'),'__PATIENT__',md5('receipt-__PATI
         psql -U gutcare_bootstrap -d gutcare_business_test -v ON_ERROR_STOP=1 -c $privacySeedSql
     if ($LASTEXITCODE -ne 0) { throw 'Pending privacy deletion restore seed failed.' }
 
+    # Keep a separate mood patient outside the deletion replay seed so the
+    # restored H1 row proves the new table and sensitive JSONB survive pg_dump.
+    $moodUserId = [guid]::NewGuid().ToString()
+    $moodPatientId = [guid]::NewGuid().ToString()
+    $moodSeedSql = @'
+INSERT INTO iam.user_account(id,email_ciphertext,email_lookup_hash,password_hash,status)
+VALUES('__USER__',decode('02','hex'),md5('__USER__')||md5('__USER__x'),'$argon2id$mood-restore-seed','active');
+INSERT INTO health.patient_profile(id,user_id,birth_year,timezone)
+VALUES('__PATIENT__','__USER__',1990,'Asia/Shanghai');
+INSERT INTO health.mood_record(patient_id,occurred_at,mood_level,emotion_tags,note)
+VALUES('__PATIENT__','2026-10-16T12:30:00Z',4,jsonb_build_array('calm','content'),'synthetic restore evidence');
+'@
+    $moodSeedSql = $moodSeedSql.Replace('__USER__', $moodUserId).Replace('__PATIENT__', $moodPatientId)
+    & $docker.Source compose -f $composeFile -p $project exec -T $service `
+        psql -U gutcare_bootstrap -d gutcare_business_test -v ON_ERROR_STOP=1 -c $moodSeedSql
+    if ($LASTEXITCODE -ne 0) { throw 'Mood-record restore seed failed.' }
+
     $env:PRIVACY_RESTORE_BUCKET = $env:GUTCARE_TEST_S3_BUCKET
     $env:PRIVACY_SOURCE_BUCKET = $env:GUTCARE_TEST_S3_BUCKET
     $env:PRIVACY_S3_ENDPOINT = $env:GUTCARE_TEST_S3_ENDPOINT
@@ -175,22 +192,25 @@ print(sum(1 for v in r.get('Versions',[]) if v['Key']=='privacy-restore-replay/t
         "'analysis.advice_callback'::regclass, 'analysis.advice_feedback'::regclass, " +
         "'analysis.advice_feedback_event'::regclass, 'health.notification_preference'::regclass, " +
         "'health.notification_outbox'::regclass, 'health.patient_notification'::regclass, " +
-        "'health.activity_record'::regclass) AND relrowsecurity AND relforcerowsecurity), " +
+        "'health.activity_record'::regclass, 'health.mood_record'::regclass) AND relrowsecurity AND relforcerowsecurity), " +
         "(SELECT count(*) FROM health.notification_outbox), " +
         "(SELECT count(*) FROM health.patient_notification), " +
-        "(SELECT count(*) FROM health.activity_record WHERE activity_type='walking' AND duration_minutes=30)"
+        "(SELECT count(*) FROM health.activity_record WHERE activity_type='walking' AND duration_minutes=30), " +
+        "(SELECT count(*) FROM health.mood_record WHERE patient_id='$moodPatientId' AND mood_level=4 " +
+        "AND jsonb_array_length(emotion_tags)=2 AND emotion_tags->>0='calm' " +
+        "AND emotion_tags->>1='content' AND note='synthetic restore evidence')"
     $evidence = (& $docker.Source compose -f $composeFile -p $project exec -T $service `
         psql -U gutcare_bootstrap -d $restoreDb -At -v ON_ERROR_STOP=1 -c $evidenceSql) -join ''
     if ($LASTEXITCODE -ne 0) { throw 'Restored data/constraint query failed.' }
     $fields = $evidence.Trim().Split('|')
-    if ($fields.Count -ne 16 -or [int]$fields[0] -lt 1 -or [int]$fields[1] -lt 1 `
+    if ($fields.Count -ne 17 -or [int]$fields[0] -lt 1 -or [int]$fields[1] -lt 1 `
         -or [int]$fields[2] -lt 1 -or [int]$fields[3] -lt 2 `
         -or [int]$fields[4] -lt 1 -or [int]$fields[5] -lt 1 `
         -or [int]$fields[6] -lt [int]$fields[5] -or [int]$fields[7] -lt 1 `
         -or [int]$fields[8] -lt 1 -or [int]$fields[9] -lt 1 `
         -or [int]$fields[10] -lt 1 -or [int]$fields[11] -lt 1 `
-        -or [int]$fields[12] -ne 9 -or [int]$fields[13] -lt 1 -or [int]$fields[14] -lt 1 `
-        -or [int]$fields[15] -lt 1) {
+        -or [int]$fields[12] -ne 10 -or [int]$fields[13] -lt 1 -or [int]$fields[14] -lt 1 `
+        -or [int]$fields[15] -lt 1 -or [int]$fields[16] -ne 1) {
         throw "Restored F06 row/constraint evidence is incomplete: $evidence"
     }
 
@@ -200,7 +220,7 @@ print(sum(1 for v in r.get('Versions',[]) if v['Key']=='privacy-restore-replay/t
     if ($LASTEXITCODE -ne 0 -or [int]$query.Trim() -lt 1) {
         throw 'Restored application query did not return medication plans.'
     }
-    Write-Output "PostgreSQL 18 backup/restore rehearsal passed: revision=$revision, medication_plans=$($fields[0]), tombstones=$($fields[1]), idempotency_rows=$($fields[2]), ownership_constraints=$($fields[3]), analysis_tasks=$($fields[4]), snapshots=$($fields[5]), valid_snapshot_hashes=$($fields[6]), advice=$($fields[7]), advice_evidence=$($fields[8]), advice_callbacks=$($fields[9]), advice_feedback=$($fields[10]), advice_feedback_events=$($fields[11]), forced_rls_tables=$($fields[12]), notification_outbox=$($fields[13]), patient_notifications=$($fields[14])."
+    Write-Output "PostgreSQL 18 backup/restore rehearsal passed: revision=$revision, medication_plans=$($fields[0]), tombstones=$($fields[1]), idempotency_rows=$($fields[2]), ownership_constraints=$($fields[3]), analysis_tasks=$($fields[4]), snapshots=$($fields[5]), valid_snapshot_hashes=$($fields[6]), advice=$($fields[7]), advice_evidence=$($fields[8]), advice_callbacks=$($fields[9]), advice_feedback=$($fields[10]), advice_feedback_events=$($fields[11]), forced_rls_tables=$($fields[12]), notification_outbox=$($fields[13]), patient_notifications=$($fields[14]), mood_records=$($fields[16])."
     Write-Output 'PostgreSQL 18 backup/restore rehearsal command completed successfully.'
 }
 finally {

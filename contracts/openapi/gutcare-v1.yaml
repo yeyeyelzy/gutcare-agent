@@ -213,6 +213,7 @@ paths:
         '200': {description: 本人心情记录详情, content: {application/json: {schema: {$ref: '#/components/schemas/MoodDetail'}}}}
         '401': {$ref: '#/components/responses/Problem'}
         '404': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
     patch:
       summary: 修改本人心情记录
       description: 要求 health_data_processing 与 mood_data_processing 当前均有效；须提交当前 record_version。
@@ -240,6 +241,7 @@ paths:
         '401': {$ref: '#/components/responses/Problem'}
         '404': {$ref: '#/components/responses/Problem'}
         '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
   /history/timeline:
     get:
       summary: 患者混合健康历史时间线
@@ -725,6 +727,8 @@ paths:
       parameters:
         - {$ref: '#/components/parameters/RecordId'}
       responses:
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
         '200':
           description: 状态及按版本排序的变更事件
           content:

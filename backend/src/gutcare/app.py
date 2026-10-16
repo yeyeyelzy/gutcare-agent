@@ -36,6 +36,8 @@ from gutcare.notifications.api import router as notifications_router
 from gutcare.notifications.service import NotificationService
 from gutcare.activity.api import router as activity_router
 from gutcare.activity.service import ActivityService
+from gutcare.mood.api import router as mood_router
+from gutcare.mood.service import MoodService
 from gutcare.privacy.api import router as privacy_router
 from gutcare.privacy.service import PrivacyService
 from gutcare.analysis.advice import (
@@ -166,6 +168,7 @@ def create_app(
     application.state.advice_worker_service = None
     application.state.notification_service = None
     application.state.activity_service = None
+    application.state.mood_service = None
     application.state.privacy_service = None
     application.state.database_engine = None
     privacy_storage = None
@@ -201,6 +204,9 @@ def create_app(
         application.state.notification_service = NotificationService(sessions)
         application.state.activity_service = ActivityService(
             sessions, resolved_settings.jwt_signing_key
+        )
+        application.state.mood_service = MoodService(
+            sessions, resolved_settings.mood_idempotency_hmac_key
         )
         if resolved_settings.email_lookup_pepper:
             privacy_key = None
@@ -281,10 +287,10 @@ def create_app(
     application.include_router(_operations_router())
     application.include_router(auth_router)
     application.include_router(files_router)
+    application.include_router(mood_router)
     application.include_router(agent_router)
     application.include_router(gateway_router)
     application.include_router(risk_router)
-    application.include_router(records_router)
     application.include_router(medication_router)
     application.include_router(analysis_router)
     application.include_router(analysis_agent_router)
@@ -295,6 +301,9 @@ def create_app(
     application.include_router(privacy_router)
     for router in routers:
         application.include_router(router)
+    # This router uses catch-all /{record_type} patterns; it must follow every
+    # concrete built-in and extension router so it cannot shadow their routes.
+    application.include_router(records_router)
     application.state.metrics.set_route_templates(
         route.path for route in application.routes if isinstance(route, APIRoute)
     )

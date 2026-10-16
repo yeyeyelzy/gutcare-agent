@@ -72,6 +72,8 @@ from gutcare.files.service import FileService
 from gutcare.files.storage import S3ObjectStorage
 from gutcare.medication.models import MedicationCheckin, MedicationPlan, MedicationSchedule
 from gutcare.medication.service import MedicationService, materialize
+from gutcare.mood.models import MoodRecord
+from gutcare.mood.service import MoodService
 from gutcare.notifications.service import NotificationService
 from gutcare.notifications.worker import dispatch_batch
 from gutcare.privacy.models import DeletionOperation, DeletionStep, ExportOperation, ObjectInventory
@@ -809,6 +811,149 @@ def test_migrations_round_trip_all_revisions(database: Any) -> None:
     config = Config("alembic.ini")
     config.attributes["skip_file_config"] = True
     try:
+        # Verify a clean 0024 downgrade/upgrade round trip, then prove that
+        # retained mood consent history blocks downgrade without partial DDL.
+        command.downgrade(config, "0023_f02_conflict_group_identity")
+        command.upgrade(config, "head")
+        downgrade_user, downgrade_patient = _seed_patient(
+            app_engine, nickname="mood-downgrade-guard"
+        )
+        with _sessions(app_engine).begin() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(downgrade_patient)}
+            )
+            for consent_type in ("mood_data_processing", "mood_ai_sharing"):
+                db.add(
+                    PatientConsent(
+                        patient_id=downgrade_patient,
+                        consent_type=consent_type,
+                        document_version="mood-downgrade-test",
+                        granted=True,
+                        decided_at=utc_now(),
+                        metadata_json={"notice_summary_hash": "2" * 64},
+                    )
+                )
+            db.add(
+                MoodRecord(
+                    patient_id=downgrade_patient,
+                    occurred_at=utc_now(),
+                    mood_level=3,
+                    emotion_tags=[],
+                    note="preserve on refused downgrade",
+                )
+            )
+        with pytest.raises(RuntimeError, match="Cannot downgrade 0024_f14_mood_records"):
+            command.downgrade(config, "0023_f02_conflict_group_identity")
+        with migrator_engine.connect() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :p, false)"),
+                {"p": str(downgrade_patient)},
+            )
+            assert (
+                db.scalar(text("SELECT version_num FROM alembic_version"))
+                == "0024_f14_mood_records"
+            )
+            assert db.scalar(text("SELECT to_regclass('health.mood_record') IS NOT NULL"))
+            assert (
+                db.scalar(
+                    text(
+                        "SELECT count(*) FROM health.patient_consent WHERE patient_id=:p "
+                        "AND consent_type IN ('mood_data_processing','mood_ai_sharing')"
+                    ),
+                    {"p": downgrade_patient},
+                )
+                == 2
+            )
+            assert (
+                db.scalar(
+                    text("SELECT count(*) FROM health.mood_record WHERE patient_id=:p"),
+                    {"p": downgrade_patient},
+                )
+                == 1
+            )
+        with migrator_engine.begin() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :p, true)"),
+                {"p": str(downgrade_patient)},
+            )
+            db.execute(
+                text("DELETE FROM health.mood_record WHERE patient_id=:p"), {"p": downgrade_patient}
+            )
+            db.execute(
+                text("DELETE FROM health.patient_consent WHERE patient_id=:p"),
+                {"p": downgrade_patient},
+            )
+            db.execute(
+                text("DELETE FROM health.patient_profile WHERE id=:p"), {"p": downgrade_patient}
+            )
+            db.execute(text("DELETE FROM iam.user_account WHERE id=:u"), {"u": downgrade_user})
+
+        # Mood data alone is also non-discardable during downgrade, even when
+        # no mood-specific consent rows exist.
+        record_only_user, record_only_patient = _seed_patient(
+            app_engine, nickname="mood-downgrade-record-only"
+        )
+        with _sessions(app_engine).begin() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :p, true)"),
+                {"p": str(record_only_patient)},
+            )
+            db.add(
+                MoodRecord(
+                    patient_id=record_only_patient,
+                    occurred_at=utc_now(),
+                    mood_level=2,
+                    emotion_tags=["sad"],
+                    note="retained without mood consent",
+                )
+            )
+        with pytest.raises(RuntimeError, match="health.mood_record data exists"):
+            command.downgrade(config, "0023_f02_conflict_group_identity")
+        with migrator_engine.connect() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :p, false)"),
+                {"p": str(record_only_patient)},
+            )
+            assert (
+                db.scalar(text("SELECT version_num FROM alembic_version"))
+                == "0024_f14_mood_records"
+            )
+            assert db.scalar(text("SELECT to_regclass('health.mood_record') IS NOT NULL"))
+            assert (
+                db.scalar(
+                    text("SELECT count(*) FROM health.mood_record WHERE patient_id=:p"),
+                    {"p": record_only_patient},
+                )
+                == 1
+            )
+            assert (
+                db.scalar(
+                    text(
+                        "SELECT count(*) FROM health.patient_consent WHERE patient_id=:p "
+                        "AND consent_type IN ('mood_data_processing','mood_ai_sharing')"
+                    ),
+                    {"p": record_only_patient},
+                )
+                == 0
+            )
+        with migrator_engine.begin() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :p, true)"),
+                {"p": str(record_only_patient)},
+            )
+            db.execute(
+                text("DELETE FROM health.mood_record WHERE patient_id=:p"),
+                {"p": record_only_patient},
+            )
+            db.execute(
+                text("DELETE FROM health.patient_profile WHERE id=:p"),
+                {"p": record_only_patient},
+            )
+            db.execute(
+                text("DELETE FROM iam.user_account WHERE id=:u"),
+                {"u": record_only_user},
+            )
+
         # With no tombstones, 0010 can safely downgrade and upgrade. Seed a
         # populated 0009 schedule idempotency row and verify route-specific backfill.
         command.downgrade(config, "0009_f06_medication")
@@ -1184,6 +1329,242 @@ def test_account_deletion_is_atomic_and_idempotent(database: Any) -> None:
     assert all(row.revoked_at is not None for row in session_rows)
     assert all(row.token_hash in {token_digest(token) for token in tokens} for row in session_rows)
     assert deletion_rows == [(deletion_id, "pending")]
+
+
+def test_t105_mood_crud_consent_idempotency_rls_and_database_checks(database: Any) -> None:
+    app_engine, migrator_engine = database
+    user_a, patient_a = _seed_patient(app_engine, nickname="mood-a")
+    user_b, patient_b = _seed_patient(app_engine, nickname="mood-b")
+    for patient in (patient_a, patient_b):
+        with _sessions(app_engine).begin() as db:
+            db.execute(text("SELECT set_config('app.patient_id', :id, true)"), {"id": str(patient)})
+            db.add(
+                PatientConsent(
+                    patient_id=patient,
+                    consent_type="mood_data_processing",
+                    document_version="mood-v1",
+                    granted=True,
+                    decided_at=utc_now(),
+                    metadata_json={"notice_summary_hash": "1" * 64},
+                )
+            )
+    service = MoodService(_sessions(app_engine), "mood-test-hmac-key-not-for-production-0001")
+    context_a = AuthContext(user_id=user_a, session_id=uuid4())
+    context_b = AuthContext(user_id=user_b, session_id=uuid4())
+    occurred = datetime(2026, 10, 16, 12, 30, tzinfo=UTC)
+    data = {
+        "occurred_at": occurred,
+        "mood_level": 3,
+        "emotion_tags": ["calm", "content"],
+        "note": "private test note",
+    }
+    created = service.create(context_a, data, "t105-mood-create-001")
+    replay = service.create(context_a, data, "t105-mood-create-001")
+    assert replay["id"] == created["id"]
+
+    # Two actual PostgreSQL sessions racing on the same scoped idempotency
+    # key must converge on one durable resource and one ledger row.
+    def create_raced(
+        payload: dict[str, Any], key: str, barrier: Barrier
+    ) -> dict[str, Any] | Problem:
+        barrier.wait(timeout=10)
+        try:
+            return service.create(context_a, payload, key)
+        except Problem as error:
+            return error
+
+    same_barrier = Barrier(2)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        same_results = list(
+            pool.map(lambda _: create_raced(data, "t105-race-same-001", same_barrier), range(2))
+        )
+    assert all(isinstance(result, dict) for result in same_results)
+    assert same_results[0]["id"] == same_results[1]["id"]
+    with migrator_engine.connect() as db:
+        db.execute(
+            text("SELECT set_config('app.patient_id', :p, false)"),
+            {"p": str(patient_a)},
+        )
+        assert (
+            db.scalar(
+                text(
+                    "SELECT count(*) FROM health.record_idempotency WHERE patient_id=:p "
+                    "AND operation='mood-records' AND idempotency_key='t105-race-same-001'"
+                ),
+                {"p": patient_a},
+            )
+            == 1
+        )
+
+    diff_barrier = Barrier(2)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        different_results = list(
+            pool.map(
+                lambda payload: create_raced(payload, "t105-race-different-001", diff_barrier),
+                ({**data, "note": "race note alpha"}, {**data, "note": "race note beta"}),
+            )
+        )
+    assert sum(isinstance(result, dict) for result in different_results) == 1
+    conflicts = [result for result in different_results if isinstance(result, Problem)]
+    assert len(conflicts) == 1 and conflicts[0].code == "IDEMPOTENCY_CONFLICT"
+    with pytest.raises(Problem) as idem_conflict:
+        service.create(context_a, {**data, "mood_level": 4}, "t105-mood-create-001")
+    assert (idem_conflict.value.status, idem_conflict.value.code) == (409, "IDEMPOTENCY_CONFLICT")
+    second = service.create(context_a, {**data, "mood_level": 2}, "t105-mood-create-002")
+    third = service.create(context_a, {**data, "mood_level": 5}, "t105-mood-create-003")
+    page_one = service.list(context_a, cursor=None, limit=1, since=None, until=None)
+    page_two = service.list(
+        context_a, cursor=page_one["next_cursor"], limit=1, since=None, until=None
+    )
+    page_three = service.list(
+        context_a, cursor=page_two["next_cursor"], limit=1, since=None, until=None
+    )
+    raced_ids = {same_results[0]["id"]}
+    raced_ids.update(result["id"] for result in different_results if isinstance(result, dict))
+    expected_page_ids = {created["id"], second["id"], third["id"], *raced_ids}
+    pages = [page_one, page_two, page_three]
+    while pages[-1]["next_cursor"] is not None:
+        pages.append(
+            service.list(
+                context_a, cursor=pages[-1]["next_cursor"], limit=1, since=None, until=None
+            )
+        )
+    paged_ids = [page["items"][0]["id"] for page in pages]
+    assert set(paged_ids) == expected_page_ids
+    assert len(set(paged_ids)) == len(paged_ids) and pages[-1]["next_cursor"] is None
+    with pytest.raises(Problem) as invalid_cursor:
+        service.list(context_a, cursor="invalid", limit=1, since=None, until=None)
+    assert invalid_cursor.value.status == 422
+    assert (
+        "note"
+        not in service.list(context_a, cursor=None, limit=10, since=None, until=None)["items"][0]
+    )
+    assert service.get(context_a, created["id"])["note"] == "private test note"
+    with pytest.raises(Problem) as hidden:
+        service.get(context_b, created["id"])
+    assert hidden.value.status == 404
+    updated = service.patch(context_a, created["id"], 1, {"mood_level": 4})
+    assert updated["record_version"] == 2 and updated["mood_level"] == 4
+    with pytest.raises(Problem) as stale:
+        service.patch(context_a, created["id"], 1, {"note": "stale"})
+    assert (stale.value.status, stale.value.code) == (409, "RECORD_VERSION_CONFLICT")
+
+    patch_target = service.create(context_a, {**data, "note": "patch race"}, "t105-patch-race")
+    patch_barrier = Barrier(2)
+
+    def patch_raced(level: int) -> dict[str, Any] | Problem:
+        patch_barrier.wait(timeout=10)
+        try:
+            return service.patch(context_a, patch_target["id"], 1, {"mood_level": level})
+        except Problem as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        patch_results = list(pool.map(patch_raced, (2, 4)))
+    assert sum(isinstance(result, dict) for result in patch_results) == 1
+    patch_conflicts = [result for result in patch_results if isinstance(result, Problem)]
+    assert len(patch_conflicts) == 1 and patch_conflicts[0].code == "RECORD_VERSION_CONFLICT"
+    with pytest.raises(Problem) as hidden_delete:
+        service.delete(context_b, created["id"], 2)
+    assert hidden_delete.value.status == 404
+
+    # The DB constraint is independently authoritative for JSONB shape, count,
+    # type, controlled vocabulary, and uniqueness.
+    valid_tags = [
+        [],
+        ["calm"],
+        ["calm", "content", "joyful", "sad", "anxious"],
+        ["irritable"],
+        ["overwhelmed"],
+        ["tired"],
+        ["other"],
+    ]
+    for index, tags in enumerate(valid_tags):
+        with _sessions(app_engine).begin() as db:
+            db.execute(text("SELECT set_config('app.user_id', :u, true)"), {"u": str(user_a)})
+            db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient_a)})
+            db.add(
+                MoodRecord(
+                    patient_id=patient_a,
+                    occurred_at=occurred + timedelta(seconds=index + 10),
+                    mood_level=3,
+                    emotion_tags=tags,
+                    note=None,
+                )
+            )
+    invalid_values = [
+        None,
+        {},
+        "calm",
+        [1],
+        ["unknown"],
+        ["calm", 4],
+        ["calm", "calm"],
+        ["calm"] * 6,
+    ]
+    for invalid in invalid_values:
+        with pytest.raises(IntegrityError):
+            with _sessions(app_engine).begin() as db:
+                db.execute(text("SELECT set_config('app.user_id', :u, true)"), {"u": str(user_a)})
+                db.execute(
+                    text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient_a)}
+                )
+                db.add(
+                    MoodRecord(
+                        patient_id=patient_a,
+                        occurred_at=occurred,
+                        mood_level=3,
+                        emotion_tags=invalid,
+                        note=None,
+                    )
+                )
+                db.flush()
+
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient_a)})
+        db.add(
+            PatientConsent(
+                patient_id=patient_a,
+                consent_type="mood_data_processing",
+                document_version="mood-v1",
+                granted=False,
+                decided_at=utc_now(),
+                revoked_at=utc_now(),
+                metadata_json={"notice_summary_hash": "1" * 64},
+            )
+        )
+    assert service.get(context_a, created["id"])["id"] == created["id"]
+    assert service.list(context_a, cursor=None, limit=10, since=None, until=None)["items"]
+    with pytest.raises(Problem) as revoked:
+        service.patch(context_a, created["id"], 2, {"note": "not permitted"})
+    assert revoked.value.code == "CONSENT_REQUIRED"
+    service.delete(context_a, created["id"], 2)
+    with pytest.raises(Problem) as deleted:
+        service.get(context_a, created["id"])
+    assert deleted.value.status == 404
+    # The module-scoped integration DB is shared by later migration round trips;
+    # remove this dedicated seed so downgrade to 0023 has no new consent enum rows.
+    with migrator_engine.begin() as connection:
+        connection.execute(
+            text("DELETE FROM health.record_idempotency WHERE patient_id IN (:a, :b)"),
+            {"a": patient_a, "b": patient_b},
+        )
+        connection.execute(
+            text("DELETE FROM health.mood_record WHERE patient_id IN (:a, :b)"),
+            {"a": patient_a, "b": patient_b},
+        )
+        connection.execute(
+            text("DELETE FROM health.patient_consent WHERE patient_id IN (:a, :b)"),
+            {"a": patient_a, "b": patient_b},
+        )
+        connection.execute(
+            text("DELETE FROM health.patient_profile WHERE id IN (:a, :b)"),
+            {"a": patient_a, "b": patient_b},
+        )
+        connection.execute(
+            text("DELETE FROM iam.user_account WHERE id IN (:a, :b)"),
+            {"a": user_a, "b": user_b},
+        )
 
 
 def test_f03_f05_postgres_rls_composite_ownership_and_rule_review_gate(database: Any) -> None:

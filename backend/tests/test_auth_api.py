@@ -31,7 +31,6 @@ class FakeAuthService:
         email_value: str,
         password: str,
         birth_year: int,
-        nickname: str | None,
         privacy_policy_version: str,
         health_data_processing_consent: bool,
         health_data_processing_policy_version: str,
@@ -42,7 +41,6 @@ class FakeAuthService:
                 "email": email_value,
                 "password": password,
                 "birth_year": birth_year,
-                "nickname": nickname,
                 "privacy_policy_version": privacy_policy_version,
                 "health_data_processing_consent": health_data_processing_consent,
                 "health_data_processing_policy_version": health_data_processing_policy_version,
@@ -167,7 +165,6 @@ def test_register_uses_frozen_request_and_accepted_response(client: TestClient) 
             "email": "patient@example.com",
             "password": "correct-horse-battery",
             "birth_year": 1990,
-            "nickname": None,
             "privacy_policy_version": "v1",
             "health_data_processing_consent": True,
             "health_data_processing_policy_version": "health-v1",
@@ -177,6 +174,7 @@ def test_register_uses_frozen_request_and_accepted_response(client: TestClient) 
     assert response.json()["status"] == "accepted"
     UUID(response.json()["operation_id"])
     assert client.app.state.auth_service.registered[0]["birth_year"] == 1990
+    assert "nickname" not in client.app.state.auth_service.registered[0]
 
 
 def test_register_rejects_unfrozen_fields_and_weak_password(client: TestClient) -> None:
@@ -190,6 +188,7 @@ def test_register_rejects_unfrozen_fields_and_weak_password(client: TestClient) 
             "health_data_processing_consent": True,
             "health_data_processing_policy_version": "health-v1",
             "phone_number": "+15550000000",
+            "nickname": "not allowed at registration",
         },
     )
     assert response.status_code == 422
@@ -262,6 +261,7 @@ def test_openapi_exposes_frozen_auth_operations_and_bearer_logout(client: TestCl
         register_body = schema["components"]["schemas"]["RegisterRequest"]
     assert register_body["additionalProperties"] is False
     assert "phone_number" not in register_body["properties"]
+    assert "nickname" not in register_body["properties"]
     assert "privacy_policy_version" in register_body["required"]
     assert "health_data_processing_consent" in register_body["required"]
     assert register_body["properties"]["health_data_processing_consent"]["const"] is True

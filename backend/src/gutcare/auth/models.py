@@ -169,7 +169,8 @@ class PatientConsent(Base):
     __tablename__ = "patient_consent"
     __table_args__ = (
         CheckConstraint(
-            "consent_type IN ('privacy_policy', 'health_data_processing', 'sensitive_image', "
+            "consent_type IN ('privacy_policy', 'health_data_processing', 'mood_data_processing', "
+            "'mood_ai_sharing', 'sensitive_image', "
             "'third_party_ai', 'push_notification')",
             name="ck_patient_consent_type",
         ),

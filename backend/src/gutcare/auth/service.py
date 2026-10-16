@@ -124,6 +124,8 @@ class AuthContext:
 ConsentType = Literal[
     "privacy_policy",
     "health_data_processing",
+    "mood_data_processing",
+    "mood_ai_sharing",
     "sensitive_image",
     "third_party_ai",
     "push_notification",
@@ -242,7 +244,6 @@ class AuthService:
         email_value: str,
         password: str,
         birth_year: int,
-        nickname: str | None,
         privacy_policy_version: str,
         health_data_processing_consent: bool,
         health_data_processing_policy_version: str,
@@ -289,7 +290,7 @@ class AuthService:
                 )
                 profile = PatientProfile(
                     user_id=account.id,
-                    nickname=nickname,
+                    nickname=None,
                     birth_year=birth_year,
                     timezone="Asia/Shanghai",
                     profile_version=1,
@@ -793,6 +794,18 @@ class AuthService:
                 "HEALTH_DATA_PROCESSING_SUMMARY_HASH",
                 self._settings.health_data_processing_summary_hash,
             ),
+            "mood_data_processing": (
+                "MOOD_DATA_PROCESSING_POLICY_VERSION",
+                self._settings.mood_data_processing_policy_version,
+                "MOOD_DATA_PROCESSING_SUMMARY_HASH",
+                self._settings.mood_data_processing_summary_hash,
+            ),
+            "mood_ai_sharing": (
+                "MOOD_AI_SHARING_POLICY_VERSION",
+                self._settings.mood_ai_sharing_policy_version,
+                "MOOD_AI_SHARING_SUMMARY_HASH",
+                self._settings.mood_ai_sharing_summary_hash,
+            ),
             "sensitive_image": (
                 "SENSITIVE_IMAGE_POLICY_VERSION",
                 self._settings.sensitive_image_policy_version,
@@ -840,7 +853,7 @@ class AuthService:
         now = utc_now()
         with self._sessions.begin() as db:
             profile = self._set_patient_rls_context(db, context.user_id)
-            if consent_type in {"health_data_processing", "third_party_ai"}:
+            if consent_type in {"health_data_processing", "mood_data_processing", "third_party_ai"}:
                 db.execute(
                     text(
                         "SELECT pg_advisory_xact_lock(hashtextextended("

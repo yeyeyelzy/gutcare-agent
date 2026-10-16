@@ -428,7 +428,6 @@ def test_registration_records_distinct_privacy_and_health_data_consents() -> Non
         "patient@example.com",
         "correct-horse-battery",
         1990,
-        None,
         "privacy-v1",
         True,
         "health-v2",
@@ -438,6 +437,7 @@ def test_registration_records_distinct_privacy_and_health_data_consents() -> Non
     profile = next(item for item in database.added if isinstance(item, PatientProfile))
     consent_records = [item for item in database.added if isinstance(item, PatientConsent)]
     assert profile.birth_year == 1990
+    assert profile.nickname is None
     assert {item.consent_type for item in consent_records} == {
         "privacy_policy",
         "health_data_processing",
