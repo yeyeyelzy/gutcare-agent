@@ -49,11 +49,37 @@ INSERT INTO health.patient_profile(id,user_id,birth_year,timezone)
 VALUES('__PATIENT__','__USER__',1990,'Asia/Shanghai');
 INSERT INTO health.mood_record(patient_id,occurred_at,mood_level,emotion_tags,note)
 VALUES('__PATIENT__','2026-10-16T12:30:00Z',4,jsonb_build_array('calm','content'),'synthetic restore evidence');
+INSERT INTO health.patient_consent(patient_id,consent_type,document_version,granted,decided_at,metadata)
+SELECT '__PATIENT__',consent_type,'restore-v1',true,now(),jsonb_build_object('notice_summary_hash',repeat('a',64))
+FROM unnest(ARRAY['health_data_processing','mood_data_processing','mood_ai_sharing','third_party_ai']) consent_type;
 '@
     $moodSeedSql = $moodSeedSql.Replace('__USER__', $moodUserId).Replace('__PATIENT__', $moodPatientId)
     & $docker.Source compose -f $composeFile -p $project exec -T $service `
         psql -U gutcare_bootstrap -d gutcare_business_test -v ON_ERROR_STOP=1 -c $moodSeedSql
     if ($LASTEXITCODE -ne 0) { throw 'Mood-record restore seed failed.' }
+
+    # Create a real F08 task through the service so restore verifies that the
+    # immutable summary agrees with the authorized mood snapshot.
+    $env:GUTCARE_H2_RESTORE_USER_ID = $moodUserId
+    Push-Location (Join-Path $PSScriptRoot '..\backend')
+    try {
+        $createMoodTask = @'
+import os
+from uuid import UUID, uuid4
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from gutcare.analysis.service import AnalysisService
+from gutcare.auth.service import AuthContext
+url=os.environ['GUTCARE_TEST_DATABASE_URL'].replace('postgresql://','postgresql+psycopg://',1)
+engine=create_engine(url,pool_pre_ping=True)
+service=AnalysisService(sessionmaker(engine,expire_on_commit=False))
+dto,_=service.create(AuthContext(user_id=UUID(os.environ['GUTCARE_H2_RESTORE_USER_ID']),session_id=uuid4()), {'analysis_type':'comprehensive_health_analysis','requested_from':None,'requested_to':None}, 'h2-backup-restore-mood-task-0001')
+if dto['input_summary']['included_mood_record_count'] != 1: raise SystemExit('mood snapshot was not included')
+engine.dispose()
+'@
+        & $uv run --locked --project . --python $python python -c $createMoodTask
+        if ($LASTEXITCODE -ne 0) { throw 'Could not seed an authorized H2 mood analysis task.' }
+    } finally { Pop-Location }
 
     $env:PRIVACY_RESTORE_BUCKET = $env:GUTCARE_TEST_S3_BUCKET
     $env:PRIVACY_SOURCE_BUCKET = $env:GUTCARE_TEST_S3_BUCKET
@@ -182,6 +208,17 @@ print(sum(1 for v in r.get('Versions',[]) if v['Key']=='privacy-restore-replay/t
         "(SELECT count(*) FROM analysis.analysis_task), " +
         "(SELECT count(*) FROM analysis.task_input_snapshot), " +
         "(SELECT count(*) FROM analysis.task_input_snapshot WHERE content_hash ~ '^[a-f0-9]{64}$'), " +
+        "(SELECT count(*) FROM analysis.analysis_task t WHERE " +
+        "(t.input_summary->>'included_mood_record_count')::integer <> COALESCE((" +
+        "SELECT count(*) FROM analysis.task_input_snapshot s, " +
+        "jsonb_array_elements(s.snapshot_payload->'records') r " +
+        "WHERE s.task_id=t.id AND s.patient_id=t.patient_id AND r->>'record_type'='mood_record'" +
+        "), 0)), " +
+        "(SELECT count(*) FROM analysis.analysis_task t JOIN analysis.task_input_snapshot s " +
+        "ON s.task_id=t.id AND s.patient_id=t.patient_id WHERE t.patient_id='$moodPatientId' " +
+        "AND t.input_summary->>'included_mood_record_count'='1' AND " +
+        "(SELECT count(*) FROM jsonb_array_elements(s.snapshot_payload->'records') r " +
+        "WHERE r->>'record_type'='mood_record')=1), " +
         "(SELECT count(*) FROM analysis.health_advice), " +
         "(SELECT count(*) FROM analysis.advice_evidence), " +
         "(SELECT count(*) FROM analysis.advice_callback), " +
@@ -203,14 +240,14 @@ print(sum(1 for v in r.get('Versions',[]) if v['Key']=='privacy-restore-replay/t
         psql -U gutcare_bootstrap -d $restoreDb -At -v ON_ERROR_STOP=1 -c $evidenceSql) -join ''
     if ($LASTEXITCODE -ne 0) { throw 'Restored data/constraint query failed.' }
     $fields = $evidence.Trim().Split('|')
-    if ($fields.Count -ne 17 -or [int]$fields[0] -lt 1 -or [int]$fields[1] -lt 1 `
+    if ($fields.Count -ne 19 -or [int]$fields[0] -lt 1 -or [int]$fields[1] -lt 1 `
         -or [int]$fields[2] -lt 1 -or [int]$fields[3] -lt 2 `
         -or [int]$fields[4] -lt 1 -or [int]$fields[5] -lt 1 `
-        -or [int]$fields[6] -lt [int]$fields[5] -or [int]$fields[7] -lt 1 `
-        -or [int]$fields[8] -lt 1 -or [int]$fields[9] -lt 1 `
-        -or [int]$fields[10] -lt 1 -or [int]$fields[11] -lt 1 `
-        -or [int]$fields[12] -ne 10 -or [int]$fields[13] -lt 1 -or [int]$fields[14] -lt 1 `
-        -or [int]$fields[15] -lt 1 -or [int]$fields[16] -ne 1) {
+        -or [int]$fields[6] -lt [int]$fields[5] -or [int]$fields[7] -ne 0 `
+        -or [int]$fields[8] -ne 1 -or [int]$fields[9] -lt 1 -or [int]$fields[10] -lt 1 `
+        -or [int]$fields[11] -lt 1 -or [int]$fields[12] -lt 1 `
+        -or [int]$fields[13] -lt 1 -or [int]$fields[14] -ne 10 -or [int]$fields[15] -lt 1 `
+        -or [int]$fields[16] -lt 1 -or [int]$fields[17] -lt 1 -or [int]$fields[18] -ne 1) {
         throw "Restored F06 row/constraint evidence is incomplete: $evidence"
     }
 
@@ -220,7 +257,7 @@ print(sum(1 for v in r.get('Versions',[]) if v['Key']=='privacy-restore-replay/t
     if ($LASTEXITCODE -ne 0 -or [int]$query.Trim() -lt 1) {
         throw 'Restored application query did not return medication plans.'
     }
-    Write-Output "PostgreSQL 18 backup/restore rehearsal passed: revision=$revision, medication_plans=$($fields[0]), tombstones=$($fields[1]), idempotency_rows=$($fields[2]), ownership_constraints=$($fields[3]), analysis_tasks=$($fields[4]), snapshots=$($fields[5]), valid_snapshot_hashes=$($fields[6]), advice=$($fields[7]), advice_evidence=$($fields[8]), advice_callbacks=$($fields[9]), advice_feedback=$($fields[10]), advice_feedback_events=$($fields[11]), forced_rls_tables=$($fields[12]), notification_outbox=$($fields[13]), patient_notifications=$($fields[14]), mood_records=$($fields[16])."
+    Write-Output "PostgreSQL 18 backup/restore rehearsal passed: revision=$revision, medication_plans=$($fields[0]), tombstones=$($fields[1]), idempotency_rows=$($fields[2]), ownership_constraints=$($fields[3]), analysis_tasks=$($fields[4]), snapshots=$($fields[5]), valid_snapshot_hashes=$($fields[6]), mood_summary_mismatches=$($fields[7]), h2_mood_snapshot_tasks=$($fields[8]), advice=$($fields[9]), advice_evidence=$($fields[10]), advice_callbacks=$($fields[11]), advice_feedback=$($fields[12]), advice_feedback_events=$($fields[13]), forced_rls_tables=$($fields[14]), notification_outbox=$($fields[15]), patient_notifications=$($fields[16]), mood_records=$($fields[18])."
     Write-Output 'PostgreSQL 18 backup/restore rehearsal command completed successfully.'
 }
 finally {

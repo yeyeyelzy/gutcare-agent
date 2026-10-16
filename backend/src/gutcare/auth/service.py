@@ -853,7 +853,12 @@ class AuthService:
         now = utc_now()
         with self._sessions.begin() as db:
             profile = self._set_patient_rls_context(db, context.user_id)
-            if consent_type in {"health_data_processing", "mood_data_processing", "third_party_ai"}:
+            if consent_type in {
+                "health_data_processing",
+                "mood_data_processing",
+                "mood_ai_sharing",
+                "third_party_ai",
+            }:
                 db.execute(
                     text(
                         "SELECT pg_advisory_xact_lock(hashtextextended("
@@ -915,6 +920,20 @@ class AuthService:
                         )
                         .values(excerpt=None, source_locator=None, review_status="invalidated")
                     )
+            elif not granted and consent_type in {"mood_data_processing", "mood_ai_sharing"}:
+                db.execute(
+                    text("""UPDATE analysis.analysis_task t
+                        SET status='cancelled', lease_expires_at=NULL, result_payload=NULL,
+                            updated_at=:now
+                        WHERE t.patient_id=:patient AND t.status IN ('pending','processing')
+                          AND EXISTS (
+                            SELECT 1 FROM analysis.task_input_snapshot s,
+                                 jsonb_array_elements(s.snapshot_payload->'records') r
+                            WHERE s.task_id=t.id AND s.patient_id=t.patient_id
+                              AND r->>'record_type'='mood_record'
+                          )"""),
+                    {"patient": str(profile.id), "now": now},
+                )
             db.flush()
         return ConsentDecisionData(
             consent_type=consent_type,

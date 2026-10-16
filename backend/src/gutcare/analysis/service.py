@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import desc, select, text
+from sqlalchemy import desc, func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from gutcare.analysis.models import (
@@ -34,6 +34,7 @@ from gutcare.medication.models import (
     MedicationSchedule,
     MedicationSourceRef,
 )
+from gutcare.mood.models import MoodRecord
 from gutcare.records.models import (
     DietItem,
     DietRecord,
@@ -88,8 +89,72 @@ class AnalysisService:
                 raise Problem(409, "CONSENT_REQUIRED", "Analysis consent is required")
 
     @staticmethod
+    def _consent_flags(db: Session, patient_id: UUID) -> dict[str, bool]:
+        rows = db.execute(
+            text("""SELECT DISTINCT ON (consent_type) consent_type, granted
+                    FROM health.patient_consent WHERE patient_id=:patient
+                    ORDER BY consent_type, decided_at DESC, id DESC"""),
+            {"patient": str(patient_id)},
+        )
+        observed = {kind: granted for kind, granted in rows}
+        return {
+            kind: bool(observed.get(kind, False))
+            for kind in (
+                "health_data_processing",
+                "mood_data_processing",
+                "mood_ai_sharing",
+                "third_party_ai",
+            )
+        }
+
+    def preview(
+        self,
+        context: AuthContext,
+        analysis_type: str,
+        requested_from: datetime | None,
+        requested_to: datetime | None,
+    ) -> dict[str, Any]:
+        with self._sessions.begin() as db:
+            profile = self._profile(db, context)
+            self._authorized(db, profile.id)
+            flags = self._consent_flags(db, profile.id)
+            query = select(func.count(MoodRecord.id)).where(
+                MoodRecord.patient_id == profile.id, MoodRecord.deleted_at.is_(None)
+            )
+            if requested_from is not None:
+                query = query.where(MoodRecord.occurred_at >= requested_from)
+            if requested_to is not None:
+                query = query.where(MoodRecord.occurred_at < requested_to)
+            in_range = int(db.scalar(query) or 0)
+            eligible = all(
+                flags.get(kind, False) for kind in ("mood_data_processing", "mood_ai_sharing")
+            )
+            reasons = [
+                kind + "_missing"
+                for kind in ("mood_data_processing", "mood_ai_sharing")
+                if not flags.get(kind, False)
+            ]
+            included = in_range if eligible else 0
+            return {
+                "analysis_type": analysis_type,
+                "requested_from": requested_from,
+                "requested_to": requested_to,
+                "timezone": profile.timezone,
+                "mood_record_count_in_range": in_range,
+                "mood_record_count_eligible": included,
+                "mood_record_count_excluded_by_consent": in_range - included,
+                "mood_exclusion_reasons": reasons,
+            }
+
+    @staticmethod
     def _snapshot(
-        db: Session, patient_id: UUID, start: datetime | None, end: datetime | None
+        db: Session,
+        patient_id: UUID,
+        start: datetime | None,
+        end: datetime | None,
+        *,
+        include_mood: bool = False,
+        consent_scope_snapshot: dict[str, bool] | None = None,
     ) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []
         record_specs: tuple[tuple[Any, str, set[str]], ...] = (
@@ -354,9 +419,38 @@ class AnalysisService:
                     "payload": {"severity": alert.severity, "status": alert.status},
                 }
             )
+        if include_mood:
+            mood_query = select(
+                MoodRecord.id,
+                MoodRecord.record_version,
+                MoodRecord.occurred_at,
+                MoodRecord.mood_level,
+                MoodRecord.emotion_tags,
+            ).where(MoodRecord.patient_id == patient_id, MoodRecord.deleted_at.is_(None))
+            if start is not None:
+                mood_query = mood_query.where(MoodRecord.occurred_at >= start)
+            if end is not None:
+                mood_query = mood_query.where(MoodRecord.occurred_at < end)
+            for mood in db.execute(mood_query):
+                rows.append(
+                    {
+                        "record_type": "mood_record",
+                        "record_id": str(mood.id),
+                        "record_version": mood.record_version,
+                        "occurred_at": mood.occurred_at.isoformat(),
+                        "confirmation_status": "confirmed",
+                        "locator": f"mood_record:{mood.id}",
+                        "payload": {
+                            "occurred_at": mood.occurred_at.isoformat(),
+                            "mood_level": mood.mood_level,
+                            "emotion_tags": mood.emotion_tags,
+                        },
+                    }
+                )
         rows.sort(key=lambda item: (item["occurred_at"], item["record_type"], item["record_id"]))
         return {
             "records": rows,
+            "consent_scope_snapshot": consent_scope_snapshot or {},
             "time_range": {
                 "from": start.isoformat() if start else None,
                 "to": end.isoformat() if end else None,
@@ -374,6 +468,7 @@ class AnalysisService:
             "diet_record": DietRecord,
             "stool_record": StoolRecord,
             "symptom_record": SymptomRecord,
+            "mood_record": MoodRecord,
         }
         if source_type in direct_sources:
             model = direct_sources[source_type]
@@ -514,6 +609,7 @@ class AnalysisService:
             "id": str(task.id),
             "analysis_type": task.analysis_type,
             "status": task.status,
+            "input_summary": task.input_summary,
             "attempt": task.attempt,
             "retry_of": str(task.retry_of) if task.retry_of else None,
             "result": task.result_payload if result is None else result,
@@ -566,7 +662,24 @@ class AnalysisService:
                 start = datetime.fromisoformat(start)
             if isinstance(end, str):
                 end = datetime.fromisoformat(end)
-            snapshot = self._snapshot(db, profile.id, start, end)
+            consents = self._consent_flags(db, profile.id)
+            include_mood = all(
+                consents.get(kind, False)
+                for kind in (
+                    "health_data_processing",
+                    "mood_data_processing",
+                    "mood_ai_sharing",
+                    "third_party_ai",
+                )
+            )
+            snapshot = self._snapshot(
+                db,
+                profile.id,
+                start,
+                end,
+                include_mood=include_mood,
+                consent_scope_snapshot=consents,
+            )
             if not snapshot["records"]:
                 raise Problem(
                     422, "ANALYSIS_INPUT_REQUIRED", "No confirmed analyzable data is available"
@@ -577,6 +690,11 @@ class AnalysisService:
                 status="pending",
                 requested_from=start,
                 requested_to=end,
+                input_summary={
+                    "included_mood_record_count": sum(
+                        row["record_type"] == "mood_record" for row in snapshot["records"]
+                    )
+                },
             )
             db.add(task)
             db.flush()
@@ -680,6 +798,11 @@ class AnalysisService:
             snapshot = db.get(TaskInputSnapshot, task_id)
             if snapshot is None:
                 raise Problem(409, "TASK_STATE_CONFLICT", "Task snapshot is unavailable")
+            frozen_records = snapshot.snapshot_payload.get("records", [])
+            if any(record.get("record_type") == "mood_record" for record in frozen_records):
+                flags = self._consent_flags(db, profile.id)
+                if not flags["mood_data_processing"] or not flags["mood_ai_sharing"]:
+                    raise Problem(409, "CONSENT_REQUIRED", "Mood analysis consent is required")
             request_hash = _hash({"retry_of": str(task_id)})
             existing = db.scalar(
                 select(AnalysisTaskIdempotency).where(
@@ -712,6 +835,7 @@ class AnalysisService:
                 requested_to=old.requested_to,
                 attempt=old.attempt + 1,
                 retry_of=old.id,
+                input_summary=old.input_summary,
             )
             db.add(task)
             db.flush()
@@ -786,16 +910,67 @@ class AnalysisService:
                 text("SELECT set_config('app.patient_id', :patient_id, true)"),
                 {"patient_id": str(task.patient_id)},
             )
+            db.execute(
+                text(
+                    "SELECT pg_advisory_xact_lock_shared(hashtextextended("
+                    "'gutcare.patient-consent-fence:' || :patient_id, 0))"
+                ),
+                {"patient_id": str(task.patient_id)},
+            )
+            task = db.scalar(
+                select(AnalysisTask).where(
+                    AnalysisTask.id == task_id, AnalysisTask.status == "processing"
+                )
+            )
+            if task is None:
+                raise Problem(404, "RESOURCE_NOT_FOUND", "Task input not available")
             self._authorized(db, task.patient_id)
             snap = db.get(TaskInputSnapshot, task_id)
             if snap is None:
                 raise Problem(404, "RESOURCE_NOT_FOUND", "Task input not available")
+            if any(
+                record["record_type"] == "mood_record"
+                for record in snap.snapshot_payload["records"]
+            ):
+                current_consents = self._consent_flags(db, task.patient_id)
+                if not all(
+                    current_consents.get(kind, False)
+                    for kind in (
+                        "health_data_processing",
+                        "mood_data_processing",
+                        "mood_ai_sharing",
+                        "third_party_ai",
+                    )
+                ):
+                    raise Problem(409, "CONSENT_REQUIRED", "Analysis consent is required")
+            consent_flags = snap.snapshot_payload.get(
+                "consent_scope_snapshot",
+                {
+                    "health_data_processing": True,
+                    "mood_data_processing": False,
+                    "mood_ai_sharing": False,
+                    "third_party_ai": True,
+                },
+            )
+            scope = [
+                name
+                for name in (
+                    "health_data_processing",
+                    "mood_data_processing",
+                    "mood_ai_sharing",
+                    "third_party_ai",
+                )
+                if consent_flags.get(name, False)
+            ]
+            records = snap.snapshot_payload["records"]
             return {
                 "task_id": str(task.id),
                 "patient_id": str(task.patient_id),
                 "analysis_type": task.analysis_type,
-                "consent_scope": ["health_data_processing", "third_party_ai"],
-                "records": snap.snapshot_payload["records"],
+                "consent_scope": scope,
+                "consent_scope_snapshot": consent_flags,
+                "records": [row for row in records if row["record_type"] != "mood_record"],
+                "mood_records": [row for row in records if row["record_type"] == "mood_record"],
                 "missing_data": [],
                 "time_range": snap.snapshot_payload["time_range"],
                 "schema_version": "1.0",
@@ -804,6 +979,20 @@ class AnalysisService:
 
     def result(self, task_id: UUID, callback_id: UUID, payload: dict[str, Any]) -> None:
         with self._sessions.begin() as db:
+            task = db.scalar(select(AnalysisTask).where(AnalysisTask.id == task_id))
+            if task is None:
+                raise Problem(409, "TASK_STATE_CONFLICT", "Task is no longer accepting results")
+            db.execute(
+                text("SELECT set_config('app.patient_id', :patient_id, true)"),
+                {"patient_id": str(task.patient_id)},
+            )
+            db.execute(
+                text(
+                    "SELECT pg_advisory_xact_lock_shared(hashtextextended("
+                    "'gutcare.patient-consent-fence:' || :patient_id, 0))"
+                ),
+                {"patient_id": str(task.patient_id)},
+            )
             task = db.scalar(
                 select(AnalysisTask).where(AnalysisTask.id == task_id).with_for_update()
             )
@@ -824,14 +1013,22 @@ class AnalysisService:
                 )
             if task.status != "processing":
                 raise Problem(409, "TASK_STATE_CONFLICT", "Task is no longer accepting results")
-            db.execute(
-                text("SELECT set_config('app.patient_id', :patient_id, true)"),
-                {"patient_id": str(task.patient_id)},
-            )
             self._authorized(db, task.patient_id)
             snap = db.get(TaskInputSnapshot, task_id)
             if snap is None:
                 raise Problem(404, "RESOURCE_NOT_FOUND", "Task input not available")
+            if any(row["record_type"] == "mood_record" for row in snap.snapshot_payload["records"]):
+                consent_flags = self._consent_flags(db, task.patient_id)
+                if not all(
+                    consent_flags.get(kind, False)
+                    for kind in (
+                        "health_data_processing",
+                        "mood_data_processing",
+                        "mood_ai_sharing",
+                        "third_party_ai",
+                    )
+                ):
+                    raise Problem(409, "CONSENT_REQUIRED", "Analysis consent is required")
             refs = {
                 (r["record_type"], r["record_id"], r["record_version"], r["locator"])
                 for r in snap.snapshot_payload["records"]

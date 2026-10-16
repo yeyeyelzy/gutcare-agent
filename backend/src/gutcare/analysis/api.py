@@ -1,7 +1,7 @@
 """F08 patient and service-to-service API."""
 
 import hmac
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, Protocol, cast
 from uuid import UUID
 
@@ -11,6 +11,26 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from gutcare.auth.api import current_auth_context
 from gutcare.auth.service import AuthContext
 from gutcare.shared.errors import Problem
+
+
+def validate_analysis_range(
+    analysis_type: str, requested_from: datetime | None, requested_to: datetime | None
+) -> tuple[datetime | None, datetime | None]:
+    if requested_from is not None and requested_from.tzinfo is None:
+        raise ValueError("requested_from must include timezone")
+    if requested_to is not None and requested_to.tzinfo is None:
+        raise ValueError("requested_to must include timezone")
+    if (requested_from is None) != (requested_to is None):
+        raise ValueError("requested_from and requested_to must be provided together")
+    if requested_from is not None and requested_to is not None and requested_from >= requested_to:
+        raise ValueError("requested_from must be earlier than requested_to")
+    if analysis_type == "periodic_summary" and requested_from is None:
+        raise ValueError("periodic_summary requires an explicit time range")
+    if requested_from is not None:
+        requested_from = requested_from.astimezone(UTC)
+        requested_to = requested_to.astimezone(UTC) if requested_to is not None else None
+    return requested_from, requested_to
+
 
 router = APIRouter(prefix="/api/v1")
 agent_router = APIRouter(prefix="/internal/v1/agent")
@@ -24,20 +44,9 @@ class TaskCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_range(self) -> "TaskCreate":
-        if self.requested_from is not None and self.requested_from.tzinfo is None:
-            raise ValueError("requested_from must include timezone")
-        if self.requested_to is not None and self.requested_to.tzinfo is None:
-            raise ValueError("requested_to must include timezone")
-        if (
-            self.requested_from is not None
-            and self.requested_to is not None
-            and self.requested_from >= self.requested_to
-        ):
-            raise ValueError("requested_from must be earlier than requested_to")
-        if self.analysis_type == "periodic_summary" and (
-            self.requested_from is None or self.requested_to is None
-        ):
-            raise ValueError("periodic summaries require an explicit time range")
+        self.requested_from, self.requested_to = validate_analysis_range(
+            self.analysis_type, self.requested_from, self.requested_to
+        )
         return self
 
 
@@ -48,6 +57,7 @@ class ResultEvidence(BaseModel):
         "diet_record",
         "stool_record",
         "symptom_record",
+        "mood_record",
         "medication_plan",
         "medication_checkin",
         "risk_alert",
@@ -76,6 +86,13 @@ class Failure(BaseModel):
 
 
 class Service(Protocol):
+    def preview(
+        self,
+        context: AuthContext,
+        analysis_type: str,
+        requested_from: datetime | None,
+        requested_to: datetime | None,
+    ) -> dict[str, Any]: ...
     def create(
         self, context: AuthContext, payload: dict[str, Any], key: str
     ) -> tuple[dict[str, Any], bool]: ...
@@ -114,6 +131,23 @@ def _agent(request: Request, authorization: str | None) -> None:
         or not hmac.compare_digest(authorization[7:], token)
     ):
         raise Problem(401, "AUTHENTICATION_REQUIRED", "Service authentication required")
+
+
+@router.get("/analysis-tasks/preview", operation_id="previewAnalysisTask")
+def preview_task(
+    context: Annotated[AuthContext, Depends(current_auth_context)],
+    svc: Annotated[Service, Depends(_service)],
+    analysis_type: Literal["comprehensive_health_analysis", "periodic_summary"],
+    requested_from: datetime | None = None,
+    requested_to: datetime | None = None,
+) -> dict[str, Any]:
+    try:
+        requested_from, requested_to = validate_analysis_range(
+            analysis_type, requested_from, requested_to
+        )
+    except ValueError as exc:
+        raise Problem(422, "VALIDATION_ERROR", str(exc)) from exc
+    return svc.preview(context, analysis_type, requested_from, requested_to)
 
 
 @router.post("/analysis-tasks", status_code=202, operation_id="createAnalysisTask")

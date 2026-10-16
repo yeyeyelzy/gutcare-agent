@@ -310,7 +310,7 @@ components:
     TaskInputs:
       additionalProperties: false
       type: object
-      required: [task_id, patient_id, analysis_type, consent_scope, records, missing_data, schema_version, snapshot_hash]
+      required: [task_id, patient_id, analysis_type, consent_scope, consent_scope_snapshot, records, mood_records, missing_data, schema_version, snapshot_hash]
       properties:
         task_id: {type: string, format: uuid}
         patient_id: {type: string, format: uuid, description: 仅限本任务的受控内部标识}
@@ -321,9 +321,26 @@ components:
             from: {type: string, format: date-time}
             to: {type: string, format: date-time}
         consent_scope: {type: array, items: {type: string}, uniqueItems: true, description: Mood records may appear only when health_data_processing, mood_data_processing, mood_ai_sharing, and third_party_ai were all valid at snapshot creation.}
+        consent_scope_snapshot:
+          type: object
+          additionalProperties: false
+          required: [health_data_processing, mood_data_processing, mood_ai_sharing, third_party_ai]
+          properties:
+            health_data_processing: {type: boolean}
+            mood_data_processing: {type: boolean}
+            mood_ai_sharing: {type: boolean}
+            third_party_ai: {type: boolean}
         records:
           type: array
           items: {$ref: '#/components/schemas/InputRecord'}
+          description: Non-mood frozen inputs. Mood entries are transmitted separately in mood_records.
+        mood_records:
+          type: array
+          items:
+            allOf:
+              - {$ref: '#/components/schemas/InputRecord'}
+              - type: object
+                properties: {record_type: {const: mood_record}}
         missing_data: {type: array, items: {type: string}}
         schema_version: {const: '1.0'}
         snapshot_hash: {type: string, pattern: '^[a-f0-9]{64}$'}

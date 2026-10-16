@@ -1030,7 +1030,7 @@ paths:
       tags: [Analysis]
       operationId: createAnalysisTask
       security: [{BearerAuth: []}]
-      description: 同一患者同幂等键及同请求摘要重放原始响应；输入仅由当前授权的已确认数据冻结生成，不含报告正文或对象 URL。
+      description: 分析范围统一使用 UTC 半开区间 [requested_from, requested_to)。periodic_summary 必须同时提供两端；comprehensive_health_analysis 可同时省略两端表示不限定时间，或同时提供两端。任一类型只提供单端均返回 RFC 9457 422，不存在隐含默认边界。与预览采用相同范围校验。同一患者同幂等键及同请求摘要重放原始响应；输入仅由当前授权的已确认数据冻结生成，不含报告正文或对象 URL。
       parameters:
         - {$ref: '#/components/parameters/IdempotencyKey'}
       requestBody:
@@ -1076,11 +1076,11 @@ paths:
       tags: [Analysis]
       operationId: previewAnalysisTask
       security: [{BearerAuth: []}]
-      description: 返回当前患者指定分析类型/时间范围内的 mood 计数，仅为创建前预览建议。requested_from/to 表示 UTC 时间戳的半开区间 [from,to)，两者均省略时使用该 analysis_type 的默认时间范围；若只提供一端，另一端按该分析类型默认边界补齐。范围内计数统计本人未删除记录；计入预览 eligible 的 mood 还需 health_data_processing、mood_data_processing、mood_ai_sharing、third_party_ai 四项授权全部有效。缺失 mood 专项授权只排除 mood，不改变其他符合条件输入。health_data_processing 或 third_party_ai 是现行 F08 整体任务的基础授权；缺少任一项时按既有 F08 授权错误拒绝预览。预览与创建之间记录/授权可能变化，POST /analysis-tasks 必须在同一创建事务和患者 consent fence 内重新计算并冻结实际输入；本响应不保证与后续任务快照计数相同。
+      description: 返回当前患者指定分析类型/时间范围内的 mood 计数，仅为创建前预览建议。requested_from/to 表示 UTC 时间戳的半开区间 [from,to)。periodic_summary 必须同时提供两端；comprehensive_health_analysis 可同时省略两端（表示不限定时间）或同时提供两端。只提供一端均返回 RFC 9457 422，不存在隐含默认边界。响应回显规范化后的范围。范围内计数统计本人未删除记录；计入预览 eligible 的 mood 还需 health_data_processing、mood_data_processing、mood_ai_sharing、third_party_ai 四项授权全部有效。缺失 mood 专项授权只排除 mood，不改变其他符合条件输入。health_data_processing 或 third_party_ai 是现行 F08 整体任务的基础授权；缺少任一项时按既有 F08 授权错误拒绝预览。预览与创建之间记录/授权可能变化，POST /analysis-tasks 必须在同一创建事务和患者 consent fence 内重新计算并冻结实际输入；本响应不保证与后续任务快照计数相同。
       parameters:
         - {name: analysis_type, in: query, required: true, schema: {type: string, enum: [comprehensive_health_analysis, periodic_summary]}}
-        - {name: requested_from, in: query, schema: {type: string, format: date-time}, description: Optional UTC start; if omitted, use the analysis type's default range.}
-        - {name: requested_to, in: query, schema: {type: string, format: date-time}, description: Optional UTC end; if omitted, use the analysis type's default range.}
+        - {name: requested_from, in: query, schema: {type: string, format: date-time}, description: UTC inclusive start; provide with requested_to, or omit both only for comprehensive_health_analysis.}
+        - {name: requested_to, in: query, schema: {type: string, format: date-time}, description: UTC exclusive end; provide with requested_from, or omit both only for comprehensive_health_analysis.}
       responses:
         '200': {description: 当前范围的心情输入预览, content: {application/json: {schema: {$ref: '#/components/schemas/AnalysisTaskPreview'}}}}
         '401': {$ref: '#/components/responses/Problem'}
@@ -1730,7 +1730,7 @@ components:
         analysis_type: {type: string, enum: [comprehensive_health_analysis, periodic_summary]}
         requested_from: {type: [string, 'null'], format: date-time}
         requested_to: {type: [string, 'null'], format: date-time}
-        timezone: {type: string, minLength: 1, maxLength: 64, description: 患者配置的 IANA 时区，应用于默认/显式范围的 bucket 语义。}
+        timezone: {type: string, minLength: 1, maxLength: 64, description: 患者配置的 IANA 时区；时间范围始终按 UTC 半开区间解释。}
         mood_record_count_in_range: {type: integer, minimum: 0, description: 当前患者在范围内的未删除心情记录数。}
         mood_record_count_eligible: {type: integer, minimum: 0, description: 当前同时满足 health_data_processing、mood_data_processing、mood_ai_sharing、third_party_ai 的心情记录数；创建事务将再次计算。}
         mood_record_count_excluded_by_consent: {type: integer, minimum: 0, description: 范围内但因 mood 专项授权缺失而未达到 mood eligible 的记录数。}

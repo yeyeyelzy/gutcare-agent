@@ -41,7 +41,7 @@ from gutcare.analysis.advice_models import (
     HealthAdvice,
 )
 from gutcare.analysis.api import router as analysis_router
-from gutcare.analysis.models import AnalysisTask, TaskInputSnapshot
+from gutcare.analysis.models import AnalysisTask, AnalysisTaskIdempotency, TaskInputSnapshot
 from gutcare.analysis.service import AnalysisService
 from gutcare.app import create_app
 from gutcare.auth.api import current_auth_context
@@ -811,7 +811,91 @@ def test_migrations_round_trip_all_revisions(database: Any) -> None:
     config = Config("alembic.ini")
     config.attributes["skip_file_config"] = True
     try:
-        # Verify a clean 0024 downgrade/upgrade round trip, then prove that
+        # A 0025 rollback must preserve all legacy idempotency response fields
+        # and the ledger row, removing only the field introduced by 0025.
+        rollback_user, rollback_patient = _seed_patient(app_engine, nickname="h2-ledger-roundtrip")
+        rollback_task_id = uuid4()
+        rollback_response = {
+            "id": str(rollback_task_id),
+            "status": "pending",
+            "legacy_field": "preserve-me",
+            "input_summary": {"included_mood_record_count": 0},
+        }
+        with _sessions(app_engine).begin() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :p, true)"),
+                {"p": str(rollback_patient)},
+            )
+            task = AnalysisTask(
+                id=rollback_task_id,
+                patient_id=rollback_patient,
+                analysis_type="comprehensive_health_analysis",
+                input_summary={"included_mood_record_count": 0},
+            )
+            db.add(task)
+            db.flush()
+            db.add(
+                TaskInputSnapshot(
+                    task_id=rollback_task_id,
+                    patient_id=rollback_patient,
+                    snapshot_payload={"records": []},
+                    content_hash="0" * 64,
+                )
+            )
+            db.add(
+                AnalysisTaskIdempotency(
+                    patient_id=rollback_patient,
+                    route="POST:/api/v1/analysis-tasks",
+                    idempotency_key="h2-ledger-roundtrip-001",
+                    request_hash="1" * 64,
+                    task_id=rollback_task_id,
+                    response_snapshot=rollback_response,
+                )
+            )
+        command.downgrade(config, "0024_f14_mood_records")
+        with migrator_engine.connect() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :p, false)"),
+                {"p": str(rollback_patient)},
+            )
+            before_up = db.scalar(
+                text(
+                    "SELECT response_snapshot FROM analysis.analysis_task_idempotency "
+                    "WHERE idempotency_key='h2-ledger-roundtrip-001'"
+                )
+            )
+            assert before_up == {
+                "id": str(rollback_task_id),
+                "status": "pending",
+                "legacy_field": "preserve-me",
+            }
+        command.upgrade(config, "head")
+        with migrator_engine.connect() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :p, false)"),
+                {"p": str(rollback_patient)},
+            )
+            after_up = db.scalar(
+                text(
+                    "SELECT response_snapshot FROM analysis.analysis_task_idempotency "
+                    "WHERE idempotency_key='h2-ledger-roundtrip-001'"
+                )
+            )
+            assert after_up == {
+                **rollback_response,
+                "input_summary": {"included_mood_record_count": 0},
+            }
+        with _sessions(migrator_engine).begin() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :p, true)"),
+                {"p": str(rollback_patient)},
+            )
+            db.execute(
+                text("DELETE FROM health.patient_profile WHERE id=:p"), {"p": rollback_patient}
+            )
+            db.execute(text("DELETE FROM iam.user_account WHERE id=:u"), {"u": rollback_user})
+
+        # Verify a clean 0025 downgrade/upgrade round trip, then prove that
         # retained mood consent history blocks downgrade without partial DDL.
         command.downgrade(config, "0023_f02_conflict_group_identity")
         command.upgrade(config, "head")
@@ -851,7 +935,7 @@ def test_migrations_round_trip_all_revisions(database: Any) -> None:
             )
             assert (
                 db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0024_f14_mood_records"
+                == "0025_f14_analysis_mood"
             )
             assert db.scalar(text("SELECT to_regclass('health.mood_record') IS NOT NULL"))
             assert (
@@ -916,7 +1000,7 @@ def test_migrations_round_trip_all_revisions(database: Any) -> None:
             )
             assert (
                 db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0024_f14_mood_records"
+                == "0025_f14_analysis_mood"
             )
             assert db.scalar(text("SELECT to_regclass('health.mood_record') IS NOT NULL"))
             assert (
@@ -2714,7 +2798,9 @@ def test_f02_real_minio_clamav_upload_document_delete_and_patient_isolation(data
                 WHERE marker_key = 'f06-source-tombstone-seen')""")
         )
     try:
-        with pytest.raises(RuntimeError, match="forward-only"):
+        with pytest.raises(
+            RuntimeError, match="forward-only|Cannot downgrade 0024_f14_mood_records"
+        ):
             command.downgrade(downgrade_config, "0009_f06_medication")
     finally:
         if previous_migrator_url is None:
@@ -5026,6 +5112,466 @@ def test_f08_postgres18_snapshot_idempotency_rls_and_immutability(database: Any)
         )
         unchanged = db.get(TaskInputSnapshot, UUID(first["id"]))
         assert unchanged is not None and unchanged.content_hash == original_hash
+
+
+def test_f14_h2_t106_t108_preview_mood_snapshot_and_consent_exclusion(database: Any) -> None:
+    """T106-T108: preview, frozen mood input, consent exclusion and immutable summary."""
+    app_engine, _migrator_engine = database
+    user, patient = _seed_patient(app_engine, nickname="h2-mood")
+    other_user, other_patient = _seed_patient(app_engine, nickname="h2-other")
+    context = AuthContext(user_id=user, session_id=uuid4())
+    other_context = AuthContext(user_id=other_user, session_id=uuid4())
+    occurred = utc_now()
+    mood_id = uuid4()
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(other_patient)})
+        for consent_type in ("health_data_processing", "third_party_ai"):
+            db.add(
+                PatientConsent(
+                    patient_id=other_patient,
+                    consent_type=consent_type,
+                    document_version="h2-v1",
+                    granted=True,
+                    decided_at=occurred,
+                    metadata_json={"notice_summary_hash": "3" * 64},
+                )
+            )
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+        for consent_type in (
+            "health_data_processing",
+            "third_party_ai",
+            "mood_data_processing",
+            "mood_ai_sharing",
+        ):
+            db.add(
+                PatientConsent(
+                    patient_id=patient,
+                    consent_type=consent_type,
+                    document_version="h2-v1",
+                    granted=True,
+                    decided_at=occurred,
+                    metadata_json={"notice_summary_hash": "3" * 64},
+                )
+            )
+        db.add(
+            MoodRecord(
+                id=mood_id,
+                patient_id=patient,
+                occurred_at=occurred,
+                mood_level=3,
+                emotion_tags=["calm"],
+                note="H2_PRIVATE_NOTE_SENTINEL",
+            )
+        )
+        db.add(
+            DietRecord(
+                patient_id=patient,
+                occurred_at=occurred,
+                meal_type="lunch",
+                confirmation_status="confirmed",
+                record_version=1,
+            )
+        )
+    service = AnalysisService(_sessions(app_engine))
+    preview = service.preview(
+        context,
+        "comprehensive_health_analysis",
+        occurred - timedelta(minutes=1),
+        occurred + timedelta(minutes=1),
+    )
+    assert preview["mood_record_count_in_range"] == 1
+    assert preview["mood_record_count_eligible"] == 1
+    assert preview["mood_record_count_excluded_by_consent"] == 0
+    assert preview["mood_exclusion_reasons"] == []
+    assert (
+        service.preview(other_context, "comprehensive_health_analysis", None, None)[
+            "mood_record_count_in_range"
+        ]
+        == 0
+    )
+    payload = {
+        "analysis_type": "comprehensive_health_analysis",
+        "requested_from": None,
+        "requested_to": None,
+    }
+    created, replayed = service.create(context, payload, "h2-mood-consented-0001")
+    assert replayed is False
+    assert created["input_summary"] == {"included_mood_record_count": 1}
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+        frozen = db.get(TaskInputSnapshot, UUID(created["id"]))
+        assert frozen is not None
+        serialized = json.dumps(frozen.snapshot_payload)
+        assert "H2_PRIVATE_NOTE_SENTINEL" not in serialized
+        assert (
+            sum(row["record_type"] == "mood_record" for row in frozen.snapshot_payload["records"])
+            == 1
+        )
+        db.execute(
+            text("UPDATE analysis.analysis_task SET status='processing' WHERE id=:id"),
+            {"id": created["id"]},
+        )
+    worker_url = os.environ.get("GUTCARE_TEST_ANALYSIS_WORKER_DATABASE_URL")
+    assert worker_url is not None
+    worker_engine = _engine(make_url(worker_url), "gutcare-h2-analysis-worker")
+    agent_service = AnalysisService(_sessions(worker_engine))
+    agent_input = agent_service.inputs(UUID(created["id"]))
+    assert agent_input["consent_scope_snapshot"] == {
+        "health_data_processing": True,
+        "mood_data_processing": True,
+        "mood_ai_sharing": True,
+        "third_party_ai": True,
+    }
+    assert len(agent_input["mood_records"]) == 1
+    assert agent_input["mood_records"][0]["payload"] == {
+        "occurred_at": occurred.isoformat(),
+        "mood_level": 3,
+        "emotion_tags": ["calm"],
+    }
+    assert "H2_PRIVATE_NOTE_SENTINEL" not in json.dumps(agent_input)
+    with pytest.raises(DBAPIError):
+        with _sessions(app_engine).begin() as db:
+            db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+            db.execute(
+                text("UPDATE analysis.analysis_task SET input_summary='{}' WHERE id=:id"),
+                {"id": created["id"]},
+            )
+    with pytest.raises(DBAPIError):
+        with _sessions(app_engine).begin() as db:
+            db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+            db.add(
+                AnalysisTask(
+                    patient_id=patient,
+                    analysis_type="comprehensive_health_analysis",
+                    input_summary={"included_mood_record_count": 1.5},
+                )
+            )
+            db.flush()
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+        db.add(
+            PatientConsent(
+                patient_id=patient,
+                consent_type="mood_data_processing",
+                document_version="h2-v1",
+                granted=False,
+                decided_at=occurred + timedelta(seconds=1),
+                revoked_at=occurred + timedelta(seconds=1),
+                metadata_json={"notice_summary_hash": "3" * 64},
+            )
+        )
+        db.add(
+            DietRecord(
+                patient_id=patient,
+                occurred_at=occurred,
+                meal_type="dinner",
+                confirmation_status="confirmed",
+                record_version=1,
+            )
+        )
+    excluded = service.preview(context, "comprehensive_health_analysis", None, None)
+    assert excluded["mood_record_count_in_range"] == 1
+    assert excluded["mood_record_count_eligible"] == 0
+    assert excluded["mood_record_count_excluded_by_consent"] == 1
+    assert excluded["mood_exclusion_reasons"] == ["mood_data_processing_missing"]
+    without_mood, _ = service.create(context, payload, "h2-mood-revoked-0001")
+    assert without_mood["input_summary"] == {"included_mood_record_count": 0}
+    consent_service = AuthService(
+        Settings(
+            env="test",
+            jwt_signing_key="integration-only-signing-key-000000000000000000000000",
+            jwt_issuer="gutcare-business-api",
+            jwt_audience="gutcare-mobile-app",
+            mood_data_processing_policy_version="mood-data-v1",
+            mood_data_processing_summary_hash="4" * 64,
+        ),
+        _sessions(app_engine),
+    )
+    consent_service.record_consent(context, "mood_data_processing", "mood-data-v1", False)
+    assert service.get(context, UUID(created["id"]))["status"] == "cancelled"
+    assert service.get(context, UUID(without_mood["id"]))["status"] == "pending"
+    worker_engine.dispose()
+
+
+def test_f14_h2_all_mood_consent_combinations_and_create_revoke_fence(database: Any) -> None:
+    """T106: all four consent combinations and create/revoke share/exclusive fence race."""
+    app_engine, _migrator_engine = database
+    service = AnalysisService(_sessions(app_engine))
+    payload = {
+        "analysis_type": "comprehensive_health_analysis",
+        "requested_from": None,
+        "requested_to": None,
+    }
+    for mood_processing, mood_ai in ((False, False), (False, True), (True, False), (True, True)):
+        user, patient = _seed_patient(app_engine, nickname="h2-consent-combo")
+        context = AuthContext(user_id=user, session_id=uuid4())
+        now = utc_now()
+        with _sessions(app_engine).begin() as db:
+            db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+            for consent_type, granted in (
+                ("health_data_processing", True),
+                ("third_party_ai", True),
+                ("mood_data_processing", mood_processing),
+                ("mood_ai_sharing", mood_ai),
+            ):
+                db.add(
+                    PatientConsent(
+                        patient_id=patient,
+                        consent_type=consent_type,
+                        document_version="h2-v1",
+                        granted=granted,
+                        decided_at=now,
+                        revoked_at=None if granted else now,
+                        metadata_json={"notice_summary_hash": "5" * 64},
+                    )
+                )
+            db.add(
+                MoodRecord(
+                    patient_id=patient,
+                    occurred_at=now,
+                    mood_level=4,
+                    emotion_tags=["joyful"],
+                    note="not for agent",
+                )
+            )
+            db.add(
+                DietRecord(
+                    patient_id=patient,
+                    occurred_at=now,
+                    meal_type="breakfast",
+                    confirmation_status="confirmed",
+                    record_version=1,
+                )
+            )
+        expected = int(mood_processing and mood_ai)
+        summary, _ = service.create(
+            context, payload, f"h2-combo-{int(mood_processing)}-{int(mood_ai)}-0001"
+        )
+        assert summary["input_summary"]["included_mood_record_count"] == expected
+        preview = service.preview(context, "comprehensive_health_analysis", None, None)
+        assert preview["mood_record_count_eligible"] == expected
+
+    user, patient = _seed_patient(app_engine, nickname="h2-fence-race")
+    context = AuthContext(user_id=user, session_id=uuid4())
+    now = utc_now()
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+        for consent_type in (
+            "health_data_processing",
+            "third_party_ai",
+            "mood_data_processing",
+            "mood_ai_sharing",
+        ):
+            db.add(
+                PatientConsent(
+                    patient_id=patient,
+                    consent_type=consent_type,
+                    document_version="h2-race-v1",
+                    granted=True,
+                    decided_at=now,
+                    metadata_json={"notice_summary_hash": "6" * 64},
+                )
+            )
+        db.add(MoodRecord(patient_id=patient, occurred_at=now, mood_level=2, emotion_tags=[]))
+        db.add(
+            DietRecord(
+                patient_id=patient,
+                occurred_at=now,
+                meal_type="snack",
+                confirmation_status="confirmed",
+                record_version=1,
+            )
+        )
+    consent_service = AuthService(
+        Settings(
+            env="test",
+            jwt_signing_key="integration-only-signing-key-000000000000000000000000",
+            jwt_issuer="gutcare-business-api",
+            jwt_audience="gutcare-mobile-app",
+            mood_data_processing_policy_version="mood-race-v1",
+            mood_data_processing_summary_hash="7" * 64,
+        ),
+        _sessions(app_engine),
+    )
+    barrier = Barrier(2)
+
+    def create_during_revoke(_: int) -> Any:
+        barrier.wait(timeout=10)
+        return service.create(context, payload, "h2-create-revoke-race-0001")
+
+    def revoke_during_create(_: int) -> Any:
+        barrier.wait(timeout=10)
+        return consent_service.record_consent(
+            context, "mood_data_processing", "mood-race-v1", False
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        create_future = executor.submit(create_during_revoke, 0)
+        revoke_future = executor.submit(revoke_during_create, 0)
+        raced_task, _ = create_future.result(timeout=20)
+        revoke_future.result(timeout=20)
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+        current_task = db.get(AnalysisTask, UUID(raced_task["id"]))
+        frozen = db.get(TaskInputSnapshot, UUID(raced_task["id"]))
+        assert current_task is not None and frozen is not None
+        has_mood = any(
+            row["record_type"] == "mood_record" for row in frozen.snapshot_payload["records"]
+        )
+        assert not has_mood or current_task.status == "cancelled"
+
+
+def test_f14_h2_retry_rechecks_frozen_mood_consent_without_ledger_write(database: Any) -> None:
+    app_engine, _migrator_engine = database
+    user, patient = _seed_patient(app_engine, nickname="h2-retry-consent")
+    context = AuthContext(user_id=user, session_id=uuid4())
+    now = utc_now()
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+        for kind in (
+            "health_data_processing",
+            "third_party_ai",
+            "mood_data_processing",
+            "mood_ai_sharing",
+        ):
+            db.add(
+                PatientConsent(
+                    patient_id=patient,
+                    consent_type=kind,
+                    document_version="h2-retry-v1",
+                    granted=True,
+                    decided_at=now,
+                    metadata_json={"notice_summary_hash": "7" * 64},
+                )
+            )
+        db.add(MoodRecord(patient_id=patient, occurred_at=now, mood_level=3, emotion_tags=[]))
+        db.add(
+            DietRecord(
+                patient_id=patient,
+                occurred_at=now,
+                meal_type="lunch",
+                confirmation_status="confirmed",
+                record_version=1,
+            )
+        )
+    service = AnalysisService(_sessions(app_engine))
+    mood_task, _ = service.create(
+        context,
+        {"analysis_type": "comprehensive_health_analysis"},
+        "h2-retry-mood-create-001",
+    )
+    mood_task_id = UUID(mood_task["id"])
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+        db.execute(
+            text("UPDATE analysis.analysis_task SET status='failed' WHERE id=:id"),
+            {"id": mood_task_id},
+        )
+        db.add(
+            PatientConsent(
+                patient_id=patient,
+                consent_type="mood_ai_sharing",
+                document_version="h2-retry-v1",
+                granted=False,
+                revoked_at=now + timedelta(seconds=1),
+                decided_at=now + timedelta(seconds=1),
+                metadata_json={"notice_summary_hash": "7" * 64},
+            )
+        )
+    no_mood_task, _ = service.create(
+        context,
+        {"analysis_type": "comprehensive_health_analysis"},
+        "h2-retry-no-mood-create-01",
+    )
+    no_mood_task_id = UUID(no_mood_task["id"])
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+        db.execute(
+            text("UPDATE analysis.analysis_task SET status='failed' WHERE id=:id"),
+            {"id": no_mood_task_id},
+        )
+        before = db.execute(
+            text(
+                "SELECT (SELECT count(*) FROM analysis.analysis_task), "
+                "(SELECT count(*) FROM analysis.analysis_task_idempotency)"
+            )
+        ).one()
+    with pytest.raises(Problem) as caught:
+        service.retry(context, mood_task_id, "h2-retry-mood-fail-001")
+    assert caught.value.code == "CONSENT_REQUIRED"
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+        after = db.execute(
+            text(
+                "SELECT (SELECT count(*) FROM analysis.analysis_task), "
+                "(SELECT count(*) FROM analysis.analysis_task_idempotency)"
+            )
+        ).one()
+    assert after == before
+    retried, replayed = service.retry(context, no_mood_task_id, "h2-retry-no-mood-001")
+    assert replayed is False
+    assert retried["retry_of"] == str(no_mood_task_id)
+    assert retried["input_summary"] == {"included_mood_record_count": 0}
+
+
+def test_f14_h2_preview_and_create_use_exact_utc_half_open_range(database: Any) -> None:
+    app_engine, _migrator_engine = database
+    user, patient = _seed_patient(app_engine, nickname="h2-range-boundary")
+    context = AuthContext(user_id=user, session_id=uuid4())
+    start = utc_now().replace(microsecond=0)
+    end = start + timedelta(hours=1)
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+        for kind in (
+            "health_data_processing",
+            "third_party_ai",
+            "mood_data_processing",
+            "mood_ai_sharing",
+        ):
+            db.add(
+                PatientConsent(
+                    patient_id=patient,
+                    consent_type=kind,
+                    document_version="h2-range-v1",
+                    granted=True,
+                    decided_at=start,
+                    metadata_json={"notice_summary_hash": "8" * 64},
+                )
+            )
+        for timestamp, level in ((start, 2), (end - timedelta(microseconds=1), 3), (end, 4)):
+            db.add(
+                MoodRecord(
+                    patient_id=patient,
+                    occurred_at=timestamp,
+                    mood_level=level,
+                    emotion_tags=[],
+                )
+            )
+    service = AnalysisService(_sessions(app_engine))
+    preview = service.preview(context, "periodic_summary", start, end)
+    assert preview["requested_from"] == start
+    assert preview["requested_to"] == end
+    assert preview["mood_record_count_in_range"] == 2
+    created, _ = service.create(
+        context,
+        {
+            "analysis_type": "periodic_summary",
+            "requested_from": start.isoformat(),
+            "requested_to": end.isoformat(),
+        },
+        "h2-half-open-range-001",
+    )
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
+        snapshot = db.get(TaskInputSnapshot, UUID(created["id"]))
+        assert snapshot is not None
+        assert (
+            sum(
+                record["record_type"] == "mood_record"
+                for record in snapshot.snapshot_payload["records"]
+            )
+            == 2
+        )
 
 
 def test_f08_t68_t71_worker_lifecycle_and_snapshot_boundaries(database: Any) -> None:

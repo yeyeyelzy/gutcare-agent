@@ -42,3 +42,9 @@
 4. **契约校验细节。** OpenAPI mood trend bucket、AnalysisTask summary、预览计数和 AnalysisResult/AdviceEvidence `source_type=mood_record` 为冻结契约；`MoodDetail` 使用独立完整的 `additionalProperties: false` schema，避免 `allOf` 与封闭基 schema 的冲突。F07 `patchActivityRecord` 明确保留 422 字段验证错误响应。
 
 G1 对应验收：A51–A52、T111–T115。新增契约已定义不代表业务代码/数据库迁移完成；实现仍按 Alembic 与独立验收门禁执行。
+
+## H2 契约澄清（2026-10-17，已采纳）
+
+1. F08 分析范围不使用隐含默认边界：`periodic_summary` 必须同时提供 `requested_from` 与 `requested_to`；`comprehensive_health_analysis` 可同时省略两端（不限定时间）或同时提供两端。任一类型只提供单端均返回 RFC 9457 422。预览响应回显规范化范围，POST 与预览共用相同校验及半开区间 `[from,to)` 语义。
+2. 失败任务重试沿用患者 shared consent fence，并检查旧不可变快照。若旧快照含 `mood_record`，重试前必须确认四项快照授权均仍有效；缺少心情专项授权时拒绝并且不创建任务或幂等账本。无心情快照在基础分析授权仍有效时可重试。
+3. 0025 downgrade 只从分析任务幂等响应缓存移除新增 `input_summary` 字段，保留响应中的其他字段及账本行；不会删除任务或快照数据。

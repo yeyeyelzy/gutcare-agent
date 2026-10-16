@@ -38,6 +38,11 @@ class AnalysisTask(Base):
     retry_of: Mapped[UUID | None] = mapped_column(Uuid)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    input_summary: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("jsonb_build_object('included_mood_record_count', 0)"),
+    )
     error_code: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
