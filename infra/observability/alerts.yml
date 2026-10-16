@@ -1,0 +1,45 @@
+groups:
+  - name: gutcare-business-operations
+    rules:
+      - alert: GutCareApiHigh5xx
+        expr: sum(rate(gutcare_http_requests_total{status_family="5xx"}[5m])) / clamp_min(sum(rate(gutcare_http_requests_total[5m])), 1) > 0.02
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Business API 5xx ratio is elevated
+      - alert: GutCareReadinessUnavailable
+        expr: gutcare_readiness_component == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: A required readiness dependency is unavailable
+      - alert: GutCareWorkerDeadLetter
+        expr: gutcare_worker_backlog{state="dead_letter"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: A durable work queue has dead-letter items
+      - alert: GutCarePrivacyDeletionOverdue
+        expr: gutcare_worker_backlog{queue="privacy_deletion",state="backlog"} > 0 and gutcare_worker_oldest_backlog_age_seconds{queue="privacy_deletion"} > 2592000
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: A privacy deletion operation is beyond its 30-day SLA
+      - alert: GutCareExportCleanupDelayed
+        expr: gutcare_worker_backlog{queue="export_cleanup",state="backlog"} > 0 and gutcare_worker_oldest_backlog_age_seconds{queue="export_cleanup"} > 3600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Expired export artifacts are awaiting cleanup
+      - alert: GutCareMetricsDatabaseSnapshotFailed
+        expr: gutcare_metrics_db_snapshot_success == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Operations metrics could not obtain the aggregate database snapshot

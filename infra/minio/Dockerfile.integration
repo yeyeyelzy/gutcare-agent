@@ -1,0 +1,11 @@
+# Integration-only image for the Linux binary built from the official pinned module.
+FROM postgres:18.0-bookworm
+
+COPY --chmod=0555 minio /usr/local/bin/minio
+RUN mkdir -p /data \
+    && chown postgres:postgres /data
+
+USER postgres
+EXPOSE 9000 9001
+ENTRYPOINT ["/usr/local/bin/minio"]
+CMD ["server", "/data", "--console-address", ":9001"]
