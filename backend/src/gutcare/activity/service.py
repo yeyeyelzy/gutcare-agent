@@ -4,7 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -16,6 +16,7 @@ from gutcare.analysis.advice_models import HealthAdvice
 from gutcare.auth.models import PatientProfile, UserAccount
 from gutcare.auth.service import AuthContext
 from gutcare.medication.models import MedicationCheckin
+from gutcare.mood.models import MoodRecord
 from gutcare.records.models import DietItem, DietRecord, StoolRecord, SymptomItem, SymptomRecord
 from gutcare.shared.errors import Problem
 
@@ -294,6 +295,17 @@ class ActivityService:
                     ),
                 ),
                 (
+                    "mood",
+                    select(
+                        MoodRecord.id.label("id"),
+                        MoodRecord.occurred_at.label("occurred_at"),
+                        literal("mood").label("type"),
+                    ).where(
+                        MoodRecord.patient_id == patient.id,
+                        MoodRecord.deleted_at.is_(None),
+                    ),
+                ),
+                (
                     "advice",
                     select(
                         HealthAdvice.id.label("id"),
@@ -360,6 +372,7 @@ class ActivityService:
                             "symptom": "symptom_record",
                             "medication_checkin": "medication_checkin",
                             "activity": "activity_record",
+                            "mood": "mood_record",
                             "advice": "advice",
                         }[r.type],
                         "id": str(r.id),
@@ -559,6 +572,79 @@ class ActivityService:
                 {"bucket": row.bucket.isoformat(), "status": row.status, "count": row.record_count}
                 for row in db.execute(med_stmt)
             ]
+            # Serialize the consent snapshot and mood aggregate with consent withdrawal.
+            # This uses the same patient fence as AuthService.record_consent, but shared so
+            # concurrent patient reads can proceed together.
+            db.execute(
+                text(
+                    "SELECT pg_advisory_xact_lock_shared(hashtextextended("
+                    "'gutcare.patient-consent-fence:' || :patient_id, 0))"
+                ),
+                {"patient_id": str(profile.id)},
+            )
+            consent_rows = db.execute(
+                text(
+                    "SELECT DISTINCT ON (consent_type) consent_type, granted "
+                    "FROM health.patient_consent WHERE patient_id=:patient "
+                    "AND consent_type IN ('health_data_processing','mood_data_processing') "
+                    "ORDER BY consent_type, decided_at DESC, id DESC"
+                ),
+                {"patient": profile.id},
+            ).all()
+            current_consents = {row.consent_type: row.granted for row in consent_rows}
+            missing_consents = [
+                kind
+                for kind in ("health_data_processing", "mood_data_processing")
+                if not current_consents.get(kind, False)
+            ]
+            if missing_consents:
+                mood: dict[str, Any] = {
+                    "availability": "consent_required",
+                    "reason_code": "CONSENT_REQUIRED",
+                    "missing_consents": missing_consents,
+                }
+            else:
+                mood_bucket = func.date_trunc(
+                    bucket, func.timezone(profile.timezone, MoodRecord.occurred_at)
+                )
+                mood_stmt = (
+                    select(
+                        mood_bucket.label("period_start"),
+                        (mood_bucket + text("interval '1 day'")).label("day_end"),
+                        func.count().label("record_count"),
+                        *[
+                            func.count()
+                            .filter(MoodRecord.mood_level == level)
+                            .label(f"level_{level}")
+                            for level in range(1, 6)
+                        ],
+                    )
+                    .where(
+                        MoodRecord.patient_id == profile.id,
+                        MoodRecord.deleted_at.is_(None),
+                        MoodRecord.occurred_at >= start,
+                        MoodRecord.occurred_at < end,
+                    )
+                    .group_by(mood_bucket)
+                    .order_by(mood_bucket)
+                )
+                mood_buckets = []
+                for row in db.execute(mood_stmt):
+                    period_start = row.period_start.date()
+                    period_end = (
+                        row.day_end.date() if bucket == "day" else period_start + timedelta(days=7)
+                    )
+                    counts = {str(level): getattr(row, f"level_{level}") for level in range(1, 6)}
+                    mood_buckets.append(
+                        {
+                            "period_start": period_start.isoformat(),
+                            "period_end": period_end.isoformat(),
+                            "has_data": row.record_count > 0,
+                            "record_count": row.record_count,
+                            "mood_level_counts": counts,
+                        }
+                    )
+                mood = {"availability": "available", "buckets": mood_buckets}
             return {
                 "timezone": profile.timezone,
                 "from": start.isoformat(),
@@ -569,4 +655,5 @@ class ActivityService:
                 "symptom": {"has_data": bool(symptom), "items": symptom},
                 "diet_confirmed_categories": {"has_data": bool(diet), "items": diet},
                 "medication_checkins": {"has_data": bool(medications), "items": medications},
+                "mood": mood,
             }

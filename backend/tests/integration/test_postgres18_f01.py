@@ -26,7 +26,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, create_engine, func, select, text, update
+from sqlalchemy import Engine, create_engine, event, func, select, text, update
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -4196,6 +4196,395 @@ def test_f07_f11_postgres18_activity_history_and_aggregates(database: Any) -> No
         "day",
     )
     assert empty["activity"] == {"has_data": False, "items": []}
+
+
+def test_f11_f14_mood_trend_and_history_postgres18(database: Any) -> None:
+    """T109/T113: mood aggregation/history honors consent, RLS, DST and privacy boundaries."""
+    app_engine, _ = database
+    user_a, patient_a = _seed_patient(app_engine, nickname="mood-trend-a")
+    user_b, _patient_b = _seed_patient(app_engine, nickname="mood-trend-b")
+    context_a = AuthContext(user_id=user_a, session_id=uuid4())
+    context_b = AuthContext(user_id=user_b, session_id=uuid4())
+    service = ActivityService(
+        _sessions(app_engine), "integration-only-signing-key-000000000000000000000000"
+    )
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.user_id', :id, true)"), {"id": str(user_a)})
+        db.execute(text("SELECT set_config('app.patient_id', :id, true)"), {"id": str(patient_a)})
+        db.execute(
+            text("UPDATE health.patient_profile SET timezone='America/New_York' WHERE id=:id"),
+            {"id": patient_a},
+        )
+        db.add_all(
+            [
+                MoodRecord(
+                    id=UUID("00000000-0000-0000-0000-000000000011"),
+                    patient_id=patient_a,
+                    occurred_at=datetime(2026, 11, 1, 5, 30, tzinfo=UTC),
+                    mood_level=2,
+                    emotion_tags=["calm"],
+                    note="SYNTHETIC_NOTE_MUST_NOT_LEAK_7e8d",
+                ),
+                MoodRecord(
+                    id=UUID("00000000-0000-0000-0000-000000000012"),
+                    patient_id=patient_a,
+                    occurred_at=datetime(2026, 11, 1, 5, 30, tzinfo=UTC),
+                    mood_level=3,
+                    emotion_tags=["content"],
+                    note="SYNTHETIC_NOTE_MUST_NOT_LEAK_7e8d",
+                ),
+                MoodRecord(
+                    patient_id=patient_a,
+                    occurred_at=datetime(2026, 11, 1, 6, 30, tzinfo=UTC),
+                    mood_level=5,
+                    emotion_tags=["tired"],
+                    note="SYNTHETIC_NOTE_MUST_NOT_LEAK_7e8d",
+                ),
+                MoodRecord(
+                    patient_id=patient_a,
+                    occurred_at=datetime(2026, 11, 2, 5, 0, tzinfo=UTC),
+                    mood_level=1,
+                    emotion_tags=[],
+                    note="SYNTHETIC_NOTE_MUST_NOT_LEAK_7e8d",
+                ),
+                MoodRecord(
+                    patient_id=patient_a,
+                    occurred_at=datetime(2026, 11, 1, 7, 0, tzinfo=UTC),
+                    mood_level=1,
+                    emotion_tags=[],
+                    note="SYNTHETIC_NOTE_MUST_NOT_LEAK_7e8d",
+                ),
+            ]
+        )
+        db.add(
+            ActivityRecord(
+                id=UUID("00000000-0000-0000-0000-000000000010"),
+                patient_id=patient_a,
+                activity_type="walking",
+                description=None,
+                intensity="low",
+                subjective_feeling="same",
+                duration_minutes=15,
+                occurred_at=datetime(2026, 11, 1, 5, 30, tzinfo=UTC),
+            )
+        )
+        db.flush()
+        boundary_record = db.scalar(
+            select(MoodRecord).where(
+                MoodRecord.patient_id == patient_a,
+                MoodRecord.occurred_at == datetime(2026, 11, 1, 7, 0, tzinfo=UTC),
+            )
+        )
+        assert boundary_record is not None
+        boundary_record.deleted_at = utc_now()
+
+    start = datetime(2026, 11, 1, 4, 0, tzinfo=UTC)
+    end = datetime(2026, 11, 2, 5, 0, tzinfo=UTC)
+    without_special = service.trends(context_a, start, end, "day")
+    assert without_special["mood"] == {
+        "availability": "consent_required",
+        "reason_code": "CONSENT_REQUIRED",
+        "missing_consents": ["mood_data_processing"],
+    }
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :id, true)"), {"id": str(patient_a)})
+        db.add(
+            PatientConsent(
+                patient_id=patient_a,
+                consent_type="mood_data_processing",
+                document_version="test-v1",
+                granted=False,
+                decided_at=utc_now() + timedelta(seconds=1),
+                metadata_json={"notice_summary_hash": "2" * 64},
+            )
+        )
+    revoked = service.trends(context_a, start, end, "day")
+    assert revoked["mood"]["missing_consents"] == ["mood_data_processing"]
+    assert "buckets" not in revoked["mood"]
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :id, true)"), {"id": str(patient_a)})
+        db.add(
+            PatientConsent(
+                patient_id=patient_a,
+                consent_type="mood_data_processing",
+                document_version="test-v1",
+                granted=True,
+                decided_at=utc_now() + timedelta(seconds=2),
+                metadata_json={"notice_summary_hash": "3" * 64},
+            )
+        )
+        db.execute(text("SET LOCAL enable_seqscan=off"))
+        mood_plan = "\n".join(
+            db.scalars(
+                text(
+                    "EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) SELECT id FROM health.mood_record "
+                    "WHERE patient_id=:patient AND deleted_at IS NULL AND occurred_at>=:lo "
+                    "AND occurred_at<:hi ORDER BY occurred_at DESC,id DESC"
+                ),
+                {"patient": patient_a, "lo": start, "hi": end},
+            ).all()
+        )
+        assert "ix_mood_record_patient_occurred_active" in mood_plan and "Buffers:" in mood_plan
+    available = service.trends(context_a, start, end, "day")
+    assert available["timezone"] == "America/New_York"
+    assert available["mood"] == {
+        "availability": "available",
+        "buckets": [
+            {
+                "period_start": "2026-11-01",
+                "period_end": "2026-11-02",
+                "has_data": True,
+                "record_count": 3,
+                "mood_level_counts": {"1": 0, "2": 1, "3": 1, "4": 0, "5": 1},
+            }
+        ],
+    }
+    assert without_special["activity"] == available["activity"]
+    weekly = service.trends(context_a, start, end, "week")["mood"]
+    assert weekly == {
+        "availability": "available",
+        "buckets": [
+            {
+                "period_start": "2026-10-26",
+                "period_end": "2026-11-02",
+                "has_data": True,
+                "record_count": 3,
+                "mood_level_counts": {"1": 0, "2": 1, "3": 1, "4": 0, "5": 1},
+            }
+        ],
+    }
+    empty = service.trends(
+        context_a,
+        datetime(2026, 11, 3, 5, 0, tzinfo=UTC),
+        datetime(2026, 11, 4, 5, 0, tzinfo=UTC),
+        "day",
+    )
+    assert empty["mood"] == {"availability": "available", "buckets": []}
+    page1 = service.timeline(context_a, 1, None, ["mood"], start, end)
+    page2 = service.timeline(context_a, 1, page1["next_cursor"], ["mood"], start, end)
+    assert len(page1["items"]) == len(page2["items"]) == 1
+    assert page1["items"][0]["id"] != page2["items"][0]["id"]
+    assert page1["items"][0]["target"]["type"] == "mood_record"
+    assert "note" not in json.dumps([page1, page2])
+    assert "SYNTHETIC_NOTE_MUST_NOT_LEAK_7e8d" not in json.dumps([available, page1, page2])
+    assert service.timeline(context_b, 10, None, ["mood"], start, end)["items"] == []
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :id, true)"), {"id": str(patient_a)})
+        db.add(
+            PatientConsent(
+                patient_id=patient_a,
+                consent_type="health_data_processing",
+                document_version="test-v1",
+                granted=False,
+                decided_at=utc_now() + timedelta(seconds=3),
+                metadata_json={"notice_summary_hash": "4" * 64},
+            )
+        )
+    missing_health = service.trends(context_a, start, end, "day")["mood"]
+    assert missing_health == {
+        "availability": "consent_required",
+        "reason_code": "CONSENT_REQUIRED",
+        "missing_consents": ["health_data_processing"],
+    }
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :id, true)"), {"id": str(patient_a)})
+        db.add(
+            PatientConsent(
+                patient_id=patient_a,
+                consent_type="mood_data_processing",
+                document_version="test-v1",
+                granted=False,
+                decided_at=utc_now() + timedelta(seconds=4),
+                metadata_json={"notice_summary_hash": "5" * 64},
+            )
+        )
+    missing_both = service.trends(context_a, start, end, "day")["mood"]
+    assert missing_both["missing_consents"] == [
+        "health_data_processing",
+        "mood_data_processing",
+    ]
+    after_withdrawal = service.timeline(context_a, 10, None, ["mood"], start, end)
+    assert len(after_withdrawal["items"]) == 3
+    assert "SYNTHETIC_NOTE_MUST_NOT_LEAK_7e8d" not in json.dumps(after_withdrawal)
+
+    mixed = service.timeline(context_a, 1, None, ["mood", "activity"], start, end)
+    mixed_items = list(mixed["items"])
+    while mixed["next_cursor"] is not None:
+        mixed = service.timeline(
+            context_a, 1, mixed["next_cursor"], ["mood", "activity"], start, end
+        )
+        mixed_items.extend(mixed["items"])
+    tie_group = [
+        item
+        for item in mixed_items
+        if item["occurred_at"] == datetime(2026, 11, 1, 5, 30, tzinfo=UTC).isoformat()
+    ]
+    assert [(item["type"], item["id"]) for item in tie_group] == [
+        ("activity", "00000000-0000-0000-0000-000000000010"),
+        ("mood", "00000000-0000-0000-0000-000000000011"),
+        ("mood", "00000000-0000-0000-0000-000000000012"),
+    ]
+
+
+def test_f11_mood_trend_serializes_with_consent_withdrawal(database: Any) -> None:
+    """A51/T113: mood trend's shared patient fence serializes against consent withdrawal."""
+    app_engine, _ = database
+    service = ActivityService(
+        _sessions(app_engine), "integration-only-signing-key-000000000000000000000000"
+    )
+    consent_service = AuthService(
+        Settings(
+            env="test",
+            jwt_signing_key="integration-only-signing-key-000000000000000000000000",
+            jwt_issuer="gutcare-business-api",
+            jwt_audience="gutcare-mobile-app",
+            mood_data_processing_policy_version="mood-data-v1",
+            mood_data_processing_summary_hash="6" * 64,
+        ),
+        _sessions(app_engine),
+    )
+    user_a, patient_a = _seed_patient(app_engine, nickname="mood-fence-a")
+    context_a = AuthContext(user_id=user_a, session_id=uuid4())
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient_a)})
+        db.add(
+            PatientConsent(
+                patient_id=patient_a,
+                consent_type="mood_data_processing",
+                document_version="mood-data-v1",
+                granted=True,
+                decided_at=utc_now(),
+                metadata_json={"notice_summary_hash": "6" * 64},
+            )
+        )
+
+    acquired = Event()
+    release = Event()
+    revoke_started = Event()
+    patient_marker = str(patient_a)
+
+    def pause_after_shared_fence(
+        _conn: Any, _cursor: Any, statement: str, parameters: Any, _context: Any, _many: bool
+    ) -> None:
+        if "pg_advisory_xact_lock_shared" not in statement or patient_marker not in str(parameters):
+            return
+        acquired.set()
+        if not release.wait(timeout=20):
+            raise TimeoutError("test did not release trend shared consent fence")
+
+    event.listen(app_engine, "after_cursor_execute", pause_after_shared_fence)
+    bounds = (utc_now() - timedelta(days=1), utc_now() + timedelta(days=1))
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            trend_future = executor.submit(service.trends, context_a, *bounds, "day")
+            assert acquired.wait(timeout=10), "trend never acquired shared consent fence"
+
+            def revoke() -> Any:
+                revoke_started.set()
+                return consent_service.record_consent(
+                    context_a, "mood_data_processing", "mood-data-v1", False
+                )
+
+            revoke_future = executor.submit(revoke)
+            assert revoke_started.wait(timeout=5)
+            with app_engine.connect() as probe:
+                can_take_exclusive = probe.scalar(
+                    text(
+                        "SELECT pg_try_advisory_xact_lock(hashtextextended("
+                        "'gutcare.patient-consent-fence:' || :patient_id, 0))"
+                    ),
+                    {"patient_id": patient_marker},
+                )
+                probe.rollback()
+            assert can_take_exclusive is False
+            assert not revoke_future.done()
+            release.set()
+            trend_result = trend_future.result(timeout=10)
+            revoke_future.result(timeout=10)
+        assert trend_result["mood"]["availability"] == "available"
+        after_revoke = service.trends(context_a, *bounds, "day")["mood"]
+        assert after_revoke == {
+            "availability": "consent_required",
+            "reason_code": "CONSENT_REQUIRED",
+            "missing_consents": ["mood_data_processing"],
+        }
+    finally:
+        release.set()
+        event.remove(app_engine, "after_cursor_execute", pause_after_shared_fence)
+
+    user_b, patient_b = _seed_patient(app_engine, nickname="mood-fence-b")
+    context_b = AuthContext(user_id=user_b, session_id=uuid4())
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient_b)})
+        db.add(
+            PatientConsent(
+                patient_id=patient_b,
+                consent_type="mood_data_processing",
+                document_version="mood-data-v1",
+                granted=True,
+                decided_at=utc_now(),
+                metadata_json={"notice_summary_hash": "7" * 64},
+            )
+        )
+    exclusive_acquired = Event()
+    release_revoke = Event()
+    trend_started = Event()
+    patient_b_marker = str(patient_b)
+
+    def pause_after_exclusive_fence(
+        _conn: Any, _cursor: Any, statement: str, parameters: Any, _context: Any, _many: bool
+    ) -> None:
+        if (
+            "pg_advisory_xact_lock(" not in statement
+            or "pg_advisory_xact_lock_shared" in statement
+            or patient_b_marker not in str(parameters)
+        ):
+            return
+        exclusive_acquired.set()
+        if not release_revoke.wait(timeout=20):
+            raise TimeoutError("test did not release revoke exclusive consent fence")
+
+    event.listen(app_engine, "after_cursor_execute", pause_after_exclusive_fence)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            revoke_future = executor.submit(
+                consent_service.record_consent,
+                context_b,
+                "mood_data_processing",
+                "mood-data-v1",
+                False,
+            )
+            assert exclusive_acquired.wait(timeout=10), "revoke never acquired exclusive fence"
+
+            def read_trends() -> dict[str, Any]:
+                trend_started.set()
+                return service.trends(context_b, *bounds, "day")
+
+            trend_future = executor.submit(read_trends)
+            assert trend_started.wait(timeout=5)
+            with app_engine.connect() as probe:
+                can_take_shared = probe.scalar(
+                    text(
+                        "SELECT pg_try_advisory_xact_lock_shared(hashtextextended("
+                        "'gutcare.patient-consent-fence:' || :patient_id, 0))"
+                    ),
+                    {"patient_id": patient_b_marker},
+                )
+                probe.rollback()
+            assert can_take_shared is False
+            assert not trend_future.done()
+            release_revoke.set()
+            revoke_future.result(timeout=10)
+            after_revoke_first = trend_future.result(timeout=10)
+        assert after_revoke_first["mood"] == {
+            "availability": "consent_required",
+            "reason_code": "CONSENT_REQUIRED",
+            "missing_consents": ["mood_data_processing"],
+        }
+        assert after_revoke_first["activity"] == {"has_data": False, "items": []}
+    finally:
+        release_revoke.set()
+        event.remove(app_engine, "after_cursor_execute", pause_after_exclusive_fence)
 
 
 def _f09_postgres18_callback_feedback_projection_and_isolation(database: Any) -> None:
