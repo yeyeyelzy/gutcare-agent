@@ -1,0 +1,1863 @@
+openapi: 3.1.0
+info:
+  title: GutCare Business API
+  version: 1.0.0
+  description: APP 与业务后端的冻结 V1 契约；成功直接返回 DTO，错误为 RFC 9457。
+  license: {name: Proprietary, identifier: LicenseRef-Proprietary}
+servers:
+  - url: https://api.example.invalid/api/v1
+security:
+  - bearerAuth: []
+tags:
+  - {name: Auth, description: 邮箱账户、会话与密码流程}
+  - {name: Profile, description: 当前患者最小资料}
+  - {name: Records, description: 文件与健康记录}
+  - {name: Risk Alerts, description: 确定性规则风险提示；已读不表示解除}
+  - {name: Analysis, description: 异步智能分析任务}
+  - {name: Advice, description: 独立于 F08 结果的患者建议及证据}
+  - {name: Notifications, description: 不含正文的 P0 站内通知；不包含外部 push}
+  - {name: Privacy, description: 授权与数据主体权利}
+paths:
+  /notifications:
+    get:
+      summary: 游标分页读取本人站内通知
+      tags: [Notifications]
+      operationId: listNotifications
+      parameters:
+        - {name: cursor, in: query, schema: {type: string, maxLength: 128}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {name: category, in: query, schema: {type: string, enum: [analysis, advice, risk, medication_reminder]}}
+        - {name: unread_only, in: query, schema: {type: boolean, default: false}}
+      responses:
+        '200': {description: 通知页, content: {application/json: {schema: {$ref: '#/components/schemas/NotificationPage'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+  /notifications/unread-count:
+    get:
+      summary: 获取未读通知数
+      tags: [Notifications]
+      operationId: getNotificationUnreadCount
+      responses:
+        '200': {description: 未读数, content: {application/json: {schema: {type: object, required: [count], properties: {count: {type: integer, minimum: 0}}}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+  /notifications/preferences:
+    get:
+      summary: 获取普通站内提醒偏好
+      tags: [Notifications]
+      operationId: getNotificationPreferences
+      responses:
+        '200': {description: 普通通知开关与静默时段, content: {application/json: {schema: {$ref: '#/components/schemas/NotificationPreference'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+    put:
+      summary: 更新普通站内提醒偏好
+      tags: [Notifications]
+      operationId: updateNotificationPreferences
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/NotificationPreference'}}}
+      responses:
+        '200': {description: 已保存, content: {application/json: {schema: {$ref: '#/components/schemas/NotificationPreference'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+  /notifications/read-batch:
+    post:
+      summary: 批量标记本人通知已读
+      tags: [Notifications]
+      operationId: readNotificationBatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [notification_ids]
+              properties:
+                notification_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  uniqueItems: true
+                  items: {type: string, format: uuid}
+      responses:
+        '200':
+          description: 已读通知
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/PatientNotification'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+  /notifications/{notification_id}:
+    get:
+      summary: 读取本人通知详情
+      tags: [Notifications]
+      operationId: getNotification
+      parameters: [{name: notification_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses:
+        '200': {description: 通知详情, content: {application/json: {schema: {$ref: '#/components/schemas/PatientNotification'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+  /notifications/{notification_id}/read:
+    post:
+      summary: 标记本人通知已读
+      tags: [Notifications]
+      operationId: readNotification
+      parameters: [{name: notification_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses:
+        '200': {description: 已读通知, content: {application/json: {schema: {$ref: '#/components/schemas/PatientNotification'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+  /activity-records:
+    get:
+      summary: 游标分页读取本人活动记录
+      tags: [Records]
+      operationId: listActivityRecords
+      parameters:
+        - {name: cursor, in: query, schema: {type: string, maxLength: 512}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+        - {name: since, in: query, schema: {type: string, format: date-time}}
+        - {name: until, in: query, schema: {type: string, format: date-time}}
+      responses:
+        '200': {description: 活动记录页, content: {application/json: {schema: {$ref: '#/components/schemas/ActivityPage'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+    post:
+      summary: 创建本人活动记录
+      tags: [Records]
+      operationId: createActivityRecord
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/ActivityWrite'}}}
+      responses:
+        '201': {description: 已创建, content: {application/json: {schema: {$ref: '#/components/schemas/ActivityRecord'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+  /activity-records/{record_id}:
+    parameters: [{name: record_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      summary: 读取本人活动记录
+      tags: [Records]
+      operationId: getActivityRecord
+      responses:
+        '200': {description: 活动记录, content: {application/json: {schema: {$ref: '#/components/schemas/ActivityRecord'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+    patch:
+      summary: 修改本人活动记录
+      tags: [Records]
+      operationId: patchActivityRecord
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/ActivityPatch'}}}
+      responses:
+        '200': {description: 已修改, content: {application/json: {schema: {$ref: '#/components/schemas/ActivityRecord'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+    delete:
+      summary: 软删除本人活动记录
+      tags: [Records]
+      operationId: deleteActivityRecord
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, additionalProperties: false, required: [record_version], properties: {record_version: {type: integer, minimum: 1}}}}}
+      responses:
+        '204': {description: 已删除}
+        '401': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+  /history/timeline:
+    get:
+      summary: 患者混合健康历史时间线
+      tags: [Records]
+      operationId: getHistoryTimeline
+      parameters:
+        - {name: cursor, in: query, schema: {type: string, maxLength: 512}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+        - {name: category, in: query, schema: {type: array, items: {type: string, enum: [diet, stool, symptom, medication_checkin, activity, advice]}}}
+        - {name: since, in: query, schema: {type: string, format: date-time}}
+        - {name: until, in: query, schema: {type: string, format: date-time}}
+      responses:
+        '200': {description: 时间线页, content: {application/json: {schema: {$ref: '#/components/schemas/HistoryPage'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '400': {$ref: '#/components/responses/Problem'}
+  /trends:
+    get:
+      summary: 查询患者确定性历史统计
+      tags: [Records]
+      operationId: getTrends
+      parameters:
+        - {name: from, in: query, required: true, schema: {type: string, format: date-time}}
+        - {name: to, in: query, required: true, schema: {type: string, format: date-time}}
+        - {name: bucket, in: query, schema: {type: string, enum: [day, week], default: day}}
+      responses:
+        '200': {description: 有数据 bucket 统计, content: {application/json: {schema: {type: object, required: [timezone, from, to, bucket, activity, stool, symptom, diet_confirmed_categories, medication_checkins], properties: {timezone: {type: string}, from: {type: string, format: date-time}, to: {type: string, format: date-time}, bucket: {type: string}, activity: {type: object}, stool: {type: object}, symptom: {type: object}, diet_confirmed_categories: {type: object}, medication_checkins: {type: object}}}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+  /auth/register:
+    post:
+      summary: 注册邮箱账户
+      tags: [Auth]
+      security: []
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RegisterRequest'}
+      responses:
+        '202':
+          description: 验证邮件已受理
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcceptedOperation'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+  /auth/email/verify:
+    post:
+      summary: 验证注册邮箱
+      tags: [Auth]
+      security: []
+      operationId: verifyEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties: {token: {type: string, minLength: 20}}
+      responses:
+        '204': {description: 已验证}
+        '422': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+  /auth/login:
+    post:
+      summary: 邮箱密码登录
+      tags: [Auth]
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LoginRequest'}
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TokenPair'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+  /auth/refresh:
+    post:
+      summary: 轮换刷新令牌
+      tags: [Auth]
+      security: []
+      operationId: refreshSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties: {refresh_token: {type: string}}
+      responses:
+        '200':
+          description: 已轮换
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TokenPair'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+  /auth/logout:
+    post:
+      summary: 退出当前会话
+      tags: [Auth]
+      operationId: logout
+      responses:
+        '204': {description: 当前会话已撤销}
+        '401': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+  /auth/password/reset/request:
+    post:
+      summary: 请求密码重置邮件
+      tags: [Auth]
+      security: []
+      operationId: requestPasswordReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties: {email: {type: string, format: email}}
+      responses:
+        '202':
+          description: 无论账户是否存在均返回已受理
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcceptedOperation'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+  /auth/password/reset/confirm:
+    post:
+      summary: 使用单次令牌重置密码
+      tags: [Auth]
+      security: []
+      operationId: confirmPasswordReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password]
+              properties:
+                token: {type: string}
+                new_password: {type: string, minLength: 12, maxLength: 128}
+      responses:
+        '204': {description: 密码已重置，旧会话全部撤销}
+        '422': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+  /patients/me:
+    get:
+      summary: 获取当前患者资料
+      tags: [Profile]
+      operationId: getMyProfile
+      responses:
+        '200':
+          description: 当前患者资料
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PatientProfile'}
+              examples:
+                currentPatient:
+                  value:
+                    id: 019a0000-0000-7000-8000-000000000001
+                    nickname: null
+                    birth_year: 1990
+                    timezone: Asia/Shanghai
+                    profile_version: 1
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+    patch:
+      summary: 更新当前患者资料
+      tags: [Profile]
+      operationId: updateMyProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PatientProfilePatch'}
+            examples:
+              nicknameAndVersion:
+                value: {profile_version: 1, nickname: GutCare 用户}
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PatientProfile'}
+              examples:
+                updatedPatient:
+                  value:
+                    id: 019a0000-0000-7000-8000-000000000001
+                    nickname: GutCare 用户
+                    birth_year: 1990
+                    timezone: Asia/Shanghai
+                    profile_version: 2
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/RecordVersionConflict'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+  /patients/me/consents:
+    post:
+      summary: 记录或撤回授权
+      tags: [Privacy]
+      operationId: recordConsent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConsentDecision'}
+            examples:
+              grantThirdPartyAi:
+                  value: {consent_type: third_party_ai, policy_version: third_party_ai-v1, granted: true}
+      responses:
+        '201':
+          description: 已记录
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConsentDecision'}
+            examples:
+              recordedDecision:
+                value:
+                  consent_type: third_party_ai
+                  policy_version: third_party_ai-v1
+                  granted: true
+                  decided_at: '2026-10-15T08:30:00Z'
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+  /patients/me/account-deletion:
+    post:
+      summary: 启动账号注销流程
+      tags: [Privacy]
+      operationId: requestAccountDeletion
+      responses:
+        '202':
+          description: 账户立即冻结、撤销全部 refresh session/consent并取消任务；仅首次创建返回一次性receipt，重试复用operation且receipt为null。
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PrivacyDeletionAccepted'}
+              example: {operation_id: 019a0000-0000-7000-8000-000000000020, receipt: 'one-time-high-entropy-value', status: accepted}
+        '401': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+  /privacy/deletion-operations/{operation_id}/status:
+    post:
+      security: []
+      summary: 使用注销receipt查询进度
+      tags: [Privacy]
+      operationId: getPrivacyDeletionStatus
+      parameters:
+        - {name: operation_id, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [receipt], properties: {receipt: {type: string, minLength: 40, maxLength: 128}}, additionalProperties: false}
+      responses:
+        '200':
+          description: 删除操作状态
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PrivacyDeletionStatus'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
+  /privacy/exports:
+    post:
+      summary: 预览并创建隐私导出
+      tags: [Privacy]
+      operationId: createPrivacyExport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [categories], properties: {categories: {type: array, minItems: 1, items: {type: string, enum: [profile, consents, medical_documents, files, diet, stool, symptoms, medication, activity, analysis, advice, alerts, notifications]}}}, additionalProperties: false}
+      responses:
+        '201': {description: Export preview created}
+        '401': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
+    get:
+      summary: 列出本人导出
+      tags: [Privacy]
+      operationId: listPrivacyExports
+      responses:
+        '200': {description: 本人导出列表}
+        '401': {$ref: '#/components/responses/Problem'}
+  /privacy/exports/{export_id}:
+    get:
+      summary: 查询本人导出状态
+      tags: [Privacy]
+      operationId: getPrivacyExport
+      parameters:
+        - {name: export_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200': {description: 导出状态及短期下载能力}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+    post:
+      summary: 确认生成本人导出
+      tags: [Privacy]
+      operationId: confirmPrivacyExport
+      parameters:
+        - {name: export_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '202': {description: 导出进入异步队列}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
+  /privacy/exports/{export_id}/cancel:
+    post:
+      summary: 取消本人导出
+      tags: [Privacy]
+      operationId: cancelPrivacyExport
+      parameters:
+        - {name: export_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '204': {description: 导出已取消}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+  /privacy/exports/download:
+    get:
+      security: []
+      summary: 使用单次短期能力同源下载导出ZIP
+      tags: [Privacy]
+      operationId: downloadPrivacyExport
+      parameters:
+        - {name: X-Export-Capability, in: header, required: true, schema: {type: string, minLength: 40, maxLength: 128}}
+      responses:
+        '200': {description: ZIP流；能力五分钟单次使用}
+        '404': {$ref: '#/components/responses/Problem'}
+  /files/uploads:
+    post:
+      summary: 创建文件上传会话
+      tags: [Records]
+      operationId: createUpload
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [purpose, file_name, content_type, size_bytes]
+              properties:
+                purpose: {type: string, enum: [medical_document, diet_image, stool_image, avatar]}
+                file_name: {type: string, maxLength: 255}
+                content_type: {type: string}
+                size_bytes: {type: integer, minimum: 1}
+      responses:
+        '201':
+          description: 使用返回的同源 gateway URL 上传
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UploadSession'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '415': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
+  /files/uploads/{upload_id}/complete:
+    post:
+      summary: 完成并校验文件上传
+      tags: [Records]
+      operationId: completeUpload
+      parameters:
+        - {$ref: '#/components/parameters/UploadId'}
+      responses:
+        '200':
+          description: 文件已校验可用
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FileObject'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '415': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
+  /medical-documents:
+    get:
+      summary: 分页获取当前患者医疗档案
+      tags: [Records]
+      operationId: listMedicalDocuments
+      parameters:
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {name: document_type, in: query, schema: {type: string, enum: [outpatient_record, discharge_summary, diagnosis_certificate, lab_report, prescription, other]}}
+      responses:
+        '200':
+          description: 医疗档案分页
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MedicalDocumentPage'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+    post:
+      summary: 创建医疗档案；analyze 需健康数据与第三方 AI 两项当前授权，store_only 仅需健康数据授权
+      tags: [Records]
+      operationId: createMedicalDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MedicalDocumentCreate'}
+      responses:
+        '201':
+          description: 已创建；analyze 模式仅记录待处理状态并创建解析请求
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MedicalDocument'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+  /uploads/{capability}:
+    servers:
+      - url: https://api.example.invalid
+        description: Gateway root; capability paths are not prefixed with /api/v1.
+    parameters:
+      - {name: capability, in: path, required: true, schema: {type: string, minLength: 32, maxLength: 128}}
+    put:
+      summary: 通过同源 HTTPS gateway 上传原始文件
+      description: 仅接收 API 创建的 opaque capability；必须附 Bearer access token；不接受 bucket 或 object key。
+      tags: [Records]
+      operationId: uploadThroughGateway
+      requestBody:
+        required: true
+        content:
+          application/pdf:
+            schema: {type: string, format: binary, maxLength: 20971520}
+          image/jpeg:
+            schema: {type: string, format: binary, maxLength: 10485760}
+          image/png:
+            schema: {type: string, format: binary, maxLength: 10485760}
+      responses:
+        '204': {description: 已安全写入私有临时对象，等待 complete 校验/扫描}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+    get:
+      summary: 下载短期只读授权对应的私有对象
+      description: 下载 capability 为 bearer secret；仅通过短期 download grant 获得，禁止在日志中记录。
+      tags: [Records]
+      operationId: downloadThroughGateway
+      security: []
+      responses:
+        '200':
+          description: 私有文件流，设置 private, no-store
+          content:
+            application/pdf: {schema: {type: string, format: binary}}
+            image/jpeg: {schema: {type: string, format: binary}}
+            image/png: {schema: {type: string, format: binary}}
+        '404': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
+  /symptom-records/{record_id}/status-history:
+    get:
+      summary: 获取症状仍持续/已缓解状态的不可变变更历史
+      tags: [Records]
+      operationId: getSymptomStatusHistory
+      parameters:
+        - {$ref: '#/components/parameters/RecordId'}
+      responses:
+        '200':
+          description: 状态及按版本排序的变更事件
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SymptomStatusHistory'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '415': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
+  /medical-documents/{document_id}:
+    parameters:
+      - {name: document_id, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      summary: 获取医疗档案元数据
+      tags: [Records]
+      operationId: getMedicalDocument
+      responses:
+        '200':
+          description: 档案元数据
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MedicalDocument'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+    patch:
+      summary: 更新医疗档案元数据
+      tags: [Records]
+      operationId: updateMedicalDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MedicalDocumentPatch'}
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MedicalDocument'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+    delete:
+      summary: 软删除医疗档案并排定延迟物理删除
+      tags: [Records]
+      operationId: deleteMedicalDocument
+      responses:
+        '204': {description: 已隐藏并排定 7 天后物理删除}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+  /medical-documents/{document_id}/candidates:
+    get:
+      summary: 获取文档解析候选，候选不代表患者事实
+      tags: [Records]
+      operationId: listMedicalDocumentCandidates
+      parameters:
+        - {name: document_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: 当前文档所有字段候选
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/MedicalFieldCandidate'}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+  /medical-fact-conflicts:
+    get:
+      summary: 列出患者已确认检验事实的待核对冲突
+      tags: [Records]
+      operationId: listMedicalFactConflicts
+      parameters:
+        - {name: status, in: query, required: false, schema: {type: string, enum: [open, resolved, invalidated, all], default: open}}
+      responses:
+        '200': {description: 冲突列表, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/MedicalFactConflict'}}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+  /medical-fact-conflicts/{conflict_id}:
+    get:
+      summary: 读取冲突详情及来源事实
+      tags: [Records]
+      operationId: getMedicalFactConflict
+      parameters:
+        - {name: conflict_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200': {description: 冲突详情, content: {application/json: {schema: {$ref: '#/components/schemas/MedicalFactConflict'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+  /medical-fact-conflicts/{conflict_id}/resolve:
+    post:
+      summary: 患者明确选择保留全部来源事实，不自动择优
+      tags: [Records]
+      operationId: resolveMedicalFactConflict
+      parameters:
+        - {name: conflict_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false, required: [record_version], properties: {record_version: {type: integer, minimum: 1}}}
+      responses:
+        '200': {description: 已确认保留双方事实, content: {application/json: {schema: {$ref: '#/components/schemas/MedicalFactConflictResolution'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+  /medical-field-candidates/{candidate_id}/decision:
+    post:
+      summary: 对一个字段候选作出患者决定；幂等摘要为规范化 action 与 corrected_value，同键同摘要（含候选脱敏后）返回空 204 且不新增审计/事实，异摘要或候选返回 409
+      tags: [Records]
+      operationId: decideMedicalFieldCandidate
+      parameters:
+        - {name: candidate_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MedicalCandidateDecision'}
+      responses:
+        '204': {description: 决定已处理或幂等重放；新决定追加审计，accept/correct 生成独立确认事实；无响应正文}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+  /files/{file_id}/download-grants:
+    post:
+      summary: 签发短期只读下载 capability
+      tags: [Records]
+      operationId: createFileDownloadGrant
+      parameters:
+        - {name: file_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: 5 分钟有效的同源下载 URL
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DownloadGrant'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
+  /{record_type}:
+    get:
+      summary: 分页查询指定类型记录
+      tags: [Records]
+      operationId: listRecords
+      parameters:
+        - {$ref: '#/components/parameters/RecordType'}
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {name: since, in: query, schema: {type: string, format: date-time}}
+        - {name: until, in: query, schema: {type: string, format: date-time}}
+      responses:
+        '200':
+          description: 记录分页
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RecordPage'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+    post:
+      summary: 新建指定类型记录
+      tags: [Records]
+      operationId: createRecord
+      parameters:
+        - {$ref: '#/components/parameters/RecordType'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RecordWrite'}
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Record'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+  /{record_type}/{record_id}:
+    get:
+      summary: 获取指定记录
+      tags: [Records]
+      operationId: getRecord
+      parameters:
+        - {$ref: '#/components/parameters/RecordType'}
+        - {$ref: '#/components/parameters/RecordId'}
+      responses:
+        '200':
+          description: 记录详情
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Record'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+    patch:
+      summary: 更新指定记录
+      tags: [Records]
+      operationId: updateRecord
+      parameters:
+        - {$ref: '#/components/parameters/RecordType'}
+        - {$ref: '#/components/parameters/RecordId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RecordPatch'}
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Record'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+    delete:
+      summary: 删除指定记录
+      tags: [Records]
+      operationId: deleteRecord
+      parameters:
+        - {$ref: '#/components/parameters/RecordType'}
+        - {$ref: '#/components/parameters/RecordId'}
+      responses:
+        '204': {description: 已立即隐藏并进入删除流程}
+        '404': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+  /symptom-records/{record_id}/status-history:
+    get:
+      summary: 获取症状仍持续/已缓解状态的不可变变更历史
+      tags: [Records]
+      operationId: getSymptomStatusHistory
+      parameters:
+        - {$ref: '#/components/parameters/RecordId'}
+      responses:
+        '200':
+          description: 当前状态及按版本排序的不可变状态事件
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SymptomStatusHistory'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+  /risk-alerts:
+    get:
+      summary: 分页查询当前患者风险提示
+      tags: [Risk Alerts]
+      operationId: listRiskAlerts
+      parameters:
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {name: unread_only, in: query, schema: {type: boolean, default: false}}
+      responses:
+        '200':
+          description: 风险提示分页
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RiskAlertPage'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+  /risk-alerts/{alert_id}:
+    get:
+      summary: 获取风险提示详情
+      tags: [Risk Alerts]
+      operationId: getRiskAlert
+      parameters:
+        - {name: alert_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: 风险提示详情
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RiskAlert'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+  /risk-alerts/{alert_id}/read:
+    post:
+      summary: 标记風险提示已读
+      description: 已读仅为查看状态，不代表风险解除或重新评估。
+      tags: [Risk Alerts]
+      operationId: markRiskAlertRead
+      parameters:
+        - {name: alert_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: 已读的风险提示
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RiskAlert'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+  /risk-alerts/{alert_id}/reevaluate:
+    post:
+      summary: 将风险提示标记为已重新评估
+      description: 保留旧规则版本和证据，不把此状态解释为临床安全结论。
+      tags: [Risk Alerts]
+      operationId: reevaluateRiskAlert
+      parameters:
+        - {name: alert_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: 已重新评估的风险提示
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RiskAlert'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+  /analysis-tasks:
+    post:
+      summary: 创建异步分析任务
+      tags: [Analysis]
+      operationId: createAnalysisTask
+      security: [{BearerAuth: []}]
+      description: 同一患者同幂等键及同请求摘要重放原始响应；输入仅由当前授权的已确认数据冻结生成，不含报告正文或对象 URL。
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AnalysisTaskRequest'}
+      responses:
+        '202':
+          description: 异步任务及不可变输入快照已创建
+          headers:
+            Location: {description: 新建任务资源地址, schema: {type: string, format: uri-reference}}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnalysisTask'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+    get:
+      summary: 列出当前患者分析任务
+      tags: [Analysis]
+      operationId: listAnalysisTasks
+      security: [{BearerAuth: []}]
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {name: cursor, in: query, schema: {type: string}}
+      responses:
+        '200':
+          description: 患者任务分页
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/AnalysisTask'}}
+                  next_cursor: {type: [string, 'null']}
+        '401': {$ref: '#/components/responses/Problem'}
+  /analysis-tasks/{task_id}:
+    get:
+      summary: 获取分析任务及结果
+      tags: [Analysis]
+      operationId: getAnalysisTask
+      security: [{BearerAuth: []}]
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: 任务状态及可用结果
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnalysisTask'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+  /analysis-tasks/{task_id}/cancel:
+    post:
+      summary: 取消 pending 或 processing 分析任务
+      tags: [Analysis]
+      operationId: cancelAnalysisTask
+      security: [{BearerAuth: []}]
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200': {description: 任务已取消, content: {application/json: {schema: {$ref: '#/components/schemas/AnalysisTask'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+  /analysis-tasks/{task_id}/retry:
+    post:
+      summary: 显式重试 failed 任务
+      tags: [Analysis]
+      operationId: retryAnalysisTask
+      security: [{BearerAuth: []}]
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      responses:
+        '202':
+          description: 从原不可变快照创建的新尝试
+          headers:
+            Location: {description: 新任务资源地址, schema: {type: string, format: uri-reference}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/AnalysisTask'}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+  /advice:
+    get:
+      summary: 列出当前患者建议
+      tags: [Advice]
+      operationId: listAdvice
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {name: cursor, in: query, schema: {type: string, minLength: 1, maxLength: 128}, description: 稳定 created_at/id 降序游标}
+      responses:
+        '200': {description: 患者建议分页, content: {application/json: {schema: {$ref: '#/components/schemas/AdvicePage'}}}}
+        '400': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+  /advice/{advice_id}:
+    parameters:
+      - {name: advice_id, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      summary: 获取建议详情与受控证据入口
+      tags: [Advice]
+      operationId: getAdvice
+      responses:
+        '200': {description: 建议详情, content: {application/json: {schema: {$ref: '#/components/schemas/Advice'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+  /advice/{advice_id}/read:
+    post:
+      summary: 标记建议已读
+      tags: [Advice]
+      operationId: readAdvice
+      parameters: [{name: advice_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses:
+        '200': {description: 建议已读，依据变化字段独立保留, content: {application/json: {schema: {$ref: '#/components/schemas/Advice'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+  /advice/{advice_id}/archive:
+    post:
+      summary: 归档建议
+      tags: [Advice]
+      operationId: archiveAdvice
+      parameters: [{name: advice_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses:
+        '200': {description: 建议已归档，依据变化字段独立保留, content: {application/json: {schema: {$ref: '#/components/schemas/Advice'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+  /advice/{advice_id}/feedback:
+    put:
+      summary: 新增或更新结构化建议反馈
+      tags: [Advice]
+      operationId: updateAdviceFeedback
+      parameters:
+        - {name: advice_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AdviceFeedbackRequest'}}}}
+      responses:
+        '200': {description: 反馈版本, content: {application/json: {schema: {$ref: '#/components/schemas/AdviceFeedback'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+  /medication-plans:
+    get:
+      tags: [Medication]
+      operationId: listMedicationPlans
+      responses:
+        '200': {description: Current patient's plans, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/MedicationPlan'}}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+    post:
+      tags: [Medication]
+      operationId: createMedicationPlan
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationPlanCreate'}}}}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationPlan'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+  /medication-plans/{plan_id}:
+    get:
+      tags: [Medication]
+      operationId: getMedicationPlan
+      parameters: [{name: plan_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {'200': {description: Plan, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationPlan'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}}
+    patch:
+      tags: [Medication]
+      operationId: updateMedicationPlan
+      parameters: [{name: plan_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationPlanPatch'}}}}
+      responses: {'200': {description: Updated plan, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationPlan'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}}
+    delete:
+      tags: [Medication]
+      operationId: deleteMedicationPlan
+      parameters: [{name: plan_id, in: path, required: true, schema: {type: string, format: uuid}}, {name: record_version, in: query, required: true, schema: {type: integer, minimum: 1}}]
+      responses: {'204': {description: Soft deleted; history retained}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}}
+  /medication-plans/{plan_id}/transitions:
+    post:
+      tags: [Medication]
+      operationId: transitionMedicationPlan
+      parameters: [{name: plan_id, in: path, required: true, schema: {type: string, format: uuid}}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationPlanTransition'}}}}
+      responses: {'200': {description: Updated plan, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationPlan'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}}
+  /medication-plans/{plan_id}/schedules:
+    get:
+      tags: [Medication]
+      operationId: listMedicationSchedules
+      parameters: [{name: plan_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {'200': {description: Plan schedules, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/MedicationSchedule'}}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}}
+    post:
+      tags: [Medication]
+      operationId: createMedicationSchedule
+      parameters: [{name: plan_id, in: path, required: true, schema: {type: string, format: uuid}}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationScheduleWrite'}}}}
+      responses: {'201': {description: Created schedule, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationSchedule'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}}
+  /medication-schedules/{schedule_id}:
+    patch:
+      tags: [Medication]
+      operationId: updateMedicationSchedule
+      parameters: [{name: schedule_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationScheduleWrite'}}}}
+      responses: {'200': {description: Updated schedule, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationSchedule'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}}
+    delete:
+      tags: [Medication]
+      operationId: deleteMedicationSchedule
+      parameters: [{name: schedule_id, in: path, required: true, schema: {type: string, format: uuid}}, {name: record_version, in: query, required: true, schema: {type: integer, minimum: 1}}]
+      responses: {'204': {description: Schedule disabled and soft deleted; history retained}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}}
+  /medication-checkins:
+    get:
+      tags: [Medication]
+      operationId: listMedicationCheckins
+      parameters: [{name: start, in: query, required: true, schema: {type: string, format: date}}, {name: end, in: query, required: true, schema: {type: string, format: date}}]
+      responses: {'200': {description: Checkins in an inclusive range up to 93 days, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/MedicationCheckin'}}}}}, '401': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}}
+  /medication-checkins/today:
+    get:
+      tags: [Medication]
+      operationId: listTodayMedicationCheckins
+      responses: {'200': {description: Today's checkins, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/MedicationCheckin'}}}}}, '401': {$ref: '#/components/responses/Problem'}}
+  /medication-checkins/{checkin_id}:
+    patch:
+      tags: [Medication]
+      operationId: updateMedicationCheckin
+      parameters: [{name: checkin_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationCheckinUpdate'}}}}
+      responses: {'200': {description: Updated checkin, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationCheckin'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 8, maxLength: 128}
+    UploadId:
+      name: upload_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    RecordId:
+      name: record_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    RecordType:
+      name: record_type
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [diet-records, stool-records, symptom-records]
+  responses:
+    Problem:
+      description: RFC 9457 Problem Details
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    RecordVersionConflict:
+      description: 提交的 profile_version 已过期；重新 GET 后再应用 PATCH。
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          example:
+            type: https://gutcare.invalid/problems/record_version_conflict
+            title: Patient profile has changed
+            status: 409
+            detail: Reload the profile and retry your update.
+            instance: /api/v1/patients/me
+            code: RECORD_VERSION_CONFLICT
+            request_id: 019a0000-0000-7000-8000-000000000099
+  schemas:
+    MedicationPlanCreate:
+      type: object
+      additionalProperties: false
+      required: [medication_name, source_type]
+      properties:
+        medication_name: {type: string, minLength: 1, maxLength: 160}
+        dosage_text: {type: [string, 'null'], maxLength: 160, description: 按来源原文保存，不推断剂量}
+        route_code: {type: [string, 'null'], maxLength: 32}
+        start_date: {type: [string, 'null'], format: date}
+        end_date: {type: [string, 'null'], format: date}
+        source_type: {type: string, enum: [manual, medical_document]}
+        source_document_id: {type: [string, 'null'], format: uuid, description: 仅允许同患者医疗档案}
+    MedicationPlanPatch:
+      type: object
+      additionalProperties: false
+      required: [record_version]
+      properties:
+        record_version: {type: integer, minimum: 1}
+        medication_name: {type: string, minLength: 1, maxLength: 160}
+        dosage_text: {type: [string, 'null'], maxLength: 160}
+        route_code: {type: [string, 'null'], maxLength: 32}
+        start_date: {type: [string, 'null'], format: date}
+        end_date: {type: [string, 'null'], format: date}
+        confirmation_status: {type: string, enum: [confirmed, needs_review]}
+    MedicationPlanTransition:
+      type: object
+      additionalProperties: false
+      required: [record_version, action]
+      properties:
+        record_version: {type: integer, minimum: 1}
+        action: {type: string, enum: [confirm, review, activate, end, discontinue]}
+    MedicationPlan:
+      type: object
+      required: [id, patient_id, medication_name, source_type, source_deleted, confirmation_status, plan_status, record_version]
+      properties:
+        id: {type: string, format: uuid}
+        patient_id: {type: string, format: uuid, readOnly: true}
+        medication_name: {type: string}
+        dosage_text: {type: [string, 'null']}
+        route_code: {type: [string, 'null']}
+        start_date: {type: [string, 'null'], format: date}
+        end_date: {type: [string, 'null'], format: date}
+        source_type: {type: string, enum: [manual, medical_document]}
+        source_document_id: {type: [string, 'null'], format: uuid}
+        source_deleted: {type: boolean, description: True when the source document has been deleted; no original identifier or metadata is exposed}
+        confirmation_status: {type: string, enum: [pending, confirmed, needs_review]}
+        plan_status: {type: string, enum: [active, ended, discontinued]}
+        record_version: {type: integer}
+    MedicationScheduleWrite:
+      type: object
+      additionalProperties: false
+      required: [local_time, timezone, valid_from]
+      properties:
+        local_time: {type: string, format: time}
+        timezone: {type: string, maxLength: 64, description: Server-validated IANA timezone}
+        rrule: {type: [string, 'null'], maxLength: 256, description: Restricted RFC5545 subset; DAILY/WEEKLY, INTERVAL, WEEKLY BYDAY, COUNT or UNTIL}
+        valid_from: {type: string, format: date}
+        valid_to: {type: [string, 'null'], format: date}
+        enabled: {type: boolean, default: true}
+        record_version: {type: [integer, 'null'], minimum: 1, description: Required on update; omitted on create}
+    MedicationSchedule:
+      type: object
+      required: [id, plan_id, local_time, timezone, valid_from, enabled, record_version]
+      properties:
+        id: {type: string, format: uuid}
+        plan_id: {type: string, format: uuid}
+        local_time: {type: string, format: time}
+        timezone: {type: string}
+        rrule: {type: [string, 'null']}
+        valid_from: {type: string, format: date}
+        valid_to: {type: [string, 'null'], format: date}
+        enabled: {type: boolean}
+        record_version: {type: integer}
+    MedicationCheckinUpdate:
+      type: object
+      additionalProperties: false
+      required: [record_version, status]
+      properties:
+        record_version: {type: integer, minimum: 1}
+        status: {type: string, enum: [taken, not_taken, pending, skipped]}
+        taken_at: {type: [string, 'null'], format: date-time, description: Required with taken}
+        note: {type: [string, 'null'], maxLength: 500}
+    MedicationCheckin:
+      type: object
+      required: [id, schedule_id, local_date, scheduled_for, status, record_version]
+      properties:
+        id: {type: string, format: uuid}
+        schedule_id: {type: string, format: uuid}
+        local_date: {type: string, format: date}
+        scheduled_for: {type: string, format: date-time}
+        status: {type: string, enum: [taken, not_taken, pending, skipped]}
+        taken_at: {type: [string, 'null'], format: date-time}
+        note: {type: [string, 'null'], maxLength: 500}
+        record_version: {type: integer}
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, birth_year, privacy_policy_version, health_data_processing_consent, health_data_processing_policy_version]
+      properties:
+        email: {type: string, format: email, maxLength: 254}
+        password: {type: string, minLength: 12, maxLength: 128}
+        birth_year: {type: integer, minimum: 1900, maximum: 2100}
+        nickname: {type: [string, 'null'], maxLength: 64}
+        privacy_policy_version: {type: string, minLength: 1, maxLength: 32, description: 必须与服务端配置的当前 privacy policy version 一致}
+        health_data_processing_consent: {type: boolean, const: true, description: 注册前单独、明确同意健康数据处理}
+        health_data_processing_policy_version: {type: string, minLength: 1, maxLength: 32, description: 必须与服务端配置的健康数据处理告知版本一致}
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: {type: string, format: email}
+        password: {type: string}
+    TokenPair:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in]
+      properties:
+        access_token: {type: string}
+        refresh_token: {type: string}
+        token_type: {const: Bearer}
+        expires_in: {type: integer, minimum: 1}
+    PatientProfile:
+      type: object
+      required: [id, birth_year, timezone, profile_version]
+      properties:
+        id: {type: string, format: uuid}
+        nickname: {type: [string, 'null'], maxLength: 64}
+        birth_year: {type: integer, minimum: 1900, maximum: 2100}
+        timezone: {type: string}
+        profile_version: {type: integer, minimum: 1}
+    PatientProfilePatch:
+      type: object
+      additionalProperties: false
+      required: [profile_version]
+      description: PATCH 仅应用显式提供的字段；nickname 可显式传 null 清空，其余字段不可为 null。profile_version 必须匹配当前版本；无字段变化时不递增版本。
+      properties:
+        nickname: {type: [string, 'null'], maxLength: 64}
+        birth_year: {type: integer, minimum: 1900, maximum: 2100}
+        timezone: {type: string, maxLength: 64}
+        profile_version: {type: integer, minimum: 1}
+    ConsentDecision:
+      type: object
+      additionalProperties: false
+      required: [consent_type, policy_version, granted]
+      description: 每次决定追加授权历史；privacy_policy 仅能通过 account-deletion 撤回，不接受通用决定。服务端按 consent_type 验证配置的当前 policy_version 并绑定独立告知摘要哈希，不接受客户端传入摘要。granted=false 表示拒绝或撤回。
+      properties:
+        consent_type: {type: string, enum: [health_data_processing, sensitive_image, third_party_ai, push_notification]}
+        policy_version: {type: string, minLength: 1, maxLength: 32}
+        granted: {type: boolean}
+        decided_at: {type: string, format: date-time, readOnly: true}
+    UploadSession:
+      type: object
+      required: [upload_id, upload_url, expires_at]
+      properties:
+        upload_id: {type: string, format: uuid}
+        upload_url: {type: string, format: uri, pattern: '^https://[^/]+/uploads/'}
+        form_fields: {type: object, additionalProperties: {type: string}}
+        expires_at: {type: string, format: date-time}
+    FileObject:
+      type: object
+      required: [id, storage_status, content_type, size_bytes]
+      properties:
+        id: {type: string, format: uuid}
+        storage_status: {type: string, enum: [uploading, available, deleting, deleted, failed]}
+        content_type: {type: string}
+        size_bytes: {type: integer}
+    MedicalDocumentCreate:
+      type: object
+      additionalProperties: false
+      required: [file_object_id, document_type, processing_mode]
+      properties:
+        file_object_id: {type: string, format: uuid}
+        document_type: {type: string, enum: [outpatient_record, discharge_summary, diagnosis_certificate, lab_report, prescription, other]}
+        hospital_name: {type: [string, 'null'], maxLength: 160}
+        document_date: {type: [string, 'null'], format: date, description: 与旧功能字段 visit_date 对应}
+        notes: {type: [string, 'null'], maxLength: 1000}
+        processing_mode: {type: string, enum: [store_only, analyze]}
+    MedicalDocumentPatch:
+      type: object
+      additionalProperties: false
+      required: [record_version]
+      description: PATCH 不允许更新 file_object_id 或 processing_mode；未提供字段保持原值，显式 null 清空可空字段。
+      properties:
+        record_version: {type: integer, minimum: 1}
+        document_type: {type: string, enum: [outpatient_record, discharge_summary, diagnosis_certificate, lab_report, prescription, other]}
+        hospital_name: {type: [string, 'null'], maxLength: 160}
+        document_date: {type: [string, 'null'], format: date}
+        notes: {type: [string, 'null'], maxLength: 1000}
+    MedicalDocument:
+      type: object
+      required: [id, file_object_id, document_type, document_date, notes, processing_mode, parse_status, parse_outcome, parse_reason_code, record_version, created_at, updated_at, file_status, original_name]
+      properties:
+        id: {type: string, format: uuid}
+        file_object_id: {type: string, format: uuid}
+        document_type: {type: string, enum: [outpatient_record, discharge_summary, diagnosis_certificate, lab_report, prescription, other]}
+        hospital_name: {type: [string, 'null']}
+        document_date: {type: [string, 'null'], format: date}
+        notes: {type: [string, 'null'], maxLength: 1000}
+        processing_mode: {type: string, enum: [store_only, analyze]}
+        parse_status: {type: string, enum: [not_requested, pending, processing, needs_confirmation, confirmed, failed]}
+        parse_outcome: {type: [string, 'null'], enum: [extracted, no_supported_facts, insufficient_quality, null], description: Additive parse result classification; lifecycle status remains parse_status.}
+        parse_reason_code: {type: [string, 'null'], enum: [no_supported_fields, unsupported_content, low_quality_scan, illegible_content, incomplete_document, null]}
+        record_version: {type: integer, minimum: 1}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        file_status: {type: string, enum: [available, deleting]}
+        original_name: {type: string}
+    MedicalFactConflict:
+      type: object
+      required: [id, status, record_version, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        status: {type: string, enum: [open, resolved, invalidated]}
+        record_version: {type: integer, minimum: 1}
+        created_at: {type: string, format: date-time}
+        resolution: {type: [string, 'null'], enum: [keep_both, null]}
+        members:
+          type: [array, 'null']
+          items: {type: object, required: [fact_id, source_document_id, field_code, value, sampled_on], properties: {fact_id: {type: string, format: uuid}, source_document_id: {type: string, format: uuid}, field_code: {type: string, enum: [test_item, test_result]}, value: {}, unit: {type: [string, 'null']}, sampled_on: {type: string, format: date}}}
+    MedicalFactConflictResolution:
+      type: object
+      required: [id, status, record_version, resolution]
+      properties:
+        id: {type: string, format: uuid}
+        status: {const: resolved}
+        record_version: {type: integer, minimum: 1}
+        resolution: {const: keep_both}
+    MedicalCandidateDecision:
+      type: object
+      additionalProperties: false
+      required: [decision, record_version]
+      properties:
+        decision: {type: string, enum: [accept, correct, reject]}
+        record_version: {type: integer, minimum: 1}
+        value: {}
+    MedicalFieldCandidate:
+      type: object
+      additionalProperties: false
+      required: [id, field_code, value_type, value, unit, confidence, uncertainty, source_locator, excerpt, review_status, record_version, chosen_value]
+      properties:
+        id: {type: string, format: uuid}
+        field_code: {type: string, enum: [diagnosis, document_date, recommendation, test_item, test_result, medication_name, medication_dose, medication_frequency, medication_duration, allergy]}
+        value_type: {type: string, enum: [diagnosis, date, string, object]}
+        value: {description: For test_result, an object with result, optional controlled unit and optional sampled_on ISO date; object value_type is limited to test_result and medication_dose.}
+        unit: {type: [string, 'null'], maxLength: 32}
+        confidence: {type: [number, 'null'], minimum: 0, maximum: 1}
+        uncertainty: {type: [string, 'null'], maxLength: 500}
+        source_locator: {type: [object, 'null']}
+        excerpt: {type: [string, 'null'], maxLength: 500}
+        review_status: {type: string, enum: [pending, accepted, corrected, rejected, invalidated]}
+        record_version: {type: integer, minimum: 1}
+        chosen_value: {}
+    MedicalDocumentPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/MedicalDocument'}}
+        next_cursor: {type: [string, 'null']}
+    DownloadGrant:
+      type: object
+      required: [download_url, expires_at]
+      properties:
+        download_url: {type: string, format: uri, pattern: '^https://[^/]+/uploads/'}
+        expires_at: {type: string, format: date-time}
+    RecordWrite:
+      type: object
+      additionalProperties: false
+      required: [occurred_at, payload]
+      description: >-
+        路径 record_type 是 payload 的判别字段：diet-records 使用 DietRecordPayload，stool-records 使用 StoolRecordPayload，symptom-records 使用 SymptomRecordPayload。未知字段、其他记录类型字段和客户端指定 patient_id/source_type/确认状态均拒绝。创建必须带 Idempotency-Key。
+      properties:
+        occurred_at: {type: string, format: date-time}
+        payload:
+          anyOf:
+            - {$ref: '#/components/schemas/DietRecordPayload'}
+            - {$ref: '#/components/schemas/StoolRecordPayload'}
+            - {$ref: '#/components/schemas/SymptomRecordPayload'}
+          description: 根据 URL 中的 record_type 选择一个严格 DTO；服务端拒绝不匹配的字段。
+    RecordPatch:
+      type: object
+      additionalProperties: false
+      required: [record_version, occurred_at, payload]
+      properties:
+        record_version: {type: integer, minimum: 1}
+        occurred_at: {type: string, format: date-time}
+        payload: {$ref: '#/components/schemas/RecordWrite/properties/payload'}
+    DietRecordPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        meal_type: {type: [string, 'null'], enum: [breakfast, lunch, dinner, snack, other, null]}
+        image_object_id: {type: [string, 'null'], format: uuid, description: 可选的已完成且通过扫描的 F02 diet_image 文件对象；需同患者且有当前数据处理及敏感图片授权}
+        text_description: {type: [string, 'null'], maxLength: 4000}
+        items:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            additionalProperties: false
+            required: [name]
+            properties:
+              name: {type: string, minLength: 1, maxLength: 160}
+              category_code: {type: [string, 'null'], maxLength: 64}
+              amount_text: {type: [string, 'null'], maxLength: 160}
+        portion_note: {type: [string, 'null'], maxLength: 160}
+        cooking_method: {type: [string, 'null'], maxLength: 160}
+        subjective_note: {type: [string, 'null'], maxLength: 1000}
+    StoolRecordPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        bristol_type: {type: [integer, 'null'], minimum: 1, maximum: 7}
+        image_object_id: {type: [string, 'null'], format: uuid, description: 可选的已完成且通过扫描的 F02 stool_image 文件对象；需同患者且有当前数据处理及敏感图片授权}
+        color_code: {type: [string, 'null'], maxLength: 32}
+        blood_reported: {type: [boolean, 'null'], description: 患者自述，不代表图像诊断}
+        urgency_level: {type: [integer, 'null'], minimum: 0, maximum: 10}
+        bowel_amount: {type: [string, 'null'], maxLength: 32}
+        process_sensation: {type: array, maxItems: 20, items: {type: string, maxLength: 48}}
+        notes: {type: [string, 'null'], maxLength: 1000}
+    SymptomRecordPayload:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items:
+            type: object
+            additionalProperties: false
+            required: [symptom_code]
+            properties:
+              symptom_code: {type: string, enum: [abdominal_pain, bloating, diarrhea, constipation, nausea, vomiting, acid_reflux, appetite_change, blood_in_stool_concern, other]}
+              other_description: {type: [string, 'null'], minLength: 1, maxLength: 160, description: symptom_code=other 时必填，其他类别禁止填写}
+              severity: {type: [integer, 'null'], minimum: 0, maximum: 10, description: 患者主观评分}
+              body_location: {type: [string, 'null'], maxLength: 64}
+        symptom_status: {type: string, enum: [ongoing, relieved], default: ongoing, description: 仍持续或已缓解；PATCH 变更写入不可变历史}
+        duration_minutes: {type: [integer, 'null'], minimum: 0, maximum: 10080}
+        notes: {type: [string, 'null'], maxLength: 2000}
+        companion_signs: {type: array, maxItems: 30, items: {type: string, maxLength: 48}}
+    Record:
+      allOf:
+        - {$ref: '#/components/schemas/RecordWrite'}
+        - type: object
+          required: [id, record_version, created_at, updated_at]
+          properties:
+            id: {type: string, format: uuid}
+            record_version: {type: integer, minimum: 1}
+            created_at: {type: string, format: date-time}
+            updated_at: {type: string, format: date-time}
+    RecordPage:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Record'}}
+        next_cursor: {type: [string, 'null']}
+    RiskAlert:
+      type: object
+      required: [id, severity, message, recommended_action, status, triggered_at, evidence]
+      properties:
+        id: {type: string, format: uuid}
+        severity: {type: string, enum: [attention, seek_care, emergency]}
+        message: {type: string}
+        recommended_action: {type: string}
+        status: {type: string, enum: [unread, read, reevaluated]}
+        triggered_at: {type: string, format: date-time}
+        read_at: {type: [string, 'null'], format: date-time}
+        reevaluated_at: {type: [string, 'null'], format: date-time}
+        evidence: {type: object}
+    RiskAlertPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/RiskAlert'}}
+        next_cursor: {type: [string, 'null']}
+    SymptomStatusHistory:
+      type: object
+      additionalProperties: false
+      required: [symptom_record_id, current_status, events]
+      properties:
+        symptom_record_id: {type: string, format: uuid}
+        current_status: {type: string, enum: [ongoing, relieved]}
+        events:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [status, record_version, changed_at]
+            properties:
+              status: {type: string, enum: [ongoing, relieved]}
+              record_version: {type: integer, minimum: 1}
+              changed_at: {type: string, format: date-time}
+    AnalysisTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [analysis_type]
+      properties:
+        analysis_type: {type: string, enum: [comprehensive_health_analysis, periodic_summary]}
+        requested_from: {type: [string, 'null'], format: date-time}
+        requested_to: {type: [string, 'null'], format: date-time}
+    AnalysisTask:
+      type: object
+      additionalProperties: false
+      required: [id, analysis_type, status, created_at, updated_at, attempt, retry_of, result, error_code]
+      properties:
+        id: {type: string, format: uuid}
+        analysis_type: {type: string, enum: [comprehensive_health_analysis, periodic_summary]}
+        status: {type: string, enum: [pending, processing, needs_input, succeeded, partial, failed, cancelled]}
+        attempt: {type: integer, minimum: 1}
+        retry_of: {type: [string, 'null'], format: uuid}
+        result: {oneOf: [{$ref: '#/components/schemas/AnalysisResult'}, {type: 'null'}]}
+        error_code: {type: [string, 'null'], pattern: '^[A-Z0-9_]+$'}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    AdviceEvidence:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [evidence_type, source_type, source_id, source_version, locator, source_deleted, target]
+          properties:
+            evidence_type: {const: patient}
+            source_type: {type: string, enum: [confirmed_medical_fact, diet_record, stool_record, symptom_record, medication_plan, medication_checkin, risk_alert]}
+            source_id: {type: string, format: uuid}
+            source_version: {type: integer, minimum: 1}
+            locator: {type: [string, 'null'], maxLength: 160}
+            source_deleted: {type: boolean}
+            target: {type: [object, 'null'], additionalProperties: false, required: [type, id], properties: {type: {type: string}, id: {type: string, format: uuid}}}
+        - type: object
+          additionalProperties: false
+          required: [evidence_type, knowledge_ref, knowledge_version, title, publisher, citation_url]
+          properties:
+            evidence_type: {const: knowledge}
+            knowledge_ref: {type: string, minLength: 1, maxLength: 160}
+            knowledge_version: {type: string, minLength: 1, maxLength: 64}
+            title: {type: string, minLength: 1, maxLength: 240}
+            publisher: {type: string, minLength: 1, maxLength: 160}
+            citation_url: {type: [string, 'null'], format: uri, pattern: '^https://'}
+    Advice:
+      type: object
+      additionalProperties: false
+      required: [id, task_id, category, priority, title, body, uncertainty, applicability, safety_boundary, version, status, basis_updated, basis_updated_at, basis_update_reason, evidence, feedback, feedback_history, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        task_id: {type: string, format: uuid}
+        category: {type: string, enum: [diet, lifestyle, record_management, medication_adherence, care_consultation]}
+        priority: {type: string, enum: [routine, important]}
+        title: {type: string, minLength: 1, maxLength: 160}
+        body: {type: string, minLength: 1, maxLength: 3000}
+        uncertainty: {type: object, additionalProperties: false, required: [level, reasons], properties: {level: {type: string, enum: [low, moderate, high]}, reasons: {type: array, maxItems: 10, items: {type: string, maxLength: 240}}}}
+        applicability: {type: object, additionalProperties: false, required: [scope, limitations], properties: {scope: {type: string, enum: [general, condition_specific]}, limitations: {type: array, maxItems: 10, items: {type: string, maxLength: 240}}}}
+        safety_boundary: {type: object, additionalProperties: false, required: [not_diagnosis, not_prescription, risk_alert_priority], properties: {not_diagnosis: {const: true}, not_prescription: {const: true}, risk_alert_priority: {const: true}}}
+        version: {type: string, minLength: 1, maxLength: 32}
+        status: {type: string, enum: [new, read, archived]}
+        basis_updated: {type: boolean}
+        basis_updated_at: {type: [string, 'null'], format: date-time}
+        basis_update_reason: {type: [string, 'null'], enum: [source_updated, source_deleted, fact_replaced, null]}
+        evidence: {type: array, items: {$ref: '#/components/schemas/AdviceEvidence'}}
+        feedback: {oneOf: [{$ref: '#/components/schemas/AdviceFeedback'}, {type: 'null'}]}
+        feedback_history: {type: array, items: {type: object, additionalProperties: false, required: [feedback_type, version, created_at], properties: {feedback_type: {type: string, enum: [helpful, not_helpful, not_applicable]}, version: {type: integer, minimum: 1}, created_at: {type: string, format: date-time}}}}
+        created_at: {type: string, format: date-time}
+    AdvicePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Advice'}}
+        next_cursor: {type: [string, 'null']}
+    AdviceFeedbackRequest:
+      type: object
+      additionalProperties: false
+      required: [feedback_type, expected_version]
+      properties:
+        feedback_type: {type: string, enum: [helpful, not_helpful, not_applicable]}
+        expected_version: {type: integer, minimum: 0}
+    AdviceFeedback:
+      type: object
+      additionalProperties: false
+      required: [advice_id, feedback_type, version]
+      properties:
+        advice_id: {type: string, format: uuid}
+        feedback_type: {type: string, enum: [helpful, not_helpful, not_applicable]}
+        version: {type: integer, minimum: 1}
+    AnalysisResult:
+      type: object
+      additionalProperties: false
+      required: [schema_version, summary, observations, evidence, uncertainties, missing_data]
+      properties:
+        schema_version: {const: '1.0'}
+        summary: {type: string, maxLength: 1200}
+        observations: {type: array, maxItems: 30, items: {type: string, maxLength: 500}}
+        evidence:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            additionalProperties: false
+            required: [source_type, source_id, source_version, locator, source_deleted]
+            properties:
+              source_type: {type: string, enum: [confirmed_medical_fact, diet_record, stool_record, symptom_record, medication_plan, medication_checkin, risk_alert]}
+              source_id: {type: string, format: uuid}
+              source_version: {type: integer, minimum: 1}
+              locator: {type: [string, 'null'], maxLength: 160}
+              source_deleted: {type: boolean}
+        uncertainties: {type: array, maxItems: 30, items: {type: string, maxLength: 500}}
+        missing_data: {type: array, maxItems: 30, items: {type: string, maxLength: 120}}
+    AcceptedOperation:
+      type: object
+      required: [operation_id, status]
+      properties:
+        operation_id: {type: string, format: uuid}
+        status: {const: accepted}
+    PrivacyDeletionAccepted:
+      type: object
+      additionalProperties: false
+      required: [operation_id, receipt, status]
+      properties:
+        operation_id: {type: string, format: uuid}
+        receipt: {type: [string, 'null'], minLength: 40, maxLength: 128, description: Present only in the response that creates the operation.}
+        status: {const: accepted}
+    PrivacyDeletionStatus:
+      type: object
+      additionalProperties: false
+      required: [operation_id, status, requested_at, due_at, completed_at]
+      properties:
+        operation_id: {type: string, format: uuid}
+        status: {type: string, enum: [pending, processing, overdue, dead_letter, completed]}
+        requested_at: {type: string, format: date-time}
+        due_at: {type: string, format: date-time}
+        completed_at: {type: [string, 'null'], format: date-time}
+    PatientNotification:
+      type: object
+      additionalProperties: false
+      required: [id, event_type, category, priority, occurred_at, created_at, read_at, target, target_unavailable]
+      properties:
+        id: {type: string, format: uuid}
+        event_type: {type: string, enum: [analysis_completed, advice_created, risk_alert_created, checkin_reminder]}
+        category: {type: string, enum: [analysis, advice, risk, medication_reminder]}
+        priority: {type: string, enum: [ordinary, risk]}
+        occurred_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+        read_at: {type: [string, 'null'], format: date-time}
+        target: {type: [object, 'null'], additionalProperties: false, required: [type, id], properties: {type: {type: string, enum: [analysis_task, advice, risk_alert, medication_checkin]}, id: {type: string, format: uuid}}}
+        target_unavailable: {type: boolean}
+    NotificationPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/PatientNotification'}}
+        next_cursor: {type: [string, 'null']}
+    NotificationPreference:
+      type: object
+      additionalProperties: false
+      required: [ordinary_in_app_enabled, quiet_start, quiet_end, timezone]
+      properties:
+        ordinary_in_app_enabled: {type: boolean}
+        quiet_start: {type: [string, 'null'], format: time}
+        quiet_end: {type: [string, 'null'], format: time}
+        timezone: {type: string, minLength: 1, maxLength: 64, description: IANA 时区}
+    ActivityWrite:
+      type: object
+      additionalProperties: false
+      required: [activity_type, intensity, subjective_feeling, duration_minutes, occurred_at]
+      properties:
+        activity_type: {type: string, enum: [walking, jogging, cycling, other]}
+        description: {type: [string, 'null'], minLength: 1, maxLength: 160, description: other 必填且其他类型禁止}
+        intensity: {type: string, enum: [low, moderate, high]}
+        subjective_feeling: {type: string, enum: [better, same, worse]}
+        duration_minutes: {type: integer, minimum: 1, maximum: 1440}
+        occurred_at: {type: string, format: date-time, description: 活动开始时间，必须包含时区}
+    ActivityPatch:
+      type: object
+      additionalProperties: false
+      required: [record_version]
+      properties:
+        record_version: {type: integer, minimum: 1}
+        activity_type: {type: string, enum: [walking, jogging, cycling, other]}
+        description: {type: [string, 'null'], minLength: 1, maxLength: 160}
+        intensity: {type: string, enum: [low, moderate, high]}
+        subjective_feeling: {type: string, enum: [better, same, worse]}
+        duration_minutes: {type: integer, minimum: 1, maximum: 1440}
+        occurred_at: {type: string, format: date-time}
+    ActivityRecord:
+      allOf:
+        - {$ref: '#/components/schemas/ActivityWrite'}
+        - {type: object, required: [id, record_version, created_at, updated_at], properties: {id: {type: string, format: uuid}, record_version: {type: integer, minimum: 1}, created_at: {type: string, format: date-time}, updated_at: {type: string, format: date-time}}}
+    ActivityPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties: {items: {type: array, items: {$ref: '#/components/schemas/ActivityRecord'}}, next_cursor: {type: [string, 'null']}}
+    HistoryPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {type: object, additionalProperties: false, required: [id, type, occurred_at, target], properties: {id: {type: string, format: uuid}, type: {type: string, enum: [diet, stool, symptom, medication_checkin, activity, advice]}, occurred_at: {type: string, format: date-time}, target: {type: object, additionalProperties: false, required: [type, id], properties: {type: {type: string, enum: [diet_record, stool_record, symptom_record, medication_checkin, activity_record, advice]}, id: {type: string, format: uuid}}}}}}
+        next_cursor: {type: [string, 'null']}
+    Problem:
+      type: object
+      required: [type, title, status, code, request_id]
+      properties:
+        type: {type: string, format: uri-reference}
+        title: {type: string}
+        status: {type: integer, minimum: 400, maximum: 599}
+        detail: {type: string}
+        instance: {type: string, format: uri-reference}
+        code: {type: string}
+        request_id: {type: string, format: uuid}
+        errors: {type: array, items: {type: object}}

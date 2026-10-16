@@ -1,0 +1,59 @@
+# GutCare Agent 文档基线与索引
+
+已采纳 ADR-0009：F02 私有文件上传、医疗档案与删除补偿，见 `ADR/0009-f02-private-file-workflow.md`。
+已采纳 ADR-0010：F06 用药计划、日程与打卡，见 `ADR/0010-f06-medication-schedule-checkin.md`。
+已采纳 ADR-0011：F02 医疗候选与患者逐字段确认，见 `ADR/0011-f02-medical-candidate-confirmation.md`。
+已采纳 ADR-0012：F08 冻结快照分析任务闭环，见 `ADR/0012-f08-frozen-analysis-task-workflow.md`。
+已采纳 ADR-0013：F09 建议与证据业务闭环，见 `ADR/0013-f09-advice-evidence-lifecycle.md`。
+已采纳 ADR-0014：F12 P0 站内通知与事务 outbox，见 `ADR/0014-f12-in-app-notifications.md`。
+已采纳 ADR-0015：F07 活动记录与 F11 确定性历史趋势，见 `ADR/0015-f07-activity-f11-history-trends.md`。
+已采纳 ADR-0016：F13 隐私导出、注销全量清理、审计和恢复重放，见 `ADR/0016-f13-privacy-deletion-export.md`。
+已采纳 ADR-0017：F02 解析结果 outcome 与 A03 疾病专属建议适用性，见 `ADR/0017-f02-parse-outcomes-and-applicability.md`。
+已采纳 ADR-0018：F02 已确认检验结果的保守冲突管理，见 `ADR/0018-f02-confirmed-lab-result-conflicts.md`。
+F02 的表/状态/API/隐私/测试追踪增补见 `F02-文件与医疗档案实现补充.md`。
+后端完成性与验收证据归档见 `后端交付验收报告.md`；该报告区分已实现证据、独立验收状态与外部依赖。
+
+> 基线版本：V1.3（ADR-0008 增补）
+> 冻结日期：2026-10-14  
+> 工作目录：`D:\GutCare_Agent`
+
+## 1. 文档用途
+
+本目录是产品、APP/业务后端、智能体、测试和运维共同使用的唯一设计基线。文件名不再带 `(1)`；任何复制件不具有基线效力。
+
+## 2. 主题权威矩阵
+
+| 主题 | 权威文档/契约 | 冲突处理 |
+|---|---|---|
+| 产品目标与范围 | `设计方案.md` | 与详细行为冲突时以详细功能设计为准 |
+| 用户行为、优先级、验收 | `详细功能设计.md` | 与接口/表实现冲突时先保持业务语义，再同步契约 |
+| 两开发方责任 | `APP及业务后端与智能体系统开发边界.md` | 所有排期和任务分派必须遵守 |
+| 技术栈与实现约束 | `技术方案.md`、ADR | 已接受 ADR 优先于旧正文，并须回写正文 |
+| 字段、表、生命周期 | `数据库设计方案.md`、`数据字典与状态机.md` | 数据字典约束枚举；数据库文档约束物理模型 |
+| HTTP 请求/响应 | `../contracts/openapi/gutcare-v1.yaml`、`../contracts/agent/agent-v1.yaml` | 机器可读契约为实现和契约测试依据 |
+| 隐私与删除 | `隐私授权与数据生命周期.md` | 更严格的适用法律/正式隐私政策优先，变更须评审 |
+| 医疗安全规则 | `医疗安全规则规范.md` | 仅 `approved` 规则可在生产启用 |
+| 测试与发布门禁 | `测试方案.md`、`部署运维手册.md` | 未满足阻断门禁不得发布 |
+| 需求覆盖 | `需求追踪矩阵.md` | 每次功能交付同步更新 |
+
+## 3. 决策优先级
+
+同一主题内按以下顺序处理：已批准且未废弃的 ADR → 当前机器可读契约/数据字典 → 当前专题文档 → 总体文档。用户新确认的需求必须先落为 ADR 或文档变更，不能只存在于聊天记录。
+
+## 4. 已冻结的跨文档结论
+
+- 平台：Android/iOS APP；无患者 Web 端。
+- P0 登录：邮箱 + 密码；标准 SMTP，开发使用 Mailpit；无手机号/SMS。
+- 资料最小化：昵称可空、出生年份必填；不收集完整生日、身份证号、性别、身高、体重。
+- HTTP：成功直接返回 DTO/分页对象或 `204`；错误为 RFC 9457 Problem Details。
+- 数据：PostgreSQL 18.x；业务库与知识库分数据库；文件存 MinIO/S3，缓存/队列用 Redis。
+- 智能任务：业务 Worker 唯一 claim，智能体不二次 claim；路径统一 `/internal/v1` 与 `snake_case`。
+- 用药：`confirmation_status` 与 `plan_status` 分离。
+- 删除：立即不可见；单记录 7 天后物理删除，注销 30 天内完成，备份最长 35 天轮转，去标识安全审计 180 天。
+- F13：注销 receipt 只存 hash；操作与账户外键解耦；独立 privacy worker inventory/lease/step ledger；恢复后 replay 成功才开放 readiness；导出经同源 gateway 单次短时能力下载。
+- 医疗安全：工程团队不制定临床阈值；未审核规则只能测试。
+- 授权版本必须由服务端逐 consent type 与告知摘要哈希绑定；privacy policy 撤回唯一入口为账号注销，提交时立即冻结账户并撤销全部刷新会话。
+
+## 5. 变更规则
+
+改变平台、数据库边界、认证方式、API 兼容性、状态机、数据保留期或医疗安全策略时必须新增 ADR，并更新所有受影响文档、契约、测试和追踪矩阵。版本号采用 `V主.次`；正文与契约的提交必须原子化。
