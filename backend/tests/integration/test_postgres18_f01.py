@@ -10,6 +10,7 @@ import json
 import os
 import re
 import time
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import UTC, date, datetime, timedelta
@@ -869,7 +870,38 @@ def test_migrations_round_trip_all_revisions(database: Any) -> None:
                 "status": "pending",
                 "legacy_field": "preserve-me",
             }
+            backfill_record_id = uuid4()
+            deleted_at = utc_now() - timedelta(days=8)
+            with _sessions(app_engine).begin() as db:
+                db.execute(
+                    text("SELECT set_config('app.patient_id', :p, true)"),
+                    {"p": str(rollback_patient)},
+                )
+                db.add(
+                    MoodRecord(
+                        id=backfill_record_id,
+                        patient_id=rollback_patient,
+                        occurred_at=deleted_at,
+                        mood_level=2,
+                        emotion_tags=[],
+                        note="synthetic legacy deleted mood",
+                        deleted_at=deleted_at,
+                    )
+                )
         command.upgrade(config, "head")
+        with _sessions(app_engine)() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :p, true)"),
+                {"p": str(rollback_patient)},
+            )
+            backfilled_due_at = db.scalar(
+                text(
+                    "SELECT purge_after FROM privacy.mood_purge_queue "
+                    "WHERE patient_id=:p AND mood_record_id=:r"
+                ),
+                {"p": rollback_patient, "r": backfill_record_id},
+            )
+            assert backfilled_due_at == deleted_at + timedelta(days=7)
         with migrator_engine.connect() as db:
             db.execute(
                 text("SELECT set_config('app.patient_id', :p, false)"),
@@ -935,7 +967,7 @@ def test_migrations_round_trip_all_revisions(database: Any) -> None:
             )
             assert (
                 db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0025_f14_analysis_mood"
+                == "0026_h3b_mood_privacy_lifecycle"
             )
             assert db.scalar(text("SELECT to_regclass('health.mood_record') IS NOT NULL"))
             assert (
@@ -1000,7 +1032,7 @@ def test_migrations_round_trip_all_revisions(database: Any) -> None:
             )
             assert (
                 db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0025_f14_analysis_mood"
+                == "0026_h3b_mood_privacy_lifecycle"
             )
             assert db.scalar(text("SELECT to_regclass('health.mood_record') IS NOT NULL"))
             assert (
@@ -6828,3 +6860,316 @@ def test_f12_postgres18_outbox_api_preferences_and_worker(database: Any) -> None
         notifications.list_notifications(context, 20, None, None, False)
     assert frozen.value.status == 401
     worker_engine.dispose()
+
+
+def test_f13_h3b_mood_explicit_export_and_seven_day_purge(database: Any) -> None:
+    """T110: explicit encrypted export and replayable, patient-scoped purge."""
+    app_engine, migrator_engine = database
+    app_url, _ = _integration_urls()
+    worker_password = os.environ.get(
+        "GUTCARE_TEST_PRIVACY_WORKER_PASSWORD", "gutcare-test-privacy-worker-only"
+    )
+    worker_engine = _engine(
+        app_url.set(username="gutcare_privacy_worker", password=worker_password),
+        "gutcare-h3b-mood-worker",
+    )
+    bucket = os.environ["GUTCARE_TEST_S3_BUCKET"]
+    storage = S3ObjectStorage(
+        os.environ["GUTCARE_TEST_S3_ENDPOINT"],
+        os.environ["GUTCARE_TEST_S3_ACCESS_KEY"],
+        os.environ["GUTCARE_TEST_S3_SECRET_KEY"],
+    )
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ["GUTCARE_TEST_S3_ENDPOINT"],
+        aws_access_key_id=os.environ["GUTCARE_TEST_S3_ACCESS_KEY"],
+        aws_secret_access_key=os.environ["GUTCARE_TEST_S3_SECRET_KEY"],
+        region_name="us-east-1",
+    )
+    try:
+        s3.create_bucket(Bucket=bucket)
+    except s3.exceptions.BucketAlreadyOwnedByYou:
+        pass
+    key = bytes(range(32))
+    user_id, patient_id = _seed_patient(app_engine, nickname="h3b-mood-export")
+    other_user, other_patient = _seed_patient(app_engine, nickname="h3b-mood-other")
+    context = AuthContext(user_id, uuid4())
+    other_context = AuthContext(other_user, uuid4())
+    active_id, due_id = uuid4(), uuid4()
+    private_note = "synthetic mood export private note"
+    with _sessions(app_engine).begin() as db:
+        db.execute(
+            text("SELECT set_config('app.patient_id', :patient, true)"),
+            {"patient": str(patient_id)},
+        )
+        db.execute(
+            text(
+                "INSERT INTO health.mood_record "
+                "(id,patient_id,occurred_at,mood_level,emotion_tags,note) "
+                "VALUES (:id,:patient,now(),4,'[\"calm\"]'::jsonb,:note)"
+            ),
+            {"id": active_id, "patient": patient_id, "note": private_note},
+        )
+        db.execute(
+            text(
+                "INSERT INTO health.record_idempotency "
+                "(patient_id,operation,idempotency_key,request_hash,resource_id) "
+                "VALUES (:patient,'mood-records','h3b-active-key',repeat('a',64),:id)"
+            ),
+            {"patient": patient_id, "id": active_id},
+        )
+        db.execute(
+            text(
+                "INSERT INTO health.mood_record "
+                "(id,patient_id,occurred_at,mood_level,emotion_tags,note,deleted_at) "
+                "VALUES (:id,:patient,now()-interval '8 days',2,'[]'::jsonb,:note,"
+                "now()-interval '8 days')"
+            ),
+            {"id": due_id, "patient": patient_id, "note": "expired synthetic note"},
+        )
+        db.execute(
+            text(
+                "INSERT INTO health.record_idempotency "
+                "(patient_id,operation,idempotency_key,request_hash,resource_id) "
+                "VALUES (:patient,'mood-records','h3b-due-key',repeat('b',64),:id)"
+            ),
+            {"patient": patient_id, "id": due_id},
+        )
+        db.execute(
+            text(
+                "INSERT INTO privacy.mood_purge_queue "
+                "(patient_id,mood_record_id,purge_after) "
+                "VALUES (:patient,:id,now()-interval '1 day')"
+            ),
+            {"patient": patient_id, "id": due_id},
+        )
+        db.execute(
+            text("SELECT set_config('app.patient_id', :patient, true)"),
+            {"patient": str(other_patient)},
+        )
+        db.execute(
+            text(
+                "INSERT INTO health.mood_record "
+                "(id,patient_id,occurred_at,mood_level,emotion_tags,note) "
+                "VALUES (:id,:patient,now(),3,'[]'::jsonb,'other patient synthetic note')"
+            ),
+            {"id": uuid4(), "patient": other_patient},
+        )
+
+    worker_sessions = _sessions(worker_engine)
+    worker = PrivacyWorker(worker_sessions, storage, bucket, key, raise_exceptions=True)
+    privacy = PrivacyService(
+        _sessions(app_engine), "h3b-integration-pepper" * 2, storage, key, bucket
+    )
+    try:
+        # Without explicit selection, the mood dataset and note are absent.
+        profile_export, _ = privacy.create_export_preview(context, ["profile"])
+        privacy.confirm_export(context, profile_export)
+        assert worker.process_export_one() is True
+        capability = privacy.export_status(context, profile_export)["download_capability"]
+        profile_archive = privacy.download_export(str(capability))
+        with zipfile.ZipFile(BytesIO(profile_archive)) as archive:
+            data = json.loads(archive.read("data.json"))
+            assert "mood_records" not in data["datasets"]
+            assert private_note not in archive.read("data.json").decode()
+
+        # Explicit mood export is a one-time encrypted package. The manifest
+        # intentionally has no digest/size derived from note-bearing data.json.
+        mood_export, categories = privacy.create_export_preview(context, ["mood"])
+        assert categories == ["mood"]
+        privacy.confirm_export(context, mood_export)
+        assert worker.process_export_one() is True
+        status = privacy.export_status(context, mood_export)
+        encrypted_key = str(status["download_capability"])
+        stored_object = storage.read_object(bucket, f"exports/{mood_export}.zip.enc")
+        assert private_note.encode() not in stored_object
+        mood_archive = privacy.download_export(encrypted_key)
+        with zipfile.ZipFile(BytesIO(mood_archive)) as archive:
+            data_bytes = archive.read("data.json")
+            data = json.loads(data_bytes)
+            assert data["datasets"]["mood_records"][0]["note"] == private_note
+            assert len(data["datasets"]["mood_records"]) == 1
+            assert data["datasets"]["mood_records"][0]["id"] == str(active_id)
+            assert "expired synthetic note" not in data_bytes.decode()
+            manifest = json.loads(archive.read("manifest.json"))
+            data_manifest = next(row for row in manifest["files"] if row["name"] == "data.json")
+            assert set(data_manifest) == {"name"}
+        with pytest.raises(Problem) as cross_patient:
+            privacy.export_status(other_context, mood_export)
+        assert cross_patient.value.status == 404
+
+        # The API's soft delete schedules the record exactly seven days later.
+        mood = MoodService(_sessions(app_engine), "h3b-mood-hmac-key-not-for-production-0001")
+        mood.delete(context, active_id, 1)
+
+        # Fail with a real PostgreSQL undefined-table error after the queue and
+        # mood-row DELETEs have run, but before the idempotency DELETE commits.
+        def fail_ledger_delete(
+            _connection: Any,
+            _cursor: Any,
+            statement: str,
+            _parameters: Any,
+            _context: Any,
+            _executemany: bool,
+        ) -> tuple[str, dict[str, Any]]:
+            if "DELETE FROM health.record_idempotency" in statement:
+                return "SELECT * FROM h3b_missing_mood_purge_table", {}
+            return statement, _parameters
+
+        event.listen(worker_engine, "before_cursor_execute", fail_ledger_delete, retval=True)
+        try:
+            with pytest.raises(DBAPIError):
+                worker.purge_expired_mood_records()
+        finally:
+            event.remove(worker_engine, "before_cursor_execute", fail_ledger_delete)
+
+        with _sessions(app_engine)() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :patient, true)"),
+                {"patient": str(patient_id)},
+            )
+            assert (
+                db.scalar(
+                    text("SELECT count(*) FROM health.mood_record WHERE id IN (:active,:due)"),
+                    {"active": active_id, "due": due_id},
+                )
+                == 2
+            )
+            assert (
+                db.scalar(
+                    text(
+                        "SELECT count(*) FROM health.record_idempotency "
+                        "WHERE resource_id IN (:active,:due)"
+                    ),
+                    {"active": active_id, "due": due_id},
+                )
+                == 2
+            )
+            assert (
+                db.scalar(
+                    text(
+                        "SELECT count(*) FROM privacy.mood_purge_queue "
+                        "WHERE patient_id=:patient AND mood_record_id IN (:active,:due)"
+                    ),
+                    {"patient": patient_id, "active": active_id, "due": due_id},
+                )
+                == 2
+            )
+            db.execute(
+                text("SELECT set_config('app.patient_id', :patient, true)"),
+                {"patient": str(other_patient)},
+            )
+            assert (
+                db.scalar(
+                    text("SELECT count(*) FROM health.mood_record WHERE patient_id=:patient"),
+                    {"patient": other_patient},
+                )
+                == 1
+            )
+
+        with worker_sessions() as db:
+            assert (
+                db.scalar(
+                    text(
+                        "SELECT has_table_privilege('gutcare_privacy_worker','health.mood_record','SELECT')"
+                    )
+                )
+                is True
+            )
+            assert (
+                db.scalar(
+                    text(
+                        "SELECT has_table_privilege('gutcare_privacy_worker','health.mood_record','DELETE')"
+                    )
+                )
+                is True
+            )
+            assert (
+                db.scalar(
+                    text(
+                        "SELECT has_table_privilege('gutcare_privacy_worker','health.mood_record','UPDATE')"
+                    )
+                )
+                is False
+            )
+            assert (
+                db.scalar(
+                    text(
+                        "SELECT has_table_privilege('gutcare_privacy_worker','privacy.mood_purge_queue','INSERT')"
+                    )
+                )
+                is False
+            )
+        with worker_sessions.begin() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :patient, true)"),
+                {"patient": str(patient_id)},
+            )
+            assert (
+                db.scalar(
+                    text("SELECT count(*) FROM health.mood_record WHERE patient_id=:other"),
+                    {"other": other_patient},
+                )
+                == 0
+            )
+        with pytest.raises(DBAPIError):
+            with worker_engine.begin() as db:
+                db.execute(
+                    text(
+                        "INSERT INTO privacy.mood_purge_queue "
+                        "(patient_id,mood_record_id,purge_after) VALUES (:p,:r,now())"
+                    ),
+                    {"p": patient_id, "r": uuid4()},
+                )
+
+        # Two independent worker sessions race for the same due queue row. One owns
+        # the batch and the other observes no work; both finish under a bound.
+        barrier = Barrier(2)
+
+        def race_purge() -> int:
+            barrier.wait(timeout=5)
+            return worker.purge_expired_mood_records()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(race_purge) for _ in range(2)]
+            claims = [future.result(timeout=15) for future in futures]
+        assert sorted(claims) == [0, 1]
+        assert worker.purge_expired_mood_records() == 0
+        with _sessions(app_engine)() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :patient, true)"),
+                {"patient": str(patient_id)},
+            )
+            assert (
+                db.scalar(
+                    text("SELECT count(*) FROM health.mood_record WHERE id=:due"),
+                    {"due": due_id},
+                )
+                == 0
+            )
+            assert (
+                db.scalar(
+                    text("SELECT count(*) FROM health.record_idempotency WHERE resource_id=:due"),
+                    {"due": due_id},
+                )
+                == 0
+            )
+            assert (
+                db.scalar(
+                    text(
+                        "SELECT count(*) FROM privacy.mood_purge_queue "
+                        "WHERE patient_id=:patient AND mood_record_id=:due"
+                    ),
+                    {"patient": patient_id, "due": due_id},
+                )
+                == 0
+            )
+            assert (
+                db.scalar(
+                    text("SELECT count(*) FROM health.mood_record WHERE id=:active"),
+                    {"active": active_id},
+                )
+                == 1
+            )
+    finally:
+        worker_engine.dispose()

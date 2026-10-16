@@ -28,6 +28,7 @@ EXPORT_CATEGORIES = frozenset(
         "symptoms",
         "medication",
         "activity",
+        "mood",
         "analysis",
         "advice",
         "alerts",

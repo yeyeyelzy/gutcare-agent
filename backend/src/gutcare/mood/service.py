@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import json
 from base64 import urlsafe_b64decode, urlsafe_b64encode
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -260,3 +260,16 @@ class MoodService:
                 raise Problem(409, "RECORD_VERSION_CONFLICT", "Mood record has changed")
             record.deleted_at = record.updated_at = datetime.now(UTC)
             record.record_version += 1
+            db.execute(
+                text(
+                    "INSERT INTO privacy.mood_purge_queue "
+                    "(patient_id, mood_record_id, purge_after) "
+                    "VALUES (:patient, :record, :purge_after) "
+                    "ON CONFLICT (patient_id, mood_record_id) DO NOTHING"
+                ),
+                {
+                    "patient": patient,
+                    "record": record.id,
+                    "purge_after": record.deleted_at + timedelta(days=7),
+                },
+            )

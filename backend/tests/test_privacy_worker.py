@@ -8,6 +8,7 @@ import pytest
 from gutcare.auth.service import AuthContext
 from gutcare.privacy.api import _limit_status_checks
 from gutcare.privacy.service import (
+    EXPORT_CATEGORIES,
     MAX_EXPORT_BYTES,
     MAX_EXPORT_CIPHERTEXT_BYTES,
     PrivacyService,
@@ -51,7 +52,13 @@ def test_deletion_ledger_has_ordered_phases_and_preserves_global_rules() -> None
     assert "health.patient_notification" in tables
     assert "analysis.analysis_task" in tables
     assert "health.medical_document" in tables
+    assert "health.mood_record" in tables
+    assert "privacy.mood_purge_queue" in tables
     assert "safety.risk_rule" not in tables
+
+
+def test_mood_is_an_explicit_export_category() -> None:
+    assert "mood" in EXPORT_CATEGORIES
 
 
 def test_export_is_disabled_at_preview_when_kek_is_missing() -> None:

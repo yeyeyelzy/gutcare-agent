@@ -30,6 +30,11 @@ INSERT INTO health.patient_profile(id,user_id,birth_year,timezone)
 VALUES('__PATIENT__','__USER__',1990,'Asia/Shanghai');
 INSERT INTO health.file_object(patient_id,bucket_name,object_key,original_name,content_type,size_bytes,content_sha256,sensitivity,scan_status,storage_status)
 VALUES('__PATIENT__','__BUCKET__','privacy-restore-replay/test.bin','restore-test.bin','application/octet-stream',8,repeat('a',64),'normal','clean','available');
+INSERT INTO health.mood_record(patient_id,occurred_at,mood_level,emotion_tags,note)
+VALUES('__PATIENT__',now(),2,jsonb_build_array('calm'),'synthetic account-delete mood note');
+INSERT INTO health.record_idempotency(patient_id,operation,idempotency_key,request_hash,resource_id)
+SELECT '__PATIENT__','mood-records','restore-account-mood-key',repeat('c',64),id
+FROM health.mood_record WHERE patient_id='__PATIENT__' ORDER BY created_at DESC LIMIT 1;
 INSERT INTO privacy.deletion_operation(account_hash,patient_id,receipt_hash,status,due_at)
 VALUES(md5('__PATIENT__')||md5('__PATIENT__x'),'__PATIENT__',md5('receipt-__PATIENT__')||md5('receipt-__PATIENT__x'),'pending',now()-interval '1 hour');
 '@
@@ -42,6 +47,7 @@ VALUES(md5('__PATIENT__')||md5('__PATIENT__x'),'__PATIENT__',md5('receipt-__PATI
     # restored H1 row proves the new table and sensitive JSONB survive pg_dump.
     $moodUserId = [guid]::NewGuid().ToString()
     $moodPatientId = [guid]::NewGuid().ToString()
+    $moodPurgeRecordId = [guid]::NewGuid().ToString()
     $moodSeedSql = @'
 INSERT INTO iam.user_account(id,email_ciphertext,email_lookup_hash,password_hash,status)
 VALUES('__USER__',decode('02','hex'),md5('__USER__')||md5('__USER__x'),'$argon2id$mood-restore-seed','active');
@@ -49,11 +55,17 @@ INSERT INTO health.patient_profile(id,user_id,birth_year,timezone)
 VALUES('__PATIENT__','__USER__',1990,'Asia/Shanghai');
 INSERT INTO health.mood_record(patient_id,occurred_at,mood_level,emotion_tags,note)
 VALUES('__PATIENT__','2026-10-16T12:30:00Z',4,jsonb_build_array('calm','content'),'synthetic restore evidence');
+INSERT INTO health.mood_record(id,patient_id,occurred_at,mood_level,emotion_tags,note,deleted_at)
+VALUES('__PURGE_RECORD__','__PATIENT__',now()-interval '8 days',1,'[]'::jsonb,'synthetic expired mood note',now()-interval '8 days');
+INSERT INTO privacy.mood_purge_queue(patient_id,mood_record_id,purge_after)
+VALUES('__PATIENT__','__PURGE_RECORD__',now()-interval '1 day');
+INSERT INTO health.record_idempotency(patient_id,operation,idempotency_key,request_hash,resource_id)
+VALUES('__PATIENT__','mood-records','restore-expired-mood-key',repeat('d',64),'__PURGE_RECORD__');
 INSERT INTO health.patient_consent(patient_id,consent_type,document_version,granted,decided_at,metadata)
 SELECT '__PATIENT__',consent_type,'restore-v1',true,now(),jsonb_build_object('notice_summary_hash',repeat('a',64))
 FROM unnest(ARRAY['health_data_processing','mood_data_processing','mood_ai_sharing','third_party_ai']) consent_type;
 '@
-    $moodSeedSql = $moodSeedSql.Replace('__USER__', $moodUserId).Replace('__PATIENT__', $moodPatientId)
+    $moodSeedSql = $moodSeedSql.Replace('__USER__', $moodUserId).Replace('__PATIENT__', $moodPatientId).Replace('__PURGE_RECORD__', $moodPurgeRecordId)
     & $docker.Source compose -f $composeFile -p $project exec -T $service `
         psql -U gutcare_bootstrap -d gutcare_business_test -v ON_ERROR_STOP=1 -c $moodSeedSql
     if ($LASTEXITCODE -ne 0) { throw 'Mood-record restore seed failed.' }
@@ -163,13 +175,19 @@ SELECT (SELECT count(*) FROM privacy.deletion_operation WHERE account_hash=md5('
 SELECT (SELECT count(*) FROM privacy.deletion_operation WHERE account_hash=md5('$privacyPatientId')||md5('${privacyPatientId}x') AND status='completed' AND patient_id IS NULL),
        (SELECT count(*) FROM health.patient_profile WHERE id='$privacyPatientId'),
        (SELECT count(*) FROM privacy.object_inventory i JOIN privacy.deletion_operation o ON o.id=i.operation_id WHERE o.account_hash=md5('$privacyPatientId')||md5('${privacyPatientId}x') AND i.object_key IS NULL AND i.status='deleted'),
-       (SELECT count(*) FROM privacy.deletion_step s JOIN privacy.deletion_operation o ON o.id=s.operation_id WHERE o.account_hash=md5('$privacyPatientId')||md5('${privacyPatientId}x') AND s.status='completed');
+       (SELECT count(*) FROM privacy.deletion_step s JOIN privacy.deletion_operation o ON o.id=s.operation_id WHERE o.account_hash=md5('$privacyPatientId')||md5('${privacyPatientId}x') AND s.status='completed'),
+       (SELECT count(*) FROM health.mood_record WHERE patient_id='$privacyPatientId'),
+       (SELECT count(*) FROM health.record_idempotency WHERE patient_id='$privacyPatientId' AND operation='mood-records'),
+       (SELECT count(*) FROM health.mood_record WHERE id='$moodPurgeRecordId'),
+       (SELECT count(*) FROM health.record_idempotency WHERE resource_id='$moodPurgeRecordId');
 "@
     $replayEvidence = (& $docker.Source compose -f $composeFile -p $project exec -T $service `
         psql -U gutcare_bootstrap -d $restoreDb -At -F '|' -v ON_ERROR_STOP=1 -c $replayEvidenceSql) -join ''
     $replayFields = $replayEvidence.Trim().Split('|')
-    if ($LASTEXITCODE -ne 0 -or $replayFields.Count -ne 4 -or $replayFields[0] -ne '1' `
-        -or $replayFields[1] -ne '0' -or [int]$replayFields[2] -lt 1 -or $replayFields[3] -ne '8') {
+    if ($LASTEXITCODE -ne 0 -or $replayFields.Count -ne 8 -or $replayFields[0] -ne '1' `
+        -or $replayFields[1] -ne '0' -or [int]$replayFields[2] -lt 1 -or $replayFields[3] -ne '8' `
+        -or $replayFields[4] -ne '0' -or $replayFields[5] -ne '0' `
+        -or $replayFields[6] -ne '0' -or $replayFields[7] -ne '0') {
         throw "Restored F13 replay evidence is incomplete: $replayEvidence"
     }
     $remainingVersions = @'

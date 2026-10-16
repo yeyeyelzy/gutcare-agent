@@ -58,6 +58,8 @@ DELETE_PHASES = {
         "health.symptom_item",
         "health.symptom_record",
         "health.activity_record",
+        "privacy.mood_purge_queue",
+        "health.mood_record",
         "health.medication_checkin",
         "health.medication_schedule",
         "health.medication_source_ref",
@@ -148,6 +150,63 @@ class PrivacyWorker:
             operation.lease_expires_at = now + LEASE
             operation.attempts += 1
             return operation.id
+
+    def purge_expired_mood_records(self, batch_size: int = 100) -> int:
+        """Purge only due records through the patient-scoped worker RLS policy.
+
+        Queue rows contain only patient/record identifiers and due time. A failed
+        transaction restores both the queue row and record, making replay safe.
+        """
+        if not 1 <= batch_size <= 1000:
+            raise ValueError("batch_size must be between 1 and 1000")
+        now = datetime.now(UTC)
+        purged = 0
+        with self._sessions.begin() as db:
+            due = (
+                db.execute(
+                    text(
+                        "DELETE FROM privacy.mood_purge_queue "
+                        "WHERE (patient_id, mood_record_id) IN ("
+                        "  SELECT patient_id, mood_record_id FROM privacy.mood_purge_queue "
+                        "  WHERE purge_after <= :now ORDER BY purge_after "
+                        "  LIMIT :batch_size"
+                        ") AND purge_after <= :now "
+                        "RETURNING patient_id, mood_record_id"
+                    ),
+                    {"now": now, "batch_size": batch_size},
+                )
+                .mappings()
+                .all()
+            )
+            for row in due:
+                patient_id = row["patient_id"]
+                record_id = row["mood_record_id"]
+                db.execute(
+                    text("SELECT set_config('app.patient_id', :patient, true)"),
+                    {"patient": str(patient_id)},
+                )
+                db.execute(
+                    text(
+                        "DELETE FROM health.mood_record "
+                        "WHERE id=:record AND patient_id=:patient "
+                        "AND deleted_at IS NOT NULL AND deleted_at <= :cutoff"
+                    ),
+                    {
+                        "record": record_id,
+                        "patient": patient_id,
+                        "cutoff": now - timedelta(days=7),
+                    },
+                )
+                db.execute(
+                    text(
+                        "DELETE FROM health.record_idempotency "
+                        "WHERE patient_id=:patient AND operation='mood-records' "
+                        "AND resource_id=:record"
+                    ),
+                    {"patient": patient_id, "record": record_id},
+                )
+                purged += 1
+        return purged
 
     def _step(self, db: Session, operation_id: UUID, code: str) -> bool:
         row = db.get(DeletionStep, (operation_id, code))
@@ -500,6 +559,12 @@ class PrivacyWorker:
                     "SELECT activity_type,description,intensity,subjective_feeling,duration_minutes,occurred_at,record_version,created_at,updated_at FROM health.activity_record WHERE patient_id=:patient AND deleted_at IS NULL ORDER BY occurred_at,id",
                 )
             ],
+            "mood": [
+                (
+                    "mood_records",
+                    "SELECT id,occurred_at,mood_level,emotion_tags,note,record_version,created_at,updated_at FROM health.mood_record WHERE patient_id=:patient AND deleted_at IS NULL ORDER BY occurred_at,id",
+                )
+            ],
             "analysis": [
                 (
                     "analysis_tasks",
@@ -621,13 +686,15 @@ class PrivacyWorker:
                 archive.writestr("data.json", data_bytes)
                 if zip_buffer.tell() > MAX_EXPORT_BYTES:
                     raise ValueError("Export archive exceeds the configured size bound")
-                manifest_files.append(
-                    {
-                        "name": "data.json",
-                        "sha256": hashlib.sha256(data_bytes).hexdigest(),
-                        "size_bytes": len(data_bytes),
-                    }
-                )
+                data_manifest: dict[str, object] = {"name": "data.json"}
+                if "mood" not in categories:
+                    data_manifest.update(
+                        {
+                            "sha256": hashlib.sha256(data_bytes).hexdigest(),
+                            "size_bytes": len(data_bytes),
+                        }
+                    )
+                manifest_files.append(data_manifest)
                 for name, contents in attachments:
                     uncompressed_total += len(contents)
                     if uncompressed_total > MAX_EXPORT_BYTES:
@@ -815,6 +882,8 @@ def main() -> None:
             # retains its durable phase ledger and object version inventory, so reruns are safe.
             while worker.process_one():
                 pass
+            while worker.purge_expired_mood_records():
+                pass
             with sessions() as db:
                 blockers = (
                     db.execute(
@@ -840,6 +909,7 @@ def main() -> None:
                 worked = worker.process_one()
                 if not worked:
                     worker.process_export_one()
+                worker.purge_expired_mood_records()
                 worker.cleanup_expired_exports()
             except Exception:
                 logger.exception("Privacy worker cycle failed")
