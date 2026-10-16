@@ -172,6 +172,74 @@ paths:
         '204': {description: 已删除}
         '401': {$ref: '#/components/responses/Problem'}
         '409': {$ref: '#/components/responses/Problem'}
+  /mood-records:
+    get:
+      summary: 游标分页读取本人心情记录摘要
+      description: 本人读取属于数据主体访问能力；账户可用时即使已撤回 mood_data_processing 仍可读取既有记录。列表不包含 note。
+      tags: [Records]
+      operationId: listMoodRecords
+      parameters:
+        - {name: cursor, in: query, schema: {type: string, maxLength: 512}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+        - {name: since, in: query, schema: {type: string, format: date-time}}
+        - {name: until, in: query, schema: {type: string, format: date-time}}
+      responses:
+        '200': {description: 仅含时间、等级和受控情绪标签的记录页, content: {application/json: {schema: {$ref: '#/components/schemas/MoodPage'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+    post:
+      summary: 创建本人心情记录
+      description: 要求 health_data_processing 与 mood_data_processing 当前均有效；不要求授权第三方智能处理。
+      tags: [Records]
+      operationId: createMoodRecord
+      parameters:
+        - {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 1, maxLength: 128}}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/MoodWrite'}}}
+      responses:
+        '201': {description: 已创建, content: {application/json: {schema: {$ref: '#/components/schemas/MoodDetail'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+  /mood-records/{record_id}:
+    parameters: [{name: record_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      summary: 读取本人心情记录详情
+      description: 本人读取属于数据主体访问能力；账户可用时即使已撤回 mood_data_processing 仍可读取既有记录。
+      tags: [Records]
+      operationId: getMoodRecord
+      responses:
+        '200': {description: 本人心情记录详情, content: {application/json: {schema: {$ref: '#/components/schemas/MoodDetail'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+    patch:
+      summary: 修改本人心情记录
+      description: 要求 health_data_processing 与 mood_data_processing 当前均有效；须提交当前 record_version。
+      tags: [Records]
+      operationId: patchMoodRecord
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/MoodPatch'}}}
+      responses:
+        '200': {description: 已修改, content: {application/json: {schema: {$ref: '#/components/schemas/MoodDetail'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+    delete:
+      summary: 软删除本人心情记录
+      description: 删除作为数据主体权利，不因撤回 mood_data_processing 而关闭；立即软删除并从后续分析排除。
+      tags: [Records]
+      operationId: deleteMoodRecord
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, additionalProperties: false, required: [record_version], properties: {record_version: {type: integer, minimum: 1}}}}}
+      responses:
+        '204': {description: 已删除}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
   /history/timeline:
     get:
       summary: 患者混合健康历史时间线
@@ -180,7 +248,7 @@ paths:
       parameters:
         - {name: cursor, in: query, schema: {type: string, maxLength: 512}}
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
-        - {name: category, in: query, schema: {type: array, items: {type: string, enum: [diet, stool, symptom, medication_checkin, activity, advice]}}}
+        - {name: category, in: query, schema: {type: array, items: {type: string, enum: [diet, stool, symptom, mood, medication_checkin, activity, advice]}}}
         - {name: since, in: query, schema: {type: string, format: date-time}}
         - {name: until, in: query, schema: {type: string, format: date-time}}
       responses:
@@ -196,8 +264,9 @@ paths:
         - {name: from, in: query, required: true, schema: {type: string, format: date-time}}
         - {name: to, in: query, required: true, schema: {type: string, format: date-time}}
         - {name: bucket, in: query, schema: {type: string, enum: [day, week], default: day}}
+      description: Mood 趋势属于派生处理，不等同于原始记录的数据主体读取。仅在 health_data_processing 与 mood_data_processing 均有效时，对患者本人未删除记录的结构化 mood_level 做确定性聚合；不要求 mood_ai_sharing 或 third_party_ai，且不将数据发送给 Agent。缺少/撤回任一处理授权时，仅 mood 子结构返回 consent_required 与 missing_consents；其余趋势继续正常返回，不能将 mood 伪装成零数据。原始列表、详情和删除仍遵循数据主体访问边界。note 与 emotion_tags 不参与趋势。结果不表示诊断、病因或因果关系，时段按患者 IANA 时区切分。
       responses:
-        '200': {description: 有数据 bucket 统计, content: {application/json: {schema: {type: object, required: [timezone, from, to, bucket, activity, stool, symptom, diet_confirmed_categories, medication_checkins], properties: {timezone: {type: string}, from: {type: string, format: date-time}, to: {type: string, format: date-time}, bucket: {type: string}, activity: {type: object}, stool: {type: object}, symptom: {type: object}, diet_confirmed_categories: {type: object}, medication_checkins: {type: object}}}}}}
+        '200': {description: 请求范围内其他趋势正常返回；mood 子结构可用或因授权不可用, content: {application/json: {schema: {$ref: '#/components/schemas/TrendResponse'}}}}
         '401': {$ref: '#/components/responses/Problem'}
         '422': {$ref: '#/components/responses/Problem'}
   /auth/register:
@@ -463,7 +532,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: {type: object, required: [categories], properties: {categories: {type: array, minItems: 1, items: {type: string, enum: [profile, consents, medical_documents, files, diet, stool, symptoms, medication, activity, analysis, advice, alerts, notifications]}}}, additionalProperties: false}
+            schema: {type: object, required: [categories], properties: {categories: {type: array, minItems: 1, items: {type: string, enum: [profile, consents, medical_documents, files, diet, stool, symptoms, mood, medication, activity, analysis, advice, alerts, notifications]}}}, additionalProperties: false}
       responses:
         '201': {description: Export preview created}
         '401': {$ref: '#/components/responses/Problem'}
@@ -568,7 +637,6 @@ paths:
         '409': {$ref: '#/components/responses/Problem'}
         '401': {$ref: '#/components/responses/Problem'}
         '404': {$ref: '#/components/responses/Problem'}
-        '401': {$ref: '#/components/responses/Problem'}
         '413': {$ref: '#/components/responses/Problem'}
         '415': {$ref: '#/components/responses/Problem'}
         '422': {$ref: '#/components/responses/Problem'}
@@ -607,7 +675,7 @@ paths:
               schema: {$ref: '#/components/schemas/MedicalDocument'}
         '401': {$ref: '#/components/responses/Problem'}
         '404': {$ref: '#/components/responses/Problem'}
-        '401': {$ref: '#/components/responses/Problem'}
+
         '409': {$ref: '#/components/responses/Problem'}
         '422': {$ref: '#/components/responses/Problem'}
   /uploads/{capability}:
@@ -661,9 +729,6 @@ paths:
           description: 状态及按版本排序的变更事件
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/SymptomStatusHistory'}
-        '401': {$ref: '#/components/responses/Problem'}
-        '404': {$ref: '#/components/responses/Problem'}
         '413': {$ref: '#/components/responses/Problem'}
         '415': {$ref: '#/components/responses/Problem'}
         '422': {$ref: '#/components/responses/Problem'}
@@ -784,7 +849,7 @@ paths:
         '404': {$ref: '#/components/responses/Problem'}
         '409': {$ref: '#/components/responses/Problem'}
         '422': {$ref: '#/components/responses/Problem'}
-        '401': {$ref: '#/components/responses/Problem'}
+
   /files/{file_id}/download-grants:
     post:
       summary: 签发短期只读下载 capability
@@ -891,21 +956,6 @@ paths:
         '204': {description: 已立即隐藏并进入删除流程}
         '404': {$ref: '#/components/responses/Problem'}
         '401': {$ref: '#/components/responses/Problem'}
-  /symptom-records/{record_id}/status-history:
-    get:
-      summary: 获取症状仍持续/已缓解状态的不可变变更历史
-      tags: [Records]
-      operationId: getSymptomStatusHistory
-      parameters:
-        - {$ref: '#/components/parameters/RecordId'}
-      responses:
-        '200':
-          description: 当前状态及按版本排序的不可变状态事件
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/SymptomStatusHistory'}
-        '401': {$ref: '#/components/responses/Problem'}
-        '404': {$ref: '#/components/responses/Problem'}
   /risk-alerts:
     get:
       summary: 分页查询当前患者风险提示
@@ -1016,6 +1066,22 @@ paths:
                   items: {type: array, items: {$ref: '#/components/schemas/AnalysisTask'}}
                   next_cursor: {type: [string, 'null']}
         '401': {$ref: '#/components/responses/Problem'}
+  /analysis-tasks/preview:
+    get:
+      summary: 预览综合分析范围内的心情记录计数
+      tags: [Analysis]
+      operationId: previewAnalysisTask
+      security: [{BearerAuth: []}]
+      description: 返回当前患者指定分析类型/时间范围内的 mood 计数，仅为创建前预览建议。requested_from/to 表示 UTC 时间戳的半开区间 [from,to)，两者均省略时使用该 analysis_type 的默认时间范围；若只提供一端，另一端按该分析类型默认边界补齐。范围内计数统计本人未删除记录；计入预览 eligible 的 mood 还需 health_data_processing、mood_data_processing、mood_ai_sharing、third_party_ai 四项授权全部有效。缺失 mood 专项授权只排除 mood，不改变其他符合条件输入。health_data_processing 或 third_party_ai 是现行 F08 整体任务的基础授权；缺少任一项时按既有 F08 授权错误拒绝预览。预览与创建之间记录/授权可能变化，POST /analysis-tasks 必须在同一创建事务和患者 consent fence 内重新计算并冻结实际输入；本响应不保证与后续任务快照计数相同。
+      parameters:
+        - {name: analysis_type, in: query, required: true, schema: {type: string, enum: [comprehensive_health_analysis, periodic_summary]}}
+        - {name: requested_from, in: query, schema: {type: string, format: date-time}, description: Optional UTC start; if omitted, use the analysis type's default range.}
+        - {name: requested_to, in: query, schema: {type: string, format: date-time}, description: Optional UTC end; if omitted, use the analysis type's default range.}
+      responses:
+        '200': {description: 当前范围的心情输入预览, content: {application/json: {schema: {$ref: '#/components/schemas/AnalysisTaskPreview'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
   /analysis-tasks/{task_id}:
     get:
       summary: 获取分析任务及结果
@@ -1353,7 +1419,6 @@ components:
         email: {type: string, format: email, maxLength: 254}
         password: {type: string, minLength: 12, maxLength: 128}
         birth_year: {type: integer, minimum: 1900, maximum: 2100}
-        nickname: {type: [string, 'null'], maxLength: 64}
         privacy_policy_version: {type: string, minLength: 1, maxLength: 32, description: 必须与服务端配置的当前 privacy policy version 一致}
         health_data_processing_consent: {type: boolean, const: true, description: 注册前单独、明确同意健康数据处理}
         health_data_processing_policy_version: {type: string, minLength: 1, maxLength: 32, description: 必须与服务端配置的健康数据处理告知版本一致}
@@ -1397,7 +1462,7 @@ components:
       required: [consent_type, policy_version, granted]
       description: 每次决定追加授权历史；privacy_policy 仅能通过 account-deletion 撤回，不接受通用决定。服务端按 consent_type 验证配置的当前 policy_version 并绑定独立告知摘要哈希，不接受客户端传入摘要。granted=false 表示拒绝或撤回。
       properties:
-        consent_type: {type: string, enum: [health_data_processing, sensitive_image, third_party_ai, push_notification]}
+        consent_type: {type: string, enum: [health_data_processing, mood_data_processing, mood_ai_sharing, sensitive_image, third_party_ai, push_notification]}
         policy_version: {type: string, minLength: 1, maxLength: 32}
         granted: {type: boolean}
         decided_at: {type: string, format: date-time, readOnly: true}
@@ -1652,14 +1717,101 @@ components:
         analysis_type: {type: string, enum: [comprehensive_health_analysis, periodic_summary]}
         requested_from: {type: [string, 'null'], format: date-time}
         requested_to: {type: [string, 'null'], format: date-time}
+    AnalysisTaskPreview:
+      type: object
+      additionalProperties: false
+      required: [analysis_type, requested_from, requested_to, timezone, mood_record_count_in_range, mood_record_count_eligible, mood_record_count_excluded_by_consent, mood_exclusion_reasons]
+      description: 当前时点的只读预览；不构成任务输入保证。POST 创建时会重新校验并冻结实际输入。
+      properties:
+        analysis_type: {type: string, enum: [comprehensive_health_analysis, periodic_summary]}
+        requested_from: {type: [string, 'null'], format: date-time}
+        requested_to: {type: [string, 'null'], format: date-time}
+        timezone: {type: string, minLength: 1, maxLength: 64, description: 患者配置的 IANA 时区，应用于默认/显式范围的 bucket 语义。}
+        mood_record_count_in_range: {type: integer, minimum: 0, description: 当前患者在范围内的未删除心情记录数。}
+        mood_record_count_eligible: {type: integer, minimum: 0, description: 当前同时满足 health_data_processing、mood_data_processing、mood_ai_sharing、third_party_ai 的心情记录数；创建事务将再次计算。}
+        mood_record_count_excluded_by_consent: {type: integer, minimum: 0, description: 范围内但因 mood 专项授权缺失而未达到 mood eligible 的记录数。}
+        mood_exclusion_reasons:
+          type: array
+          uniqueItems: true
+          items: {type: string, enum: [mood_data_processing_missing, mood_ai_sharing_missing]}
+    TrendResponse:
+      type: object
+      additionalProperties: false
+      required: [timezone, from, to, bucket, activity, stool, symptom, diet_confirmed_categories, medication_checkins, mood]
+      properties:
+        timezone: {type: string}
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        bucket: {type: string, enum: [day, week]}
+        activity: {type: object}
+        stool: {type: object}
+        symptom: {type: object}
+        diet_confirmed_categories: {type: object}
+        medication_checkins: {type: object}
+        mood:
+          oneOf:
+            - {$ref: '#/components/schemas/MoodTrendAvailable'}
+            - {$ref: '#/components/schemas/MoodTrendUnavailable'}
+          discriminator:
+            propertyName: availability
+            mapping:
+              available: '#/components/schemas/MoodTrendAvailable'
+              consent_required: '#/components/schemas/MoodTrendUnavailable'
+    MoodTrendAvailable:
+      type: object
+      additionalProperties: false
+      required: [availability, buckets]
+      properties:
+        availability: {type: string, const: available}
+        buckets: {type: array, items: {$ref: '#/components/schemas/MoodTrendBucket'}, description: Empty means authorization is valid but no mood records exist in the requested range.}
+    MoodTrendUnavailable:
+      type: object
+      additionalProperties: false
+      required: [availability, reason_code, missing_consents]
+      properties:
+        availability: {type: string, const: consent_required}
+        reason_code: {type: string, const: CONSENT_REQUIRED}
+        missing_consents:
+          type: array
+          uniqueItems: true
+          minItems: 1
+          maxItems: 2
+          items: {type: string, enum: [health_data_processing, mood_data_processing]}
+    MoodTrendBucket:
+      type: object
+      additionalProperties: false
+      required: [period_start, period_end, has_data, record_count, mood_level_counts]
+      description: Patient-reported mood level counts for one patient-timezone day/week bucket. record_count equals the sum of mood_level_counts; has_data is true iff record_count is greater than zero. No note, emotion tags, diagnosis, or causal inference.
+      properties:
+        period_start: {type: string, format: date}
+        period_end: {type: string, format: date, description: Exclusive end date in the patient's timezone.}
+        has_data: {type: boolean}
+        record_count: {type: integer, minimum: 0}
+        mood_level_counts:
+          type: object
+          additionalProperties: false
+          required: ['1', '2', '3', '4', '5']
+          properties:
+            '1': {type: integer, minimum: 0}
+            '2': {type: integer, minimum: 0}
+            '3': {type: integer, minimum: 0}
+            '4': {type: integer, minimum: 0}
+            '5': {type: integer, minimum: 0}
     AnalysisTask:
       type: object
       additionalProperties: false
-      required: [id, analysis_type, status, created_at, updated_at, attempt, retry_of, result, error_code]
+      required: [id, analysis_type, status, input_summary, created_at, updated_at, attempt, retry_of, result, error_code]
       properties:
         id: {type: string, format: uuid}
         analysis_type: {type: string, enum: [comprehensive_health_analysis, periodic_summary]}
         status: {type: string, enum: [pending, processing, needs_input, succeeded, partial, failed, cancelled]}
+        input_summary:
+          type: object
+          additionalProperties: false
+          required: [included_mood_record_count]
+          description: 任务创建时不可变快照实际纳入的数据计数。可从该任务持久化快照事实派生并持久化；绝不能按当前记录或当前授权重算历史值。升级前任务由不可变快照回填，快照中无 mood 时为 0。
+          properties:
+            included_mood_record_count: {type: integer, minimum: 0}
         attempt: {type: integer, minimum: 1}
         retry_of: {type: [string, 'null'], format: uuid}
         result: {oneOf: [{$ref: '#/components/schemas/AnalysisResult'}, {type: 'null'}]}
@@ -1673,7 +1825,7 @@ components:
           required: [evidence_type, source_type, source_id, source_version, locator, source_deleted, target]
           properties:
             evidence_type: {const: patient}
-            source_type: {type: string, enum: [confirmed_medical_fact, diet_record, stool_record, symptom_record, medication_plan, medication_checkin, risk_alert]}
+            source_type: {type: string, enum: [confirmed_medical_fact, diet_record, stool_record, symptom_record, mood_record, medication_plan, medication_checkin, risk_alert]}
             source_id: {type: string, format: uuid}
             source_version: {type: integer, minimum: 1}
             locator: {type: [string, 'null'], maxLength: 160}
@@ -1749,7 +1901,7 @@ components:
             additionalProperties: false
             required: [source_type, source_id, source_version, locator, source_deleted]
             properties:
-              source_type: {type: string, enum: [confirmed_medical_fact, diet_record, stool_record, symptom_record, medication_plan, medication_checkin, risk_alert]}
+              source_type: {type: string, enum: [confirmed_medical_fact, diet_record, stool_record, symptom_record, mood_record, medication_plan, medication_checkin, risk_alert]}
               source_id: {type: string, format: uuid}
               source_version: {type: integer, minimum: 1}
               locator: {type: [string, 'null'], maxLength: 160}
@@ -1842,12 +1994,70 @@ components:
       additionalProperties: false
       required: [items, next_cursor]
       properties: {items: {type: array, items: {$ref: '#/components/schemas/ActivityRecord'}}, next_cursor: {type: [string, 'null']}}
+    MoodWrite:
+      type: object
+      additionalProperties: false
+      required: [occurred_at, mood_level]
+      properties:
+        occurred_at: {type: string, format: date-time, description: Patient reported event time; timezone required.}
+        mood_level: {type: integer, minimum: 1, maximum: 5, description: Subjective self-rating only; not a clinical scale.}
+        emotion_tags:
+          type: array
+          maxItems: 5
+          uniqueItems: true
+          default: []
+          items: {type: string, enum: [calm, content, joyful, sad, anxious, irritable, overwhelmed, tired, other]}
+        note: {type: [string, 'null'], maxLength: 500, description: High sensitivity free text; never included in agent inputs, logs, notifications, risk rules or trends.}
+    MoodPatch:
+      type: object
+      additionalProperties: false
+      required: [record_version]
+      properties:
+        record_version: {type: integer, minimum: 1}
+        occurred_at: {type: string, format: date-time}
+        mood_level: {type: integer, minimum: 1, maximum: 5}
+        emotion_tags:
+          type: array
+          maxItems: 5
+          uniqueItems: true
+          items: {type: string, enum: [calm, content, joyful, sad, anxious, irritable, overwhelmed, tired, other]}
+        note: {type: [string, 'null'], maxLength: 500}
+    MoodSummary:
+      type: object
+      additionalProperties: false
+      required: [id, occurred_at, mood_level, emotion_tags, record_version, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        occurred_at: {type: string, format: date-time}
+        mood_level: {type: integer, minimum: 1, maximum: 5}
+        emotion_tags: {type: array, maxItems: 5, uniqueItems: true, items: {type: string, enum: [calm, content, joyful, sad, anxious, irritable, overwhelmed, tired, other]}}
+        record_version: {type: integer, minimum: 1}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    MoodDetail:
+      type: object
+      additionalProperties: false
+      required: [id, occurred_at, mood_level, emotion_tags, record_version, created_at, updated_at, note]
+      properties:
+        id: {type: string, format: uuid}
+        occurred_at: {type: string, format: date-time}
+        mood_level: {type: integer, minimum: 1, maximum: 5}
+        emotion_tags: {type: array, maxItems: 5, uniqueItems: true, items: {type: string, enum: [calm, content, joyful, sad, anxious, irritable, overwhelmed, tired, other]}}
+        record_version: {type: integer, minimum: 1}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        note: {type: [string, 'null'], maxLength: 500, description: Returned only in the authenticated patient's own detail response; never included in snapshots, logs, trends or notifications.}
+    MoodPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties: {items: {type: array, items: {$ref: '#/components/schemas/MoodSummary'}}, next_cursor: {type: [string, 'null']}}
     HistoryPage:
       type: object
       additionalProperties: false
       required: [items, next_cursor]
       properties:
-        items: {type: array, items: {type: object, additionalProperties: false, required: [id, type, occurred_at, target], properties: {id: {type: string, format: uuid}, type: {type: string, enum: [diet, stool, symptom, medication_checkin, activity, advice]}, occurred_at: {type: string, format: date-time}, target: {type: object, additionalProperties: false, required: [type, id], properties: {type: {type: string, enum: [diet_record, stool_record, symptom_record, medication_checkin, activity_record, advice]}, id: {type: string, format: uuid}}}}}}
+        items: {type: array, items: {type: object, additionalProperties: false, required: [id, type, occurred_at, target], properties: {id: {type: string, format: uuid}, type: {type: string, enum: [diet, stool, symptom, mood, medication_checkin, activity, advice]}, occurred_at: {type: string, format: date-time}, target: {type: object, additionalProperties: false, required: [type, id], properties: {type: {type: string, enum: [diet_record, stool_record, symptom_record, mood_record, medication_checkin, activity_record, advice]}, id: {type: string, format: uuid}}}}}}
         next_cursor: {type: [string, 'null']}
     Problem:
       type: object
