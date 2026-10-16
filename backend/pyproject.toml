@@ -1,0 +1,65 @@
+[project]
+name = "gutcare-backend"
+version = "0.1.0"
+description = "GutCare modular monolith backend foundation"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "alembic>=1.15,<2",
+  "boto3>=1.37,<2",
+  "cryptography>=44,<46",
+  "fastapi>=0.136,<0.137",
+  "email-validator>=2.2,<3",
+  "psycopg[binary]>=3.2,<4",
+  "PyJWT>=2.10,<3",
+  "Pillow>=11.1,<13",
+  "pypdf>=5.4,<7",
+  "pwdlib[argon2]>=0.2.1,<1",
+  "pydantic-settings>=2.8,<3",
+  "redis>=5,<7",
+  "sqlalchemy>=2.0,<3",
+  "structlog>=25,<26",
+  "uvicorn[standard]>=0.34,<1",
+  "prometheus-client>=0.21,<1",
+]
+
+[project.scripts]
+gutcare-file-worker = "gutcare.files.worker:main"
+gutcare-medication-materializer = "gutcare.medication.worker:main"
+gutcare-notification-dispatcher = "gutcare.notifications.worker:main"
+gutcare-privacy-worker = "gutcare.privacy.worker:main"
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28,<1",
+  "mypy>=1.15,<2",
+  "pytest>=8.3,<9",
+  "ruff>=0.11,<1",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gutcare"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -p no:cacheprovider"
+markers = ["integration: requires a disposable PostgreSQL 18 test database"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+mypy_path = "src"
+packages = ["gutcare"]
+
+[tool.uv]
+package = true

@@ -1,0 +1,78 @@
+import json
+import zipfile
+from io import BytesIO
+from uuid import uuid4
+
+import pytest
+
+from gutcare.auth.service import AuthContext
+from gutcare.privacy.api import _limit_status_checks
+from gutcare.privacy.service import (
+    MAX_EXPORT_BYTES,
+    MAX_EXPORT_CIPHERTEXT_BYTES,
+    PrivacyService,
+    _validate_export_size,
+)
+from gutcare.privacy.worker import DELETE_PHASES, scan_export_zip
+from gutcare.shared.errors import Problem
+
+
+def _archive(data: dict[str, object], entry_name: str = "data.json") -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(entry_name, json.dumps(data))
+        if entry_name != "data.json":
+            archive.writestr("data.json", "{}")
+    return buffer.getvalue()
+
+
+def test_export_scan_accepts_whitelisted_shape_and_safe_path() -> None:
+    scan_export_zip(_archive({"datasets": {"profile": [{"nickname": "patient"}]}}))
+
+
+@pytest.mark.parametrize(
+    "payload,entry_name",
+    [
+        ({"datasets": {"tasks": [{"prompt": "must not export"}]}}, "data.json"),
+        ({"datasets": {"files": [{"object_key": "private/path"}]}}, "data.json"),
+        ({"datasets": {}}, "../data.json"),
+    ],
+)
+def test_export_scan_rejects_forbidden_keys_and_unsafe_paths(
+    payload: dict[str, object], entry_name: str
+) -> None:
+    with pytest.raises(ValueError):
+        scan_export_zip(_archive(payload, entry_name))
+
+
+def test_deletion_ledger_has_ordered_phases_and_preserves_global_rules() -> None:
+    assert tuple(DELETE_PHASES) == ("purge_derived", "purge_health")
+    tables = {table for phase in DELETE_PHASES.values() for table in phase}
+    assert "health.patient_notification" in tables
+    assert "analysis.analysis_task" in tables
+    assert "health.medical_document" in tables
+    assert "safety.risk_rule" not in tables
+
+
+def test_export_is_disabled_at_preview_when_kek_is_missing() -> None:
+    service = PrivacyService(None, "pepper", encryption_key=None)  # type: ignore[arg-type]
+    with pytest.raises(Problem) as error:
+        service.create_export_preview(AuthContext(uuid4(), uuid4()), ["profile"])
+    assert error.value.status == 503
+
+
+def test_receipt_status_endpoint_rate_limiter_returns_429() -> None:
+    key = f"privacy-test-{uuid4()}"
+    for _ in range(20):
+        _limit_status_checks(key)
+    with pytest.raises(Problem) as error:
+        _limit_status_checks(key)
+    assert error.value.status == 429
+
+
+def test_export_envelope_size_is_bounded_before_and_after_decryption() -> None:
+    _validate_export_size(MAX_EXPORT_CIPHERTEXT_BYTES, MAX_EXPORT_BYTES)
+    with pytest.raises(ValueError):
+        _validate_export_size(MAX_EXPORT_CIPHERTEXT_BYTES + 1)
+    with pytest.raises(ValueError):
+        _validate_export_size(MAX_EXPORT_CIPHERTEXT_BYTES, MAX_EXPORT_BYTES + 1)
