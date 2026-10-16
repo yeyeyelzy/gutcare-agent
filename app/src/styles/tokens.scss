@@ -1,0 +1,38 @@
+/* Provisional semantic defaults only. Replace values from the delivered UI token sheet. */
+:root {
+  --gc-color-brand: #287C72;
+  --gc-color-brand-strong: #1D655D;
+  --gc-color-canvas: #F7F8FA;
+  --gc-color-surface: #FFFFFF;
+  --gc-color-text: #202A2A;
+  --gc-color-muted: #687575;
+  --gc-color-border: #E1E7E6;
+  --gc-color-danger: #B42318;
+  --gc-color-warning: #8A5700;
+  --gc-font-size-sm: 14px;
+  --gc-font-size-md: 16px;
+  --gc-font-size-lg: 20px;
+  --gc-font-size-display: 28px;
+  --gc-line-height: 1.5;
+  --gc-font-weight-regular: 400;
+  --gc-font-weight-medium: 500;
+  --gc-font-weight-semibold: 600;
+  --gc-font-weight-bold: 700;
+  --gc-space-1: 4px;
+  --gc-space-2: 8px;
+  --gc-space-3: 12px;
+  --gc-space-4: 16px;
+  --gc-space-6: 24px;
+  --gc-space-8: 32px;
+  --gc-space-12: 48px;
+  --gc-radius-sm: 8px;
+  --gc-radius-md: 14px;
+  --gc-radius-lg: 22px;
+  --gc-radius-pill: 999px;
+  --gc-shadow-card: 0 4px 18px rgba(25, 54, 52, 0.06);
+  --gc-shadow-overlay: 0 12px 36px rgba(25, 54, 52, 0.16);
+  --gc-layer-content: 1;
+  --gc-layer-sticky: 10;
+  --gc-layer-overlay: 100;
+  --gc-layer-toast: 200;
+}

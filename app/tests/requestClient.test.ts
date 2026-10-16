@@ -1,0 +1,101 @@
+import { describe, expect, it, vi } from 'vitest'
+import { AppError } from '../src/api/errors'
+import { RequestClient } from '../src/api/requestClient'
+import { MemorySecureTokenStore } from '../src/api/secureTokenStore'
+import type { HttpResponse, HttpTransport, RequestOptions, SessionTokens } from '../src/api/requestClient'
+
+const tokens: SessionTokens = {
+  access_token: 'access-test', refresh_token: 'refresh-test', token_type: 'Bearer', expires_in: 300,
+}
+
+function makeClient(send: HttpTransport['send']) {
+  const access = { value: null as string | null }
+  const store = new MemorySecureTokenStore()
+  const onAuthenticationRequired = vi.fn()
+  const client = new RequestClient({
+    baseUrl: 'https://api.example.invalid/api/v1', appVersion: 'test',
+    transport: { send }, tokenStore: store,
+    getAccessToken: () => access.value,
+    setTokens: (value) => { access.value = value.access_token },
+    clearSession: async () => { access.value = null },
+    onAuthenticationRequired,
+    createRequestId: () => 'request-test',
+  })
+  return { client, access, store, onAuthenticationRequired }
+}
+
+describe('RequestClient', () => {
+  it('adds the frozen API headers and unwraps successful DTOs', async () => {
+    let captured: (RequestOptions & { headers: Record<string, string> }) | undefined
+    let capturedUrl = ''
+    const send: HttpTransport['send'] = async <T>(_url: string, options: RequestOptions & { headers: Record<string, string> }): Promise<HttpResponse<T>> => {
+      capturedUrl = _url
+      captured = options
+      return { status: 200, data: { ok: true } as T }
+    }
+    const { client } = makeClient(send)
+    await expect(client.request({ method: 'GET', path: '/patients/me' })).resolves.toEqual({ ok: true })
+    expect(capturedUrl).toBe('https://api.example.invalid/api/v1/patients/me')
+    expect(captured?.path).toBe('/patients/me')
+    expect(captured?.headers).toMatchObject({
+      Accept: 'application/json, application/problem+json', 'X-Request-ID': 'request-test', 'X-App-Version': 'test',
+    })
+  })
+
+  it('surfaces service availability separately and preserves RFC 9457 fields', async () => {
+    const send: HttpTransport['send'] = async <T>() => ({
+      status: 503, data: { type: 'about:blank', title: 'Unavailable', status: 503, code: 'SERVICE_UNAVAILABLE', request_id: 'req-1' } as T,
+    })
+    const { client } = makeClient(send)
+    await expect(client.request({ method: 'GET', path: '/patients/me' })).rejects.toMatchObject({
+      kind: 'unavailable', status: 503, code: 'SERVICE_UNAVAILABLE', requestId: 'req-1',
+    })
+  })
+
+  it('stores rotated refresh credentials and retries a safe GET once after 401', async () => {
+    let calls = 0
+    const send: HttpTransport['send'] = async <T>(_url: string, options: RequestOptions & { headers: Record<string, string> }): Promise<HttpResponse<T>> => {
+      calls += 1
+      if (options.path === '/auth/refresh') return { status: 200, data: tokens as T }
+      if (calls === 1) return { status: 401, data: { title: 'Unauthorized', status: 401, code: 'TOKEN_EXPIRED' } as T }
+      return { status: 200, data: { profile: true } as T }
+    }
+    const { client, access, store } = makeClient(send)
+    await store.set('saved-refresh')
+    await expect(client.request({ method: 'GET', path: '/patients/me' })).resolves.toEqual({ profile: true })
+    expect(access.value).toBe(tokens.access_token)
+    expect(await store.get()).toBe(tokens.refresh_token)
+    expect(calls).toBe(3)
+  })
+
+  it('shares one refresh request across simultaneous 401 responses', async () => {
+    let getCalls = 0
+    let refreshCalls = 0
+    let finishRefresh!: (response: HttpResponse<SessionTokens>) => void
+    const send: HttpTransport['send'] = async <T>(_url: string, options: RequestOptions & { headers: Record<string, string> }): Promise<HttpResponse<T>> => {
+      if (options.path === '/auth/refresh') {
+        refreshCalls += 1
+        return await new Promise<HttpResponse<SessionTokens>>((resolve) => { finishRefresh = resolve }) as HttpResponse<T>
+      }
+      getCalls += 1
+      if (getCalls <= 2) return { status: 401, data: { title: 'Unauthorized', status: 401, code: 'TOKEN_EXPIRED' } as T }
+      return { status: 200, data: { profile: true } as T }
+    }
+    const { client, store } = makeClient(send)
+    await store.set('saved-refresh')
+    const first = client.request({ method: 'GET', path: '/patients/me' })
+    const second = client.request({ method: 'GET', path: '/patients/me' })
+    await vi.waitFor(() => expect(refreshCalls).toBe(1))
+    finishRefresh({ status: 200, data: tokens })
+    await expect(Promise.all([first, second])).resolves.toEqual([{ profile: true }, { profile: true }])
+    expect(refreshCalls).toBe(1)
+    expect(getCalls).toBe(4)
+  })
+
+  it('does not refresh or replay an unauthenticated login failure', async () => {
+    const send: HttpTransport['send'] = async <T>() => ({ status: 401, data: { title: 'Invalid credentials', status: 401 } as T })
+    const { client, onAuthenticationRequired } = makeClient(send)
+    await expect(client.request({ method: 'POST', path: '/auth/login', retryOnUnauthorized: false })).rejects.toBeInstanceOf(AppError)
+    expect(onAuthenticationRequired).not.toHaveBeenCalled()
+  })
+})

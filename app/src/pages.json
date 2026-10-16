@@ -1,0 +1,12 @@
+{
+  "pages": [
+    { "path": "pages/launch/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/auth/login", "style": { "navigationBarTitleText": "登录" } },
+    { "path": "pages/home/index", "style": { "navigationBarTitleText": "GutCare" } }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#F7F8FA",
+    "backgroundColor": "#F7F8FA"
+  }
+}
