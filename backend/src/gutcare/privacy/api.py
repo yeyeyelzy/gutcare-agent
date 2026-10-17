@@ -4,14 +4,14 @@ from collections import defaultdict, deque
 from datetime import datetime
 from threading import Lock
 from time import monotonic
-from typing import Annotated, Protocol, cast
+from typing import Annotated, Literal, Protocol, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request, status
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from gutcare.auth.api import current_auth_context
+from gutcare.auth.api import current_auth_context, problem_response
 from gutcare.auth.service import AuthContext
 from gutcare.shared.errors import Problem
 
@@ -60,17 +60,21 @@ class DeleteRequest(BaseModel):
 
 
 class DeleteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     operation_id: UUID
     receipt: str | None = None
-    status: str = "accepted"
+    status: Literal["accepted"] = "accepted"
 
 
 class DeleteStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     operation_id: UUID
-    status: str
-    requested_at: str
-    due_at: str
-    completed_at: str | None
+    status: Literal["pending", "processing", "overdue", "dead_letter", "completed"]
+    requested_at: datetime
+    due_at: datetime
+    completed_at: datetime | None
 
 
 class ReceiptQuery(BaseModel):
@@ -103,9 +107,55 @@ class ExportStatusResponse(BaseModel):
     status_code=status.HTTP_202_ACCEPTED,
     response_model=DeleteResponse,
     responses={
-        401: {"description": "需要有效会话"},
-        404: {"description": "账户不存在"},
-        409: {"description": "注销操作已存在"},
+        202: {
+            "description": (
+                "账户立即冻结并撤销 refresh session。仅首次创建返回一次性 receipt；"
+                "重试复用 operation 且 receipt 为 null。"
+            ),
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "firstAcceptance": {
+                            "summary": "首次受理（receipt 仅本次响应可见）",
+                            "value": {
+                                "operation_id": "019a0000-0000-7000-8000-000000000020",
+                                "receipt": "one-time-high-entropy-value-0123456789-abcdef",
+                                "status": "accepted",
+                            },
+                        },
+                        "idempotentRetry": {
+                            "summary": "同一活动操作的重试（不重新发放 receipt）",
+                            "value": {
+                                "operation_id": "019a0000-0000-7000-8000-000000000020",
+                                "receipt": None,
+                                "status": "accepted",
+                            },
+                        },
+                    }
+                }
+            },
+        },
+        401: problem_response("需要有效会话"),
+        404: problem_response(
+            "账户或本人资料不可用",
+            {
+                "type": "about:blank",
+                "title": "Not found",
+                "status": 404,
+                "code": "RESOURCE_NOT_FOUND",
+                "request_id": "00000000-0000-4000-8000-000000000404",
+            },
+        ),
+        500: problem_response(
+            "注销请求暂不可用",
+            {
+                "type": "about:blank",
+                "title": "Internal server error",
+                "status": 500,
+                "code": "INTERNAL_ERROR",
+                "request_id": "00000000-0000-4000-8000-000000000500",
+            },
+        ),
     },
     tags=["Privacy"],
 )
@@ -119,8 +169,104 @@ def request_deletion(
 
 @router.post(
     "/privacy/deletion-operations/{operation_id}/status",
+    operation_id="getPrivacyDeletionStatus",
     response_model=DeleteStatus,
-    responses={404: {"description": "操作或 receipt 不存在"}, 429: {"description": "查询频率受限"}},
+    responses={
+        200: {
+            "description": "使用 operation_id 与请求体中的 receipt 查询；不需要登录。",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "pending": {
+                            "value": {
+                                "operation_id": "019a0000-0000-7000-8000-000000000020",
+                                "status": "pending",
+                                "requested_at": "2026-10-17T12:00:00Z",
+                                "due_at": "2026-11-16T12:00:00Z",
+                                "completed_at": None,
+                            }
+                        },
+                        "processing": {
+                            "value": {
+                                "operation_id": "019a0000-0000-7000-8000-000000000020",
+                                "status": "processing",
+                                "requested_at": "2026-10-17T12:00:00Z",
+                                "due_at": "2026-11-16T12:00:00Z",
+                                "completed_at": None,
+                            }
+                        },
+                        "overdue": {
+                            "value": {
+                                "operation_id": "019a0000-0000-7000-8000-000000000020",
+                                "status": "overdue",
+                                "requested_at": "2026-10-17T12:00:00Z",
+                                "due_at": "2026-11-16T12:00:00Z",
+                                "completed_at": None,
+                            }
+                        },
+                        "deadLetter": {
+                            "value": {
+                                "operation_id": "019a0000-0000-7000-8000-000000000020",
+                                "status": "dead_letter",
+                                "requested_at": "2026-10-17T12:00:00Z",
+                                "due_at": "2026-11-16T12:00:00Z",
+                                "completed_at": None,
+                            }
+                        },
+                        "completed": {
+                            "value": {
+                                "operation_id": "019a0000-0000-7000-8000-000000000020",
+                                "status": "completed",
+                                "requested_at": "2026-10-17T12:00:00Z",
+                                "due_at": "2026-11-16T12:00:00Z",
+                                "completed_at": "2026-10-18T12:00:00Z",
+                            }
+                        },
+                    }
+                }
+            },
+        },
+        404: problem_response(
+            "操作或 receipt 不存在，统一返回不可用响应",
+            {
+                "type": "about:blank",
+                "title": "Not found",
+                "status": 404,
+                "code": "RESOURCE_NOT_FOUND",
+                "request_id": "00000000-0000-4000-8000-000000000404",
+            },
+        ),
+        422: problem_response(
+            "operation_id 或 receipt 格式无效",
+            {
+                "type": "about:blank",
+                "title": "Request validation failed",
+                "status": 422,
+                "code": "VALIDATION_ERROR",
+                "request_id": "00000000-0000-4000-8000-000000000422",
+            },
+        ),
+        429: problem_response(
+            "查询频率受限",
+            {
+                "type": "about:blank",
+                "title": "Status query rate limit exceeded",
+                "status": 429,
+                "code": "RATE_LIMITED",
+                "request_id": "00000000-0000-4000-8000-000000000429",
+            },
+        ),
+        503: problem_response(
+            "隐私服务暂不可用",
+            {
+                "type": "about:blank",
+                "title": "Service unavailable",
+                "status": 503,
+                "code": "SERVICE_UNAVAILABLE",
+                "request_id": "00000000-0000-4000-8000-000000000503",
+            },
+        ),
+    },
     tags=["Privacy"],
 )
 def deletion_status(
@@ -138,10 +284,13 @@ def deletion_status(
     assert completed_at is None or isinstance(completed_at, datetime)
     return DeleteStatus(
         operation_id=operation_id,
-        status=str(result["status"]),
-        requested_at=requested_at.isoformat(),
-        due_at=due_at.isoformat(),
-        completed_at=completed_at.isoformat() if completed_at else None,
+        status=cast(
+            Literal["pending", "processing", "overdue", "dead_letter", "completed"],
+            result["status"],
+        ),
+        requested_at=requested_at,
+        due_at=due_at,
+        completed_at=completed_at,
     )
 
 

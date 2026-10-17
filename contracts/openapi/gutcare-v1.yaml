@@ -560,9 +560,22 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/PrivacyDeletionAccepted'}
-              example: {operation_id: 019a0000-0000-7000-8000-000000000020, receipt: 'one-time-high-entropy-value', status: accepted}
+              examples:
+                firstAcceptance:
+                  summary: 首次受理；receipt 仅在此响应出现
+                  value: {operation_id: 019a0000-0000-7000-8000-000000000020, receipt: 'one-time-high-entropy-value-0123456789-abcdefghijklmnopqrstuvwxyz', status: accepted}
+                idempotentRetry:
+                  summary: 同一活动操作重试，不重新发放 receipt
+                  value: {operation_id: 019a0000-0000-7000-8000-000000000020, receipt: null, status: accepted}
         '401': {$ref: '#/components/responses/Problem'}
-        '429': {$ref: '#/components/responses/Problem'}
+        '404':
+          description: 账户或本人资料不可用
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+              examples:
+                problem:
+                  value: {type: 'about:blank', title: 'Not found', status: 404, code: RESOURCE_NOT_FOUND, request_id: '00000000-0000-4000-8000-000000000404'}
         '500': {$ref: '#/components/responses/Problem'}
   /privacy/deletion-operations/{operation_id}/status:
     post:
@@ -577,14 +590,56 @@ paths:
         content:
           application/json:
             schema: {type: object, required: [receipt], properties: {receipt: {type: string, minLength: 40, maxLength: 128}}, additionalProperties: false}
+            example: {receipt: 'one-time-high-entropy-value-0123456789-abcdefghijklmnopqrstuvwxyz'}
       responses:
         '200':
           description: 删除操作状态
           content:
             application/json:
               schema: {$ref: '#/components/schemas/PrivacyDeletionStatus'}
-        '404': {$ref: '#/components/responses/Problem'}
-        '429': {$ref: '#/components/responses/Problem'}
+              examples:
+                pending:
+                  value: {operation_id: 019a0000-0000-7000-8000-000000000020, status: pending, requested_at: '2026-10-17T12:00:00Z', due_at: '2026-11-16T12:00:00Z', completed_at: null}
+                processing:
+                  value: {operation_id: 019a0000-0000-7000-8000-000000000020, status: processing, requested_at: '2026-10-17T12:00:00Z', due_at: '2026-11-16T12:00:00Z', completed_at: null}
+                overdue:
+                  value: {operation_id: 019a0000-0000-7000-8000-000000000020, status: overdue, requested_at: '2026-10-17T12:00:00Z', due_at: '2026-11-16T12:00:00Z', completed_at: null}
+                deadLetter:
+                  value: {operation_id: 019a0000-0000-7000-8000-000000000020, status: dead_letter, requested_at: '2026-10-17T12:00:00Z', due_at: '2026-11-16T12:00:00Z', completed_at: null}
+                completed:
+                  value: {operation_id: 019a0000-0000-7000-8000-000000000020, status: completed, requested_at: '2026-10-17T12:00:00Z', due_at: '2026-11-16T12:00:00Z', completed_at: '2026-10-18T12:00:00Z'}
+        '404':
+          description: 操作或 receipt 不存在，统一返回不可用响应
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+              examples:
+                problem:
+                  value: {type: 'about:blank', title: 'Not found', status: 404, code: RESOURCE_NOT_FOUND, request_id: '00000000-0000-4000-8000-000000000404'}
+        '422':
+          description: operation_id 或 receipt 格式无效
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+              examples:
+                problem:
+                  value: {type: 'about:blank', title: 'Request validation failed', status: 422, code: VALIDATION_ERROR, request_id: '00000000-0000-4000-8000-000000000422'}
+        '429':
+          description: 查询频率受限
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+              examples:
+                problem:
+                  value: {type: 'about:blank', title: 'Status query rate limit exceeded', status: 429, code: RATE_LIMITED, request_id: '00000000-0000-4000-8000-000000000429'}
+        '503':
+          description: 隐私服务暂不可用
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+              examples:
+                problem:
+                  value: {type: 'about:blank', title: 'Service unavailable', status: 503, code: SERVICE_UNAVAILABLE, request_id: '00000000-0000-4000-8000-000000000503'}
   /privacy/exports:
     post:
       summary: 预览并创建隐私导出

@@ -595,9 +595,28 @@ def test_openapi_account_deletion_requires_authenticated_operation() -> None:
     app = create_app(Settings(env="test"))
     schema = app.openapi()
     deletion = schema["paths"]["/api/v1/patients/me/account-deletion"]["post"]
+    assert deletion["operationId"] == "requestAccountDeletion"
     assert deletion["security"] == [{"bearerAuth": []}]
     assert "202" in deletion["responses"] and "401" in deletion["responses"]
-    assert "/api/v1/privacy/deletion-operations/{operation_id}/status" in schema["paths"]
+    assert "404" in deletion["responses"] and "500" in deletion["responses"]
+    assert set(deletion["responses"]["202"]["content"]["application/json"]["examples"]) == {
+        "firstAcceptance",
+        "idempotentRetry",
+    }
+    status = schema["paths"]["/api/v1/privacy/deletion-operations/{operation_id}/status"]["post"]
+    assert status["operationId"] == "getPrivacyDeletionStatus"
+    assert {"200", "404", "422", "429", "503"}.issubset(status["responses"])
+    assert {"pending", "processing", "overdue", "deadLetter", "completed"}.issubset(
+        status["responses"]["200"]["content"]["application/json"]["examples"]
+    )
+    deletion_status = schema["components"]["schemas"]["DeleteStatus"]
+    assert deletion_status["properties"]["status"]["enum"] == [
+        "pending",
+        "processing",
+        "overdue",
+        "dead_letter",
+        "completed",
+    ]
     assert "/api/v1/privacy/exports" in schema["paths"]
     assert "/api/v1/privacy/exports/download" in schema["paths"]
     assert "X-Export-Capability" in str(schema["paths"]["/api/v1/privacy/exports/download"])
@@ -651,3 +670,18 @@ def test_frozen_openapi_auth_shapes_match_runtime_constraints() -> None:
         ]
         assert body["additionalProperties"] is False
         assert body["properties"][field]["minLength"] == 20
+
+    deletion_path = "/patients/me/account-deletion"
+    status_path = "/privacy/deletion-operations/{operation_id}/status"
+    for path, method, operation_id in (
+        (deletion_path, "post", "requestAccountDeletion"),
+        (status_path, "post", "getPrivacyDeletionStatus"),
+    ):
+        static_operation = contract["paths"][path][method]
+        runtime_operation = runtime["paths"][f"/api/v1{path}"][method]
+        assert static_operation["operationId"] == runtime_operation["operationId"] == operation_id
+        assert set(static_operation["responses"]) == set(runtime_operation["responses"])
+    assert (
+        contract["components"]["schemas"]["PrivacyDeletionStatus"]["properties"]["status"]["enum"]
+        == runtime["components"]["schemas"]["DeleteStatus"]["properties"]["status"]["enum"]
+    )

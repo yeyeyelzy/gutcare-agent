@@ -24,6 +24,20 @@ describe('named route registry and protected navigation', () => {
     expect(canRenderRoute('me', 'authenticated')).toBe(true)
     expect(canRenderRoute('riskAlerts', 'authenticated')).toBe(true)
     expect(canRenderRoute('riskAlertDetail', 'anonymous')).toBe(false)
+    expect(canRenderRoute('privacyCenter', 'anonymous')).toBe(false)
+    expect(canRenderRoute('accountDeletionConfirm', 'anonymous')).toBe(false)
+    expect(canRenderRoute('accountDeletionProgress', 'anonymous')).toBe(true)
+  })
+
+  it('clears authenticated return targets and reLaunches a public deletion progress route after acceptance', () => {
+    const navigator = makeNavigator()
+    const router = new AppRouter(navigator, () => 'authenticated')
+    router.returnToStore.save({ name: 'profile' })
+    router.onAccountDeletionAccepted()
+    expect(router.returnToStore.take()).toBeNull()
+    expect(navigator.reLaunch).toHaveBeenCalledWith(APP_ROUTES.accountDeletionProgress.path)
+    expect(APP_ROUTES.accountDeletionProgress.path).not.toContain('?')
+    expect(routeNameFromUrl(APP_ROUTES.accountDeletionProgress.path)).toBe('accountDeletionProgress')
   })
 
   it('blocks an unauthenticated deep link before navigation and stores only the allow-listed route name', () => {

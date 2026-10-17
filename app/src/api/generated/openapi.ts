@@ -372,6 +372,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/patients/me/account-deletion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 启动账号注销流程 */
+        post: operations["requestAccountDeletion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/privacy/deletion-operations/{operation_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 使用注销receipt查询进度 */
+        post: operations["getPrivacyDeletionStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/symptom-records/{record_id}/status-history": {
         parameters: {
             query?: never;
@@ -2325,6 +2359,106 @@ export interface operations {
             401: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             500: components["responses"]["Problem"];
+        };
+    };
+    requestAccountDeletion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 账户立即冻结、撤销全部 refresh session/consent并取消任务；仅首次创建返回一次性receipt，重试复用operation且receipt为null。 */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyDeletionAccepted"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            /** @description 账户或本人资料不可用 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            500: components["responses"]["Problem"];
+        };
+    };
+    getPrivacyDeletionStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "receipt": "one-time-high-entropy-value-0123456789-abcdefghijklmnopqrstuvwxyz"
+                 *     }
+                 */
+                "application/json": {
+                    receipt: string;
+                };
+            };
+        };
+        responses: {
+            /** @description 删除操作状态 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyDeletionStatus"];
+                };
+            };
+            /** @description 操作或 receipt 不存在，统一返回不可用响应 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description operation_id 或 receipt 格式无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description 查询频率受限 */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description 隐私服务暂不可用 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getSymptomStatusHistory: {

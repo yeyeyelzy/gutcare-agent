@@ -25,13 +25,14 @@ import { SecureStoreNativeError } from '../interface.uts'
 
 const SERVICE = 'com.gutcare.mobile.secure-token-store'
 const ACCOUNT = 'refresh-token-v1'
+const DELETION_ACCOUNT = 'deletion-receipt-v1'
 const INSTALL_MARKER = 'gutcare-secure-store-install-v1'
 
-function baseQuery(): Map<string, any> {
+function baseQuery(account: string): Map<string, any> {
   const query = new Map<string, any>()
   query.set(kSecClass as string, kSecClassGenericPassword)
   query.set(kSecAttrService as string, SERVICE)
-  query.set(kSecAttrAccount as string, ACCOUNT)
+  query.set(kSecAttrAccount as string, account)
   query.set(kSecAttrSynchronizable as string, false)
   return query
 }
@@ -71,9 +72,9 @@ function excludeMarkerFromBackup(url: URL): void {
   }
 }
 
-function deleteKeychainItem(): void {
+function deleteKeychainItem(account: string): void {
   // Keychain deletion is idempotent: an already-absent item is a successful outcome here only.
-  mapStatus(SecItemDelete(baseQuery() as CFDictionary), true)
+  mapStatus(SecItemDelete(baseQuery(account) as CFDictionary), true)
 }
 
 function ensureInstallMarker(): void {
@@ -96,7 +97,7 @@ function ensureInstallMarker(): void {
 
   // Keychain items can survive app removal. An app-container marker does not; purge stale credentials
   // on first launch after install. The marker itself is excluded from backups.
-  deleteKeychainItem()
+  deleteKeychainItem(ACCOUNT)
   try {
     Data('v1'.utf8).write(to = marker, options = Data.WritingOptions.atomic)
     excludeMarkerFromBackup(marker)
@@ -108,11 +109,11 @@ function ensureInstallMarker(): void {
   }
 }
 
-export function set(value: string): void {
+function setForAccount(value: string, account: string): void {
   if (value.length == 0) throw new SecureStoreNativeError('INVALID_VALUE')
   ensureInstallMarker()
   const data = Data(value.utf8)
-  const attributes = baseQuery()
+  const attributes = baseQuery(account)
   attributes.set(kSecAttrAccessible as string, kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
   attributes.set(kSecValueData as string, data)
 
@@ -125,7 +126,7 @@ export function set(value: string): void {
   updateAttributes.set(kSecAttrAccessible as string, kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
   updateAttributes.set(kSecAttrSynchronizable as string, false)
 
-  const updateStatus = SecItemUpdate(baseQuery() as CFDictionary, updateAttributes as CFDictionary)
+  const updateStatus = SecItemUpdate(baseQuery(account) as CFDictionary, updateAttributes as CFDictionary)
   if (updateStatus == errSecSuccess) return
   if (updateStatus != errSecItemNotFound) mapStatus(updateStatus)
 
@@ -135,13 +136,13 @@ export function set(value: string): void {
   if (retryAddStatus == errSecSuccess) return
   if (retryAddStatus != errSecDuplicateItem) mapStatus(retryAddStatus)
 
-  const retryUpdateStatus = SecItemUpdate(baseQuery() as CFDictionary, updateAttributes as CFDictionary)
+  const retryUpdateStatus = SecItemUpdate(baseQuery(account) as CFDictionary, updateAttributes as CFDictionary)
   mapStatus(retryUpdateStatus)
 }
 
-export function get(): string | null {
+function getForAccount(account: string): string | null {
   ensureInstallMarker()
-  const query = baseQuery()
+  const query = baseQuery(account)
   query.set(kSecReturnData as string, true)
   query.set(kSecMatchLimit as string, kSecMatchLimitOne)
   var result: CFTypeRef | null = null
@@ -150,25 +151,25 @@ export function get(): string | null {
   mapStatus(status)
   const data = result as Data
   if (data == null) {
-    deleteKeychainItem()
+    deleteKeychainItem(account)
     throw new SecureStoreNativeError('CORRUPT_DATA')
   }
   const value = String(data = data!, encoding = String.Encoding.utf8)
   if (value == null || value!.length == 0) {
-    deleteKeychainItem()
+    deleteKeychainItem(account)
     throw new SecureStoreNativeError('CORRUPT_DATA')
   }
   return value!
 }
 
-export function remove(): void {
+function removeForAccount(account: string): void {
   ensureInstallMarker()
-  mapStatus(SecItemDelete(baseQuery() as CFDictionary), true)
+  mapStatus(SecItemDelete(baseQuery(account) as CFDictionary), true)
 }
 
-export function has(): boolean {
+function hasForAccount(account: string): boolean {
   ensureInstallMarker()
-  const query = baseQuery()
+  const query = baseQuery(account)
   query.set(kSecReturnData as string, false)
   query.set(kSecMatchLimit as string, kSecMatchLimitOne)
   const status = SecItemCopyMatching(query as CFDictionary, nil)
@@ -176,3 +177,12 @@ export function has(): boolean {
   mapStatus(status)
   return true
 }
+
+export function set(value: string): void { setForAccount(value, ACCOUNT) }
+export function get(): string | null { return getForAccount(ACCOUNT) }
+export function remove(): void { removeForAccount(ACCOUNT) }
+export function has(): boolean { return hasForAccount(ACCOUNT) }
+export function setDeletionReceiptRecord(value: string): void { setForAccount(value, DELETION_ACCOUNT) }
+export function getDeletionReceiptRecord(): string | null { return getForAccount(DELETION_ACCOUNT) }
+export function removeDeletionReceiptRecord(): void { removeForAccount(DELETION_ACCOUNT) }
+export function hasDeletionReceiptRecord(): boolean { return hasForAccount(DELETION_ACCOUNT) }

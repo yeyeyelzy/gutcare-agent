@@ -44,7 +44,7 @@ const entries: ReadonlyArray<{ route: AppRouteName; title: string; description: 
   { route: 'medications', title: '用药计划', description: '查看已确认的用药安排', icon: '＋', tint: 'sage' },
   { route: 'advice', title: '个性化建议', description: '查看建议与相关依据', icon: '✧', tint: 'lilac' },
   { route: 'trends', title: '健康趋势', description: '查看结构化记录的变化', icon: '⌁', tint: 'yellow' },
-  { route: 'settings', title: '设置与隐私', description: '管理账户与隐私选项', icon: '⚙', tint: 'sage' },
+  { route: 'privacyCenter', title: '设置与隐私', description: '管理账户隐私并申请账号注销', icon: '⚙', tint: 'sage' },
 ]
 
 onShow(() => { if (!authorized.value) router?.requireAuthentication('me'); else void loadNotificationCount() })

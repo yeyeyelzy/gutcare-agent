@@ -25,6 +25,10 @@ const FILE_NAME = 'gutcare-refresh-token-v1.json'
 const TEMP_NAME = 'gutcare-refresh-token-v1.tmp'
 const ENVELOPE_VERSION = 1
 const AAD = 'gutcare.refresh-token.v1'
+const DELETION_KEY_ALIAS = 'gutcare.deletion-receipt.aes.v1'
+const DELETION_FILE_NAME = 'gutcare-deletion-receipt-v1.json'
+const DELETION_TEMP_NAME = 'gutcare-deletion-receipt-v1.tmp'
+const DELETION_AAD = 'gutcare.deletion-receipt.v1'
 
 interface Envelope {
   v: number
@@ -36,12 +40,12 @@ function appContext(): Context {
   return UTSAndroid.getAppContext() as Context
 }
 
-function tokenFile(): File {
-  return new File(appContext().getNoBackupFilesDir(), FILE_NAME)
+function tokenFile(fileName: string): File {
+  return new File(appContext().getNoBackupFilesDir(), fileName)
 }
 
-function tempFile(): File {
-  return new File(appContext().getNoBackupFilesDir(), TEMP_NAME)
+function tempFile(fileName: string): File {
+  return new File(appContext().getNoBackupFilesDir(), fileName)
 }
 
 function keyStore(): KeyStore {
@@ -50,18 +54,18 @@ function keyStore(): KeyStore {
   return store
 }
 
-function existingKey(): SecretKey | null {
+function existingKey(alias: string): SecretKey | null {
   const store = keyStore()
-  if (!store.containsAlias(KEY_ALIAS)) return null
-  const key = store.getKey(KEY_ALIAS, null)
+  if (!store.containsAlias(alias)) return null
+  const key = store.getKey(alias, null)
   if (key == null) return null
   return key as SecretKey
 }
 
-function createKey(): SecretKey {
+function createKey(alias: string): SecretKey {
   const generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, 'AndroidKeyStore')
   const spec = new KeyGenParameterSpec.Builder(
-    KEY_ALIAS,
+    alias,
     KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT,
   )
     .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
@@ -73,25 +77,25 @@ function createKey(): SecretKey {
   return generator.generateKey()
 }
 
-function getOrCreateKey(): SecretKey {
-  return existingKey() ?? createKey()
+function getOrCreateKey(alias: string): SecretKey {
+  return existingKey(alias) ?? createKey(alias)
 }
 
-function deleteKey(): void {
+function deleteKey(alias: string): void {
   const store = keyStore()
-  if (store.containsAlias(KEY_ALIAS)) store.deleteEntry(KEY_ALIAS)
+  if (store.containsAlias(alias)) store.deleteEntry(alias)
 }
 
-function deleteTokenFile(): void {
-  const file = tokenFile()
+function deleteTokenFile(fileName: string, tempName: string): void {
+  const file = tokenFile(fileName)
   if (file.exists() && !file.delete()) throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
-  const temporary = tempFile()
+  const temporary = tempFile(tempName)
   if (temporary.exists() && !temporary.delete()) throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
 }
 
-function purgeInvalidData(): void {
-  deleteTokenFile()
-  deleteKey()
+function purgeInvalidData(fileName: string, tempName: string, alias: string): void {
+  deleteTokenFile(fileName, tempName)
+  deleteKey(alias)
 }
 
 function codeFor(error: any): string {
@@ -110,9 +114,9 @@ function throwMapped(error: any): never {
   throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
 }
 
-function writeAtomically(contents: string): void {
-  const destination = tokenFile()
-  const temporary = tempFile()
+function writeAtomically(contents: string, fileName: string, tempName: string): void {
+  const destination = tokenFile(fileName)
+  const temporary = tempFile(tempName)
   let output: FileOutputStream | null = null
   try {
     output = new FileOutputStream(temporary, false)
@@ -129,10 +133,10 @@ function writeAtomically(contents: string): void {
   }
 }
 
-function readEnvelope(): Envelope {
+function readEnvelope(fileName: string): Envelope {
   let source: string
   try {
-    source = tokenFile().readText('UTF-8')
+    source = tokenFile(fileName).readText('UTF-8')
   } catch (_error) {
     throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
   }
@@ -151,25 +155,25 @@ function readEnvelope(): Envelope {
   }
 }
 
-function decrypt(envelope: Envelope): string {
+function decrypt(envelope: Envelope, alias: string, aad: string): string {
   const store = keyStore()
-  if (!store.containsAlias(KEY_ALIAS)) throw new SecureStoreNativeError('KEY_INVALIDATED')
-  const key = existingKey()
+  if (!store.containsAlias(alias)) throw new SecureStoreNativeError('KEY_INVALIDATED')
+  const key = existingKey(alias)
   if (key == null) throw new SecureStoreNativeError('KEY_INVALIDATED')
   const iv = Base64.decode(envelope.iv, Base64.NO_WRAP)
   const encrypted = Base64.decode(envelope.ciphertext, Base64.NO_WRAP)
   const cipher = Cipher.getInstance('AES/GCM/NoPadding')
   cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, iv))
-  cipher.updateAAD(AAD.getBytes('UTF-8'))
+  cipher.updateAAD(aad.getBytes('UTF-8'))
   return String(cipher.doFinal(encrypted), 'UTF-8')
 }
 
-export function set(value: string): void {
+function setValue(value: string, alias: string, fileName: string, tempName: string, aad: string): void {
   if (value.length == 0) throw new SecureStoreNativeError('INVALID_VALUE')
   try {
     const cipher = Cipher.getInstance('AES/GCM/NoPadding')
-    cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(), new SecureRandom())
-    cipher.updateAAD(AAD.getBytes('UTF-8'))
+    cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(alias), new SecureRandom())
+    cipher.updateAAD(aad.getBytes('UTF-8'))
     const ciphertext = cipher.doFinal(value.getBytes('UTF-8'))
     if (cipher.iv.length != 12) throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
     const envelope: Envelope = {
@@ -177,21 +181,21 @@ export function set(value: string): void {
       iv: Base64.encodeToString(cipher.iv, Base64.NO_WRAP),
       ciphertext: Base64.encodeToString(ciphertext, Base64.NO_WRAP),
     }
-    writeAtomically(JSON.stringify(envelope))
+    writeAtomically(JSON.stringify(envelope), fileName, tempName)
   } catch (error) {
     throwMapped(error)
   }
 }
 
-export function get(): string | null {
-  if (!tokenFile().exists()) return null
+function getValue(alias: string, fileName: string, tempName: string, aad: string): string | null {
+  if (!tokenFile(fileName).exists()) return null
   try {
-    return decrypt(readEnvelope())
+    return decrypt(readEnvelope(fileName), alias, aad)
   } catch (error) {
     const code = error instanceof SecureStoreNativeError ? error.code : codeFor(error)
     if (code == 'DEVICE_LOCKED') throw new SecureStoreNativeError('DEVICE_LOCKED')
     if (code == 'CORRUPT_DATA' || code == 'KEY_INVALIDATED') {
-      try { purgeInvalidData() } catch (_cleanupError) {
+      try { purgeInvalidData(fileName, tempName, alias) } catch (_cleanupError) {
         throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
       }
       throw new SecureStoreNativeError(code as 'CORRUPT_DATA' | 'KEY_INVALIDATED')
@@ -200,15 +204,24 @@ export function get(): string | null {
   }
 }
 
-export function has(): boolean {
-  return get() != null
+function hasValue(alias: string, fileName: string, tempName: string, aad: string): boolean {
+  return getValue(alias, fileName, tempName, aad) != null
 }
 
-export function remove(): void {
+function removeValue(alias: string, fileName: string, tempName: string): void {
   try {
-    deleteKey()
-    deleteTokenFile()
+    deleteKey(alias)
+    deleteTokenFile(fileName, tempName)
   } catch (error) {
     throwMapped(error)
   }
 }
+
+export function set(value: string): void { setValue(value, KEY_ALIAS, FILE_NAME, TEMP_NAME, AAD) }
+export function get(): string | null { return getValue(KEY_ALIAS, FILE_NAME, TEMP_NAME, AAD) }
+export function remove(): void { removeValue(KEY_ALIAS, FILE_NAME, TEMP_NAME) }
+export function has(): boolean { return hasValue(KEY_ALIAS, FILE_NAME, TEMP_NAME, AAD) }
+export function setDeletionReceiptRecord(value: string): void { setValue(value, DELETION_KEY_ALIAS, DELETION_FILE_NAME, DELETION_TEMP_NAME, DELETION_AAD) }
+export function getDeletionReceiptRecord(): string | null { return getValue(DELETION_KEY_ALIAS, DELETION_FILE_NAME, DELETION_TEMP_NAME, DELETION_AAD) }
+export function removeDeletionReceiptRecord(): void { removeValue(DELETION_KEY_ALIAS, DELETION_FILE_NAME, DELETION_TEMP_NAME) }
+export function hasDeletionReceiptRecord(): boolean { return hasValue(DELETION_KEY_ALIAS, DELETION_FILE_NAME, DELETION_TEMP_NAME, DELETION_AAD) }

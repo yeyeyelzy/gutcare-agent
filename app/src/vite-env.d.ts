@@ -10,4 +10,8 @@ declare module '@/../uni_modules/gutcare-secure-store' {
   export function get(): string | null
   export function remove(): void
   export function has(): boolean
+  export function setDeletionReceiptRecord(value: string): void
+  export function getDeletionReceiptRecord(): string | null
+  export function removeDeletionReceiptRecord(): void
+  export function hasDeletionReceiptRecord(): boolean
 }

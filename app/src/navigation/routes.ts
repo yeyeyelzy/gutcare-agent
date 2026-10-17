@@ -7,11 +7,14 @@ export const APP_ROUTES = {
   forgotPassword: { path: '/pages/auth/forgot-password', access: 'public', returnToAllowed: false },
   resetPassword: { path: '/pages/auth/reset-password', access: 'public', returnToAllowed: false },
   profileError: { path: '/pages/auth/profile-error', access: 'public', returnToAllowed: false },
+  accountDeletionProgress: { path: '/pages/privacy/deletion-progress', access: 'public', returnToAllowed: false },
   today: { path: '/pages/tabs/today/index', logicalPath: '/tabs/today', access: 'authenticated', returnToAllowed: true, tab: true },
   records: { path: '/pages/tabs/records/index', logicalPath: '/tabs/records', access: 'authenticated', returnToAllowed: true, tab: true },
   analysis: { path: '/pages/tabs/analysis/index', logicalPath: '/tabs/analysis', access: 'authenticated', returnToAllowed: true, tab: true },
   me: { path: '/pages/tabs/me/index', logicalPath: '/tabs/me', access: 'authenticated', returnToAllowed: true, tab: true },
   profile: { path: '/pages/profile/index', access: 'authenticated', returnToAllowed: true },
+  privacyCenter: { path: '/pages/privacy/center', access: 'authenticated', returnToAllowed: true },
+  accountDeletionConfirm: { path: '/pages/privacy/deletion-confirm', access: 'authenticated', returnToAllowed: false },
   placeholder: { path: '/pages/placeholder/index', access: 'authenticated', returnToAllowed: false },
   recordDiet: { path: '/pages/records/diet/index', access: 'authenticated', returnToAllowed: true },
   recordBowel: { path: '/pages/records/bowel/index', access: 'authenticated', returnToAllowed: true },
@@ -62,7 +65,7 @@ export function mapNotificationTarget(target: { type: string; id: string } | nul
   }
   return { kind: 'unavailable' }
 }
-export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'placeholder' | RecordWorkspaceRouteName | MoodWorkspaceRouteName | ActivityWorkspaceRouteName | MedicationWorkspaceRouteName | RiskRouteName | NotificationRouteName>
+export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'accountDeletionProgress' | 'privacyCenter' | 'accountDeletionConfirm' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'placeholder' | RecordWorkspaceRouteName | MoodWorkspaceRouteName | ActivityWorkspaceRouteName | MedicationWorkspaceRouteName | RiskRouteName | NotificationRouteName>
 export type ProtectedRouteName = {
   [Name in AppRouteName]: typeof APP_ROUTES[Name]['access'] extends 'authenticated' ? Name : never
 }[AppRouteName]

@@ -69,6 +69,8 @@ const requiredOperationIds = new Set([
   'readNotificationBatch',
   'getNotification',
   'readNotification',
+  'requestAccountDeletion',
+  'getPrivacyDeletionStatus',
 ])
 const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
 const foundOperations = new Map()
@@ -90,7 +92,7 @@ if (missingOperations.length || duplicatedOperations.length || foundOperations.s
   throw new Error(`APP OpenAPI operation set mismatch. Missing: ${missingOperations.join(', ') || 'none'}; duplicated: ${duplicatedOperations.map(([id]) => id).join(', ') || 'none'}.`)
 }
 
-// Generate frozen auth/profile, consent, F03-F07/F10/F12/F14 and F06 medication surfaces. Every DTO
+// Generate frozen auth/profile/privacy, consent, F03-F07/F10/F12/F14 and F06 medication surfaces. Every DTO
 // remains derived from the authoritative OpenAPI contract.
 const subset = {
   ...document,

@@ -64,6 +64,14 @@ export class SessionService {
     })
   }
 
+  /** A 202 deletion response already revoked server sessions; clear only local credentials, never call logout. */
+  async clearForAccountDeletion(): Promise<string | null> {
+    let storageError: unknown
+    try { await this.tokenStore.remove() } catch (error) { storageError = error }
+    this.auth.clear()
+    return storageError === undefined ? null : mapSecureTokenStoreError(storageError).code
+  }
+
   private async performLogout(): Promise<void> {
     let storageError: unknown
     try {

@@ -139,6 +139,13 @@ export class AppRouter {
     this.redirectToLoginOnce()
   }
 
+  onAccountDeletionAccepted(): void {
+    this.loginRedirectPending = false
+    this.returnToStore.clear()
+    this.clearRegistrationDraft()
+    this.navigator.reLaunch(APP_ROUTES.accountDeletionProgress.path)
+  }
+
   showProfileIntegrityError(): void {
     this.loginRedirectPending = false
     this.returnToStore.clear()

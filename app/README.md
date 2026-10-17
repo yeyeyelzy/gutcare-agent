@@ -31,7 +31,7 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 
 ## B01-1 认证和导航基础
 
-- `openapi-typescript@7.13.0` 与 `yaml@2.9.1` 均精确锁定。生成器只从权威 OpenAPI `operationId` 过滤 auth/profile、consent 与 F03–F07/F14 records operation，并断言必需 operationId 集合各出现一次；schema/DTO 不手写。`AuthApi` 登录/注销委托 B00b `SessionService`，不会重复实现 refresh。
+- `openapi-typescript@7.13.0` 与 `yaml@2.9.1` 均精确锁定。生成器只从权威 OpenAPI `operationId` 过滤 auth/profile、consent、F03–F07/F10/F12/F14 records、F13 deletion operation，并断言必需 operationId 集合各出现一次；schema/DTO 不手写。`AuthApi` 登录/注销委托 B00b `SessionService`，不会重复实现 refresh。
 - `AuthApi`、`ProfileApi` 使用生成的请求/响应类型。注册请求在运行时也拒绝额外键。
 - 第 22 页仅以内存 Pinia store 保存邮箱、密码、确认密码和隐私选择；第 17 页进入后只有明确同意健康数据处理才会开放出生年份字段；单独切换撤销同意只清出生年份，顶部/系统返回回第 22 页并保留草稿以供编辑。选择“暂不同意并退出注册”会清除整个草稿并回到登录；离开注册流程时路由层也清除草稿。提交请求显式构造 OpenAPI 六字段，成功受理后清除密码并进入邮箱验证页。验证令牌只由用户输入、只保存在页面内存、不放 URL/持久化；验证 204 后清草稿并回到登录。测试告知来自唯一 JSON 制品；当前开发/测试制品在 production mode 下 fail closed。
 - 路由注册表有 public/authenticated 元数据；仅允许白名单中标记的受保护命名路由作为进程内 `returnTo`。导航拦截器与根页条件渲染双重阻止认证/资料尚未完成时显示受保护页面。启动/登录恢复固定执行 session restore → `GET /patients/me`：200 才进入今日；401 清会话返回登录；404 清会话进入不可继续的资料一致性错误态并展示 `request_id`；不会伪造资料或进入 `/onboarding/profile`。
@@ -80,3 +80,9 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 通知中心、详情、普通通知偏好和分析/建议安全占位均为受保护路由。`NotificationApi` 复用共享 RequestClient；筛选、cursor、未读计数、单条/批量已读及偏好 DTO 直接来自 OpenAPI 生成类型。通知仅显示契约事件类别/时间/优先级，不构造通知正文、药名剂量、报告或建议内容。target 严格按服务端类型 allowlist 映射；target 缺失/不可用时不推测路由，分析/建议 UUID 在需要重新认证时只保存在进程内受控返回目标。
 
 批量操作仅提交患者明确选择的未读通知 ID；后端失败时列表与选择保留，成功按返回 DTO 精确更新。首页和“我的”通过 `/notifications/unread-count` 显示真实数字，错误不显示成 0。普通提醒开关/quiet hours 不隐藏风险通知、不更改风险提示状态；不接外部 push 或供应商 SDK。T121 自动化覆盖 API、过滤与分页、目标 allowlist、批量状态 helper、偏好豁免及未读入口；设备真机/无障碍验收仍单独进行。
+
+## B06a F13 账号注销
+
+设置与隐私页进入高危确认，明确理解勾选后才允许单飞提交。202 受理后先把 `{operation_id, receipt}` 写入独立原生 Keychain/Keystore 命名空间，再撤销本地刷新凭据、清理 access/profile/returnTo 并 `reLaunch` 到无认证进度页；不调用 logout，不提供取消注销。安全存储写入失败时仅留进程内并明确要求手动记录首次响应凭证，绝不降级到普通 uni storage；receipt 为 `null` 时只关联相同 operation ID 的既存凭证，否则明确说明无法恢复，不覆盖、不声称已恢复。
+
+进度页不把凭证或操作 ID 放在 APP 路由/query；手工查询通过受控 POST body，输入凭证在发送前从页面状态清除。手工输入可恢复查询但只在未完成状态保存到原生安全存储；`completed` 删除对应安全凭证。`overdue/dead_letter` 显示联系支持且不触发重新注销。原生 secure-store 接口的 HBuilderX 编译、安装与 Android/iOS 真机证据仍需单独验收；CLI build 不等于系统安全能力真机通过。

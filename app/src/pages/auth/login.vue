@@ -14,6 +14,7 @@
     <template #footer>
       <text class="footer-prompt">还没有账号？</text>
       <button class="text-link" data-testid="login-register" @click="router?.navigate('register')">创建账号</button>
+      <button class="text-link deletion-link" data-testid="login-deletion-progress" @click="router?.navigate('accountDeletionProgress')">查询账号注销进度</button>
     </template>
   </AuthScaffold>
 </template>

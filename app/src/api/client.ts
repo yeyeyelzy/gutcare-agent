@@ -1,5 +1,5 @@
 import { RequestClient } from './requestClient'
-import { nativeSecureTokenStore } from './secureStoreNative'
+import { nativeDeletionReceiptBridge, nativeSecureTokenStore } from './secureStoreNative'
 import type { SecureTokenStore } from './secureTokenStore'
 import { SessionService } from './session'
 import { UniRequestTransport } from './uniTransport'
@@ -21,6 +21,9 @@ import { ActivityApi } from './activityApi'
 import { MedicationApi } from './medicationApi'
 import { RiskApi } from './riskApi'
 import { NotificationApi } from './notificationApi'
+import { PrivacyApi } from './privacyApi'
+import { PrivacyDeletionService } from './privacyDeletionService'
+import { NativeDeletionReceiptStore } from './deletionReceiptStore'
 
 const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, { allowLocalHttp: import.meta.env.DEV })
 
@@ -65,6 +68,9 @@ export function createAppServices(pinia: Pinia) {
   const medicationApi = new MedicationApi(requestClient)
   const riskApi = new RiskApi(requestClient)
   const notificationApi = new NotificationApi(requestClient)
+  const privacyApi = new PrivacyApi(requestClient)
+  const deletionReceiptStore = new NativeDeletionReceiptStore(nativeDeletionReceiptBridge)
+  const privacyDeletion = new PrivacyDeletionService(privacyApi, deletionReceiptStore, session, router)
   const authApi = new AuthApi(requestClient, session)
   const registration = new RegistrationService(authApi, useRegistrationDraftStore(pinia))
   const emailVerification = new EmailVerificationService(authApi, useRegistrationDraftStore(pinia))
@@ -81,6 +87,8 @@ export function createAppServices(pinia: Pinia) {
     medicationApi,
     riskApi,
     notificationApi,
+    privacyApi,
+    privacyDeletion,
     registration,
     emailVerification,
     passwordReset,

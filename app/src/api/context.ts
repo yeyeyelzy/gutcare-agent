@@ -15,6 +15,8 @@ import type { ActivityApi } from './activityApi'
 import type { MedicationApi } from './medicationApi'
 import type { RiskApi } from './riskApi'
 import type { NotificationApi } from './notificationApi'
+import type { PrivacyApi } from './privacyApi'
+import type { PrivacyDeletionService } from './privacyDeletionService'
 
 export const requestClientKey: InjectionKey<RequestClient> = Symbol('gutcare-request-client')
 export const sessionServiceKey: InjectionKey<SessionService> = Symbol('gutcare-session-service')
@@ -32,3 +34,5 @@ export const activityApiKey: InjectionKey<ActivityApi> = Symbol('gutcare-activit
 export const medicationApiKey: InjectionKey<MedicationApi> = Symbol('gutcare-medication-api')
 export const riskApiKey: InjectionKey<RiskApi> = Symbol('gutcare-risk-api')
 export const notificationApiKey: InjectionKey<NotificationApi> = Symbol('gutcare-notification-api')
+export const privacyApiKey: InjectionKey<PrivacyApi> = Symbol('gutcare-privacy-api')
+export const privacyDeletionServiceKey: InjectionKey<PrivacyDeletionService> = Symbol('gutcare-privacy-deletion-service')

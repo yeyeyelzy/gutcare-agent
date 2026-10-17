@@ -15,3 +15,19 @@ export function remove(): void {
 export function has(): boolean {
   throw new SecureStoreNativeError('UNSUPPORTED_PLATFORM')
 }
+
+export function setDeletionReceiptRecord(_value: string): void {
+  throw new SecureStoreNativeError('UNSUPPORTED_PLATFORM')
+}
+
+export function getDeletionReceiptRecord(): string | null {
+  throw new SecureStoreNativeError('UNSUPPORTED_PLATFORM')
+}
+
+export function removeDeletionReceiptRecord(): void {
+  throw new SecureStoreNativeError('UNSUPPORTED_PLATFORM')
+}
+
+export function hasDeletionReceiptRecord(): boolean {
+  throw new SecureStoreNativeError('UNSUPPORTED_PLATFORM')
+}
