@@ -6,15 +6,24 @@ import { UniRequestTransport } from './uniTransport'
 import { resolveApiBaseUrl } from '@/config/apiBaseUrl'
 import { useAuthStore } from '@/stores/auth'
 import type { Pinia } from 'pinia'
+import { AuthApi } from './authApi'
+import { ProfileApi } from './profileApi'
+import { AppRouter, installGlobalRouteGuards } from '../navigation/router'
+import { StartupCoordinator } from '../navigation/startup'
+import { useRegistrationDraftStore } from '../stores/registrationDraft'
+import { RegistrationService } from './registrationService'
+import { EmailVerificationService } from './emailVerificationService'
 
 const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, { allowLocalHttp: import.meta.env.DEV })
 
 /** Build the single app-wide transport after Pinia is installed. */
 export function createAppRequestClient(pinia: Pinia): RequestClient {
-  return createRequestClient(pinia, nativeSecureTokenStore)
+  const auth = useAuthStore(pinia)
+  const router = createAppRouter(auth, pinia)
+  return createRequestClient(pinia, nativeSecureTokenStore, () => router.onAuthenticationRequired())
 }
 
-function createRequestClient(pinia: Pinia, tokenStore: SecureTokenStore): RequestClient {
+function createRequestClient(pinia: Pinia, tokenStore: SecureTokenStore, onAuthenticationRequired: () => void): RequestClient {
   const auth = useAuthStore(pinia)
   const requestClient = new RequestClient({
     baseUrl: apiBaseUrl,
@@ -27,9 +36,7 @@ function createRequestClient(pinia: Pinia, tokenStore: SecureTokenStore): Reques
     clearSession: async () => {
       auth.clear()
     },
-    onAuthenticationRequired: () => {
-      uni.reLaunch({ url: '/pages/auth/login' })
-    },
+    onAuthenticationRequired,
   })
   return requestClient
 }
@@ -37,9 +44,32 @@ function createRequestClient(pinia: Pinia, tokenStore: SecureTokenStore): Reques
 export function createAppServices(pinia: Pinia) {
   const auth = useAuthStore(pinia)
   const tokenStore = nativeSecureTokenStore
-  const requestClient = createRequestClient(pinia, tokenStore)
+  const router = createAppRouter(auth, pinia)
+  installGlobalRouteGuards(router)
+  const requestClient = createRequestClient(pinia, tokenStore, () => router.onAuthenticationRequired())
+  const session = new SessionService(requestClient, tokenStore, auth, () => router.onAuthenticationRequired(), () => router.onLogoutCompleted())
+  const profileApi = new ProfileApi(requestClient)
+  const authApi = new AuthApi(requestClient, session)
+  const registration = new RegistrationService(authApi, useRegistrationDraftStore(pinia))
+  const emailVerification = new EmailVerificationService(authApi, useRegistrationDraftStore(pinia))
   return {
     requestClient,
-    session: new SessionService(requestClient, tokenStore, auth, () => uni.reLaunch({ url: '/pages/auth/login' })),
+    session,
+    authApi,
+    profileApi,
+    registration,
+    emailVerification,
+    router,
+    startup: new StartupCoordinator(session, profileApi, requestClient, auth, router),
   }
+}
+
+function createAppRouter(auth: ReturnType<typeof useAuthStore>, pinia: Pinia): AppRouter {
+  const registrationDraft = useRegistrationDraftStore(pinia)
+  return new AppRouter({
+    navigateTo: (url) => { uni.navigateTo({ url }) },
+    redirectTo: (url) => { uni.redirectTo({ url }) },
+    reLaunch: (url) => { uni.reLaunch({ url }) },
+    navigateBack: () => { uni.navigateBack({ delta: 1 }) },
+  }, () => auth.state, undefined, () => registrationDraft.cancelWorkflow())
 }

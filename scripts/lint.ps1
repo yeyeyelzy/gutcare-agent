@@ -20,6 +20,8 @@ if ($LASTEXITCODE -ne 0 -or $pnpmVersion -ne '10.28.0') { throw "Project pnpm 10
 if (-not (Test-Path -LiteralPath 'pnpm-lock.yaml' -PathType Leaf)) { throw 'Workspace pnpm-lock.yaml is missing.' }
 Push-Location (Join-Path $root 'app')
 try {
+    & $node $corepack pnpm --filter gutcare-mobile... run openapi:check
+    if ($LASTEXITCODE -ne 0) { throw 'APP OpenAPI generated types are out of date.' }
     & $node $corepack pnpm --filter gutcare-mobile... run typecheck
     if ($LASTEXITCODE -ne 0) { throw 'APP typecheck failed.' }
 } finally { Pop-Location }

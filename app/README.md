@@ -5,7 +5,9 @@ uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端基础工�
 ## 命令
 
 - `pnpm typecheck`：Vue / TypeScript 静态检查
-- `pnpm test`：API 基础单元测试
+- `pnpm openapi:generate`：从冻结 OpenAPI auth/profile operation 生成 TypeScript 类型
+- `pnpm openapi:check`：重新过滤并生成后与受检入库类型逐字节比对；`pnpm check` 和仓库 lint 门禁执行此检查
+- `pnpm test`：API、会话、注册草稿、邮箱验证、导航与启动状态单元测试
 - `pnpm build:android`：生成 Android 平台的 HBuilderX 导入工程
 - `pnpm build:ios`：生成 iOS 平台的 HBuilderX 导入工程
 - `pnpm dev:app`：使用 uni-app App 运行目标启动调试
@@ -27,6 +29,14 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 
 自动化测试覆盖了 Keychain 写入状态决策（duplicate→update→not-found→retry-add→duplicate→retry-update）、未找到不能假成功及删除幂等规则；该纯逻辑测试不调用 iOS Security 原生 API。发布前还必须真机验证：原生插件可编译且未记录令牌；set/get/has/remove 持久化和退出清理（包括 Keychain 更新竞态及同步性/可访问属性）；iOS 锁屏后返回 `DEVICE_LOCKED` 且解锁后仍可读取；密文损坏/Keystore key 丢失后清理并要求重新登录；Android 云备份与设备迁移不携带令牌文件；iOS 卸载重装清除遗留 Keychain 值、恢复到另一设备不迁移 Keychain；Web/unsupported target fail-closed。
 
-## 范围
+## B01-1 认证和导航基础
 
-基础设施包含启动/登录/首页路由壳、唯一 `RequestClient` 装配、Problem Details 错误映射、401 refresh 单飞协调及 `SessionService`。页面不直接发起网络请求。最终页面和视觉令牌取值等待 UI 交付；认证流程接入与原生安全存储双端验证也尚未完成。
+- `openapi-typescript@7.13.0` 与 `yaml@2.9.1` 均精确锁定。生成器只从权威 OpenAPI `operationId` 过滤 `register`、`verifyEmail`、`login`、`refreshSession`、`logout`、密码重置及 `getMyProfile`/`updateMyProfile`，并断言必需 operationId 集合各出现一次；schema/DTO 不手写。`AuthApi` 登录/注销委托 B00b `SessionService`，不会重复实现 refresh。
+- `AuthApi`、`ProfileApi` 使用生成的请求/响应类型。注册请求在运行时也拒绝额外键。
+- 第 22 页仅以内存 Pinia store 保存邮箱、密码、确认密码和隐私选择；第 17 页进入后只有明确同意健康数据处理才会开放出生年份字段；单独切换撤销同意只清出生年份，顶部/系统返回回第 22 页并保留草稿以供编辑。选择“暂不同意并退出注册”会清除整个草稿并回到登录；离开注册流程时路由层也清除草稿。提交请求显式构造 OpenAPI 六字段，成功受理后清除密码并进入邮箱验证页。验证令牌只由用户输入、只保存在页面内存、不放 URL/持久化；验证 204 后清草稿并回到登录。测试告知来自唯一 JSON 制品；当前开发/测试制品在 production mode 下 fail closed。
+- 路由注册表有 public/authenticated 元数据；仅允许白名单的命名路由 `today` 作为进程内 `returnTo`。导航拦截器与首页 `v-if` 双重阻止认证/资料尚未完成时显示受保护页面。启动/登录恢复固定执行 session restore → `GET /patients/me`：200 才进入今日；401 清会话返回登录；404 清会话进入不可继续的资料一致性错误态并展示 `request_id`；不会伪造资料或进入 `/onboarding/profile`。
+- Access Token 和患者资料仅保存在 Pinia 内存；原生 Refresh Token 继续由 B00b SecureTokenStore 管理。登出调用 `POST /auth/logout` 后清除 returnTo，并用 `reLaunch(login)` 清空页面栈。
+- RFC 9457 `ProblemDetails` 从生成的 OpenAPI `components.schemas.Problem` 派生；客户端稳定错误类型只封装 kind/status/code/requestId，不另行复制契约字段。
+- 单元测试覆盖 API operation 路径与请求体、注册隐私/健康同意与六字段边界、返回保留草稿、取消/离开流程时清理、邮箱验证成功/失败、未认证深链阻断、状态机 200/401/404/暂时网络失败和注销清栈语义。此处为基础流程而非最终高保真注册/认证 UI 或业务首页。
+
+生成器按当前 B01-1 要求筛选 auth/profile operation；完整 OpenAPI 另有 `GET /symptom-records/{record_id}/status-history` 的 200 `application/json: null`，会使全量 openapi-typescript 生成失败。该非本切片契约技术债登记在前端联调计划中；本任务不修改冻结契约。

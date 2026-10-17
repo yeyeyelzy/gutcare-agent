@@ -1,13 +1,6 @@
-export interface ProblemDetails {
-  type: string
-  title: string
-  status: number
-  detail?: string
-  instance?: string
-  code: string
-  request_id: string
-  errors?: Array<Record<string, unknown>>
-}
+import type { ProblemDetails } from './openapiTypes'
+
+export type { ProblemDetails } from './openapiTypes'
 
 export type AppErrorKind = 'http' | 'network' | 'timeout' | 'offline' | 'unavailable' | 'protocol'
 

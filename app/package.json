@@ -14,7 +14,9 @@
     "build:android": "uni build -p app-android",
     "build:ios": "uni build -p app-ios",
     "typecheck": "vue-tsc --noEmit",
-    "check": "pnpm typecheck && pnpm test",
+    "openapi:generate": "node scripts/openapi-types.mjs --write",
+    "openapi:check": "node scripts/openapi-types.mjs --check",
+    "check": "pnpm openapi:check && pnpm typecheck && pnpm test",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -31,10 +33,12 @@
     "@dcloudio/uni-uts-v1": "3.0.0-4060620250520001",
     "@dcloudio/vite-plugin-uni": "3.0.0-4060620250520001",
     "@types/node": "22.15.30",
+    "openapi-typescript": "7.13.0",
     "sass": "1.89.2",
     "typescript": "5.8.3",
     "vite": "5.4.19",
     "vitest": "3.2.4",
-    "vue-tsc": "2.2.10"
+    "vue-tsc": "2.2.10",
+    "yaml": "2.9.1"
   }
 }

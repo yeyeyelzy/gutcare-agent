@@ -7,8 +7,13 @@
 </template>
 
 <script setup lang="ts">
+import { inject } from 'vue'
+import { appRouterKey } from '../../api/context'
+
+const router = inject(appRouterKey)
+
 function continueToLogin() {
-  uni.redirectTo({ url: '/pages/auth/login' })
+  router?.redirect('login')
 }
 </script>
 

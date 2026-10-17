@@ -2,6 +2,7 @@ import { AppError, mapProblemDetails } from './errors'
 import { RefreshCoordinator } from './refreshCoordinator'
 import { isDeviceLockedError, mapSecureTokenStoreError, SecureTokenStoreError } from './secureTokenStore'
 import type { SecureTokenStore } from './secureTokenStore'
+import type { TokenPair } from './openapiTypes'
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export interface RequestOptions {
@@ -14,7 +15,7 @@ export interface RequestOptions {
 }
 export interface HttpResponse<T = unknown> { status: number; data: T; headers?: Record<string, string> }
 export interface HttpTransport { send<T>(url: string, options: RequestOptions & { headers: Record<string, string> }): Promise<HttpResponse<T>> }
-export interface SessionTokens { access_token: string; refresh_token: string; token_type: 'Bearer'; expires_in: number }
+export type SessionTokens = TokenPair
 export interface RequestClientConfig {
   baseUrl: string
   appVersion: string

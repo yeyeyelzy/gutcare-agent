@@ -2,6 +2,10 @@
   "pages": [
     { "path": "pages/launch/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/auth/login", "style": { "navigationBarTitleText": "登录" } },
+    { "path": "pages/auth/register", "style": { "navigationBarTitleText": "注册" } },
+    { "path": "pages/auth/register-profile", "style": { "navigationBarTitleText": "开始建档" } },
+    { "path": "pages/auth/email-verification", "style": { "navigationBarTitleText": "验证邮箱" } },
+    { "path": "pages/auth/profile-error", "style": { "navigationBarTitleText": "资料暂不可用" } },
     { "path": "pages/home/index", "style": { "navigationBarTitleText": "GutCare" } }
   ],
   "globalStyle": {

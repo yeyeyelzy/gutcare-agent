@@ -1,11 +1,12 @@
 import type { RequestClient, SessionTokens } from './requestClient'
 import { isDeviceLockedError, mapSecureTokenStoreError } from './secureTokenStore'
 import type { SecureTokenStore } from './secureTokenStore'
+import type { LoginRequest } from './openapiTypes'
 import type { useAuthStore } from '@/stores/auth'
 
 type AuthStore = ReturnType<typeof useAuthStore>
 
-export interface LoginRequest { email: string; password: string }
+export type { LoginRequest } from './openapiTypes'
 
 /** Session orchestration; credentials and refresh tokens never enter persistent UI state. */
 export class SessionService {
@@ -14,6 +15,7 @@ export class SessionService {
     private readonly tokenStore: SecureTokenStore,
     private readonly auth: AuthStore,
     private readonly onAuthenticationRequired: () => void,
+    private readonly onLogoutCompleted: () => void = onAuthenticationRequired,
   ) {}
 
   async login(credentials: LoginRequest): Promise<void> {
@@ -62,7 +64,7 @@ export class SessionService {
       requestError = error
     } finally {
       this.auth.clear()
-      this.onAuthenticationRequired()
+      this.onLogoutCompleted()
     }
 
     if (storageError !== undefined) throw mapSecureTokenStoreError(storageError)
