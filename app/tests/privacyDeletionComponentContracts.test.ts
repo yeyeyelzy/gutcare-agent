@@ -42,8 +42,9 @@ describe('F13 account deletion UI contract', () => {
     expect(query).toContain('if (isCurrentPage(generation)) statusError.value = error')
     expect(progress).toContain('if (clearInFlightManualSecrets === clearSecrets) clearInFlightManualSecrets = null')
     expect(progress).toContain('onShow(() => {')
-    expect(progress).toContain('const record = await deletion.loadSavedRecord()')
-    expect(progress).toContain('if (!isCurrentPage(generation)) return\n  savedRecord.value = record')
+    const initialize = progress.slice(progress.indexOf('async function initialize('), progress.indexOf('async function querySaved('))
+    expect(initialize).toContain('const record = await deletion.loadSavedRecord()')
+    expect(initialize).toMatch(/if\s*\(\s*!isCurrentPage\(generation\)\s*\)\s*return\s*[\r\n]+\s*savedRecord\.value\s*=\s*record/)
     expect(progress).not.toContain('receiptToReveal.value = record.receipt')
   })
 
