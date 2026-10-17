@@ -35,7 +35,7 @@
     <view class="section-heading section-heading--tight"><text class="section-title">用药计划</text><button class="text-link" data-testid="today-medication-link" @click="router?.navigate('medications')">查看全部</button></view>
     <view class="panel compact-panel" data-testid="today-medications">
       <view class="panel-icon panel-icon--peach" aria-hidden="true">＋</view>
-      <view class="panel-content"><text class="panel-title">按个人计划管理</text><DashboardDataStatus state="unavailable" test-id="medication-status" /></view>
+      <view class="panel-content"><text class="panel-title">按本人计划记录</text><DashboardDataStatus v-if="medicationState !== 'ready' || medicationCheckins.length === 0" :state="medicationState === 'ready' ? 'empty' : medicationState" :message="medicationMessage" :retryable="medicationState === 'error'" :busy="medicationLoading" test-id="medication-status" @retry="loadTodayMedication" /><view v-else class="medication-summary" data-testid="today-medication-summary"><text>{{ medicationCheckins.length }} 项今日打卡安排</text><text class="medication-detail">{{ medicationStatusSummary }}</text></view></view>
     </view>
 
     <view class="section-heading section-heading--tight"><text class="section-title">饮食记录</text><button class="text-link" data-testid="today-diet-link" @click="router?.navigate('recordDiet')">查看记录</button></view>
@@ -53,19 +53,30 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { appRouterKey } from '../../../api/context'
+import { appRouterKey, medicationApiKey } from '../../../api/context'
 import type { AppRouteName } from '../../../navigation/routes'
 import { canRenderRoute } from '../../../navigation/routes'
 import { useAuthStore } from '../../../stores/auth'
 import DashboardDataStatus from '../../../components/DashboardDataStatus.vue'
 import GcAvatar from '../../../components/GcAvatar.vue'
 import TabRoot from '../../../components/TabRoot.vue'
+import type { MedicationCheckin } from '../../../api/openapiTypes'
 
 const auth = useAuthStore()
 const router = inject(appRouterKey)
+const medicationApi = inject(medicationApiKey)
 const authorized = computed(() => canRenderRoute('today', auth.state))
+const medicationState = ref<'loading' | 'empty' | 'error' | 'unavailable' | 'ready'>(medicationApi ? 'loading' : 'unavailable')
+const medicationLoading = ref(false)
+const medicationMessage = ref('')
+const medicationCheckins = ref<MedicationCheckin[]>([])
+const medicationStatusSummary = computed(() => {
+  const counts = { taken: 0, not_taken: 0, pending: 0, skipped: 0 }
+  for (const checkin of medicationCheckins.value) counts[checkin.status] += 1
+  return `已记录 ${counts.taken} · 待确认 ${counts.pending} · 本人记录未服用 ${counts.not_taken} · 已跳过 ${counts.skipped}`
+})
 const dateLabel = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(new Date())
 const quickActions: ReadonlyArray<{ route: AppRouteName; label: string; icon: string; tint: string }> = [
   { route: 'recordDiet', label: '饮食', icon: '餐', tint: 'peach' },
@@ -75,7 +86,15 @@ const quickActions: ReadonlyArray<{ route: AppRouteName; label: string; icon: st
   { route: 'recordActivity', label: '运动', icon: '↗', tint: 'sage' },
 ]
 
-onShow(() => { if (!authorized.value) router?.requireAuthentication('today') })
+onShow(() => { if (!authorized.value) router?.requireAuthentication('today'); else void loadTodayMedication() })
+
+async function loadTodayMedication() {
+  if (!medicationApi || !authorized.value || medicationLoading.value) return
+  medicationLoading.value = true; medicationState.value = 'loading'; medicationMessage.value = ''
+  try { medicationCheckins.value = await medicationApi.listTodayCheckins(); medicationState.value = medicationCheckins.value.length ? 'ready' : 'empty' }
+  catch { medicationState.value = 'error'; medicationMessage.value = '暂时无法载入今日打卡安排；没有把失败显示为已完成或无计划。' }
+  finally { medicationLoading.value = false }
+}
 </script>
 
 <style lang="scss" scoped>
@@ -92,5 +111,6 @@ onShow(() => { if (!authorized.value) router?.requireAuthentication('today') })
 .quick-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }.quick-tile { display: flex; min-height: 84px; min-width: 0; padding: 8px 2px; border: 1px solid var(--gc-color-border); border-radius: var(--gc-radius-md); flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: var(--gc-color-surface); }.quick-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 13px; color: var(--gc-color-brand-strong); font-size: 16px; font-weight: var(--gc-font-weight-semibold); }.quick-icon--peach,.panel-icon--peach { background: var(--gc-color-peach); }.quick-icon--sage { background: var(--gc-color-sage-pale); }.quick-icon--lilac { background: var(--gc-color-lilac); color: var(--gc-color-purple); }.quick-icon--yellow { background: var(--gc-color-yellow); }.quick-label { color: var(--gc-color-text); font-size: 11px; line-height: 1.2; }
 .text-link { min-height: 44px; padding: 0 3px; border: 0; background: transparent; color: var(--gc-color-brand); font-size: 12px; font-weight: var(--gc-font-weight-semibold); }
 .compact-panel { display: flex; min-height: 94px; align-items: flex-start; gap: 12px; }.panel-icon { display: grid; width: 38px; height: 38px; flex: 0 0 38px; place-items: center; border-radius: 13px; color: var(--gc-color-brand); font-size: 20px; }.panel-content { min-width: 0; flex: 1; }.compact-panel :deep(.data-status) { min-height: 42px; }
+.medication-summary { display: flex; margin-top: 8px; flex-direction: column; gap: 5px; color: var(--gc-color-brand-strong); font-size: 12px; line-height: 1.5; }.medication-detail { color: var(--gc-color-muted); font-size: 10px; }
 @media (max-width: 360px) { .tab-content { padding-right: 14px; padding-left: 14px; }.quick-grid { gap: 4px; }.quick-label { font-size: 10px; } }
 </style>

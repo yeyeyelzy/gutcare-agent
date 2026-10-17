@@ -42,6 +42,19 @@ const requiredOperationIds = new Set([
   'getMoodRecord',
   'patchMoodRecord',
   'deleteMoodRecord',
+  'listMedicationPlans',
+  'createMedicationPlan',
+  'getMedicationPlan',
+  'updateMedicationPlan',
+  'deleteMedicationPlan',
+  'transitionMedicationPlan',
+  'listMedicationSchedules',
+  'createMedicationSchedule',
+  'updateMedicationSchedule',
+  'deleteMedicationSchedule',
+  'listMedicationCheckins',
+  'listTodayMedicationCheckins',
+  'updateMedicationCheckin',
   'getMyConsents',
   'getConsentNotice',
   'recordConsent',
@@ -66,7 +79,7 @@ if (missingOperations.length || duplicatedOperations.length || foundOperations.s
   throw new Error(`APP OpenAPI operation set mismatch. Missing: ${missingOperations.join(', ') || 'none'}; duplicated: ${duplicatedOperations.map(([id]) => id).join(', ') || 'none'}.`)
 }
 
-// Generate the frozen auth/profile, consent and F03-F07/F14 record surfaces only. Every DTO
+// Generate frozen auth/profile, consent, F03-F07/F14 record, and F06 medication surfaces. Every DTO
 // remains derived from the authoritative OpenAPI contract.
 const subset = {
   ...document,
@@ -120,7 +133,7 @@ try {
     if (generated !== checkedIn) {
       throw new Error('Generated OpenAPI types differ. Run `pnpm openapi:generate` and review the result.')
     }
-    process.stdout.write('Generated OpenAPI auth/profile/records/consent types are current.\n')
+    process.stdout.write('Generated OpenAPI auth/profile/consent/F03–F07/F14 types are current.\n')
   }
 } finally {
   // The CLI is launched synchronously above, so no process retains these files.

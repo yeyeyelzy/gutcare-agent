@@ -121,6 +121,16 @@ describe('named route registry and protected navigation', () => {
     expect(navigator.reLaunch).toHaveBeenCalledWith(APP_ROUTES.login.path)
   })
 
+  it('registers medication workspace as protected named child route for safe deep links', () => {
+    const navigator = makeNavigator()
+    const router = new AppRouter(navigator, () => 'anonymous')
+    expect(APP_ROUTES.medications.path).toBe('/pages/medications/index')
+    expect(routeNameFromUrl('/pages/medications/index?plan_id=private-id')).toBe('medications')
+    expect(router.guardUrl('/pages/medications/index?plan_id=private-id')).toBe(false)
+    expect(router.returnToStore.take()).toEqual({ name: 'medications' })
+    expect(APP_ROUTES.medications.access).toBe('authenticated')
+  })
+
   it('clears the complete registration draft before rejecting secrets on registration routes', () => {
     setActivePinia(createPinia())
     const draft = useRegistrationDraftStore()

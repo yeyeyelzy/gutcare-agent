@@ -27,7 +27,7 @@
 import { computed, inject } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { appRouterKey } from '../../../api/context'
-import type { PlaceholderRouteName } from '../../../navigation/routes'
+import type { AppRouteName } from '../../../navigation/routes'
 import { canRenderRoute } from '../../../navigation/routes'
 import { useAuthStore } from '../../../stores/auth'
 import GcAvatar from '../../../components/GcAvatar.vue'
@@ -36,7 +36,7 @@ import TabRoot from '../../../components/TabRoot.vue'
 const auth = useAuthStore()
 const router = inject(appRouterKey)
 const authorized = computed(() => canRenderRoute('me', auth.state))
-const entries: ReadonlyArray<{ route: PlaceholderRouteName; title: string; description: string; icon: string; tint: string }> = [
+const entries: ReadonlyArray<{ route: AppRouteName; title: string; description: string; icon: string; tint: string }> = [
   { route: 'healthArchive', title: '健康档案', description: '本人检查资料与已确认信息', icon: '▤', tint: 'peach' },
   { route: 'medications', title: '用药计划', description: '查看已确认的用药安排', icon: '＋', tint: 'sage' },
   { route: 'advice', title: '个性化建议', description: '查看建议与相关依据', icon: '✧', tint: 'lilac' },

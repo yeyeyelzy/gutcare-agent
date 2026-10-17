@@ -39,7 +39,13 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 - RFC 9457 `ProblemDetails` 从生成的 OpenAPI `components.schemas.Problem` 派生；客户端稳定错误类型只封装 kind/status/code/requestId，不另行复制契约字段。
 - `RecordsApi`、`MoodApi` 与 `ActivityApi` 复用唯一 RequestClient、RFC 9457 错误映射与既有 refresh 单飞逻辑。F03–F05/F14 创建使用生成 DTO 和幂等键；F07 冻结契约不定义创建幂等键，APP 仅以单飞状态阻止重复点击；PATCH/DELETE 使用服务端 `record_version`，409 不覆盖。F14 P0 总是写空 `emotion_tags` 数组。心情备注仅本人详情/编辑可见；列表不展示，页面不输出分析/日志/埋点。心情新建/修改先读服务端当前授权状态并要求 `health_data_processing` 与 `mood_data_processing` 同意；AI共享两项独立管理。Settings 仅显示与运行时版本/hash匹配的服务端告知；开发测试文案醒目标记 test-only，生产无获批告知时禁用同意操作。错误/版本冲突保留草稿并要求患者明确操作。
 
-生成器过滤范围包括 auth/profile、consent 和 F03–F05/F14 记录 CRUD/状态历史端点。F14 增加授权当前状态与当前告知端点；状态响应不含 metadata/hash，未决定明确返回 `granted=false`，告知不可用时不泄露可提交版本。此前症状 `status-history` 的 200 缺失媒体类型 schema 已按后端实际 DTO 补全 OpenAPI 引用及示例；记录 DELETE 现要求当前 `record_version`，过期版本返回 RFC 9457 409。
+生成器过滤范围包括 auth/profile、consent、F03–F07/F14 记录 CRUD/状态历史及 F06 用药端点。F14 增加授权当前状态与当前告知端点；状态响应不含 metadata/hash，未决定明确返回 `granted=false`，告知不可用时不泄露可提交版本。此前症状 `status-history` 的 200 缺失媒体类型 schema 已按后端实际 DTO 补全 OpenAPI 引用及示例；记录 DELETE 现要求当前 `record_version`，过期版本返回 RFC 9457 409。
+
+## B04 F06 用药管理
+
+`/pages/medications/index` 为受保护的本人用药工作区，包含计划列表/新增/详情/编辑/删除、计划状态操作、日程维护、今日打卡与历史。`MedicationApi` 复用共享 `RequestClient`、RFC 9457 与认证刷新，所有传输 DTO 从 OpenAPI 生成；创建计划、计划状态转换、创建日程按契约附 Idempotency-Key，更新/删除按契约携带 `record_version`，打卡 PATCH 不添加契约未定义的幂等头。APP 不提交 `patient_id`，只以手动来源创建计划；不伪造医疗文档来源、服用事实、设备来源或医学建议。
+
+计划转换按钮由确认状态和生命周期状态计算，仅显示服务端状态机允许的操作；待确认不等于未服用。版本冲突保留编辑草稿，并并列展示最新服务端状态，患者可显式放弃草稿载入最新值或保留草稿、基于最新版本继续确认，不自动覆盖/重提。今日根页仅将今日打卡卡片接入真实 `/medication-checkins/today`，显式区分加载、空和失败；后端未返回药品名称时不臆造名称。页面按 430px、安全区和至少 44px 触控布局；无获准头像/图标素材依赖。
 
 ## B01-2 公开认证页面
 
