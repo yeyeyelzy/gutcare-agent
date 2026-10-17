@@ -339,6 +339,45 @@ class Settings(BaseSettings):
     def validate_metrics_exposure(self) -> "Settings":
         if self.metrics_enabled and not self.metrics_token:
             raise ValueError("OPS_METRICS_TOKEN is required when metrics exposure is enabled")
+        if self.env == "production":
+            registration_notice_config = {
+                "PRIVACY_POLICY_VERSION": self.privacy_policy_version,
+                "PRIVACY_POLICY_SUMMARY_HASH": self.privacy_policy_summary_hash,
+                "HEALTH_DATA_PROCESSING_POLICY_VERSION": (
+                    self.health_data_processing_policy_version
+                ),
+                "HEALTH_DATA_PROCESSING_SUMMARY_HASH": (self.health_data_processing_summary_hash),
+            }
+            missing = [name for name, value in registration_notice_config.items() if not value]
+            if missing:
+                raise ValueError(
+                    "Production registration notice configuration is incomplete: "
+                    + ", ".join(sorted(missing))
+                )
+            for name in ("PRIVACY_POLICY_VERSION", "HEALTH_DATA_PROCESSING_POLICY_VERSION"):
+                version = registration_notice_config[name]
+                if version is not None and version.lower().startswith(
+                    (
+                        "test-",
+                        "test_",
+                        "dev-",
+                        "dev_",
+                        "development-",
+                        "development_",
+                    )
+                ):
+                    raise ValueError(f"{name} must reference a legally approved production notice")
+            for name in (
+                "PRIVACY_POLICY_SUMMARY_HASH",
+                "HEALTH_DATA_PROCESSING_SUMMARY_HASH",
+            ):
+                summary_hash = registration_notice_config[name]
+                if (
+                    summary_hash is None
+                    or len(summary_hash) != 64
+                    or any(character not in "0123456789abcdefABCDEF" for character in summary_hash)
+                ):
+                    raise ValueError(f"{name} must be a SHA-256 hex digest")
         return self
 
 

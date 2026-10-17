@@ -2,6 +2,9 @@
 
 from uuid import UUID  # noqa: I001 - gutcare.app preloads logging before FastAPI on Python 3.13
 
+import pytest
+from pydantic import ValidationError
+
 from gutcare.app import DatabaseReadiness, create_app
 from gutcare.config import Settings
 from gutcare.shared.logging import redact_sensitive_fields
@@ -142,3 +145,37 @@ def test_redaction_replaces_unstructured_event_text() -> None:
         None, "info", {"event": "login failed for user a@example.invalid"}
     )
     assert result["event"] == "application_event"
+
+
+def test_production_requires_approved_registration_notice_configuration() -> None:
+    with pytest.raises(ValidationError, match="registration notice configuration is incomplete"):
+        Settings(env="production")
+
+    complete = {
+        "privacy_policy_summary_hash": "a" * 64,
+        "health_data_processing_summary_hash": "b" * 64,
+        "privacy_policy_version": "privacy-2026-10",
+        "health_data_processing_policy_version": "health-2026-10",
+    }
+    assert Settings(env="production", **complete).privacy_policy_version == "privacy-2026-10"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("privacy_policy_version", "test-only-privacy-v1"),
+        ("health_data_processing_policy_version", "dev-health-v1"),
+        ("health_data_processing_policy_version", "development_health-v1"),
+        ("privacy_policy_summary_hash", "not-a-sha256"),
+    ],
+)
+def test_production_rejects_test_notice_versions_and_invalid_hashes(field: str, value: str) -> None:
+    complete = {
+        "privacy_policy_summary_hash": "a" * 64,
+        "health_data_processing_summary_hash": "b" * 64,
+        "privacy_policy_version": "privacy-2026-10",
+        "health_data_processing_policy_version": "health-2026-10",
+    }
+    complete[field] = value
+    with pytest.raises(ValidationError):
+        Settings(env="production", **complete)

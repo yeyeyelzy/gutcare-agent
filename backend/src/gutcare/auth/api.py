@@ -3,10 +3,11 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from gutcare.auth.service import (
     AuthContext,
@@ -81,8 +82,8 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    email: EmailStr
-    password: str
+    email: EmailStr = Field(max_length=254)
+    password: str = Field(max_length=128)
 
 
 class VerifyEmailRequest(BaseModel):
@@ -94,13 +95,13 @@ class VerifyEmailRequest(BaseModel):
 class RefreshRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    refresh_token: str = Field(min_length=1)
+    refresh_token: str = Field(min_length=20)
 
 
 class PasswordResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    email: EmailStr
+    email: EmailStr = Field(max_length=254)
 
 
 class PasswordResetConfirmRequest(BaseModel):
@@ -111,6 +112,8 @@ class PasswordResetConfirmRequest(BaseModel):
 
 
 class PatientProfileResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: UUID
     nickname: str | None
     birth_year: int
@@ -136,6 +139,17 @@ class PatientProfilePatchRequest(BaseModel):
     timezone: str = Field(default=None, min_length=1, max_length=64)  # type: ignore[assignment]
     profile_version: int = Field(ge=1)
 
+    @field_validator("timezone")
+    @classmethod
+    def validate_iana_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("timezone must be a valid IANA time zone") from exc
+        return value
+
 
 class ConsentDecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", title="ConsentDecision")
@@ -153,6 +167,8 @@ class ConsentDecisionRequest(BaseModel):
 
 
 class ConsentDecisionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     consent_type: ConsentType
     policy_version: str
     granted: bool
@@ -169,11 +185,15 @@ class ConsentDecisionResponse(BaseModel):
 
 
 class AcceptedOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     operation_id: UUID
-    status: str = "accepted"
+    status: Literal["accepted"] = "accepted"
 
 
 class ProblemResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     type: str
     title: str
     status: int
@@ -192,10 +212,12 @@ def problem_response(description: str) -> dict[str, Any]:
 
 
 class TokenPairResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "Bearer"
-    expires_in: int = 900
+    model_config = ConfigDict(extra="forbid")
+
+    access_token: str = Field(min_length=20)
+    refresh_token: str = Field(min_length=20)
+    token_type: Literal["Bearer"] = "Bearer"
+    expires_in: int = Field(default=900, ge=1)
 
     @classmethod
     def from_domain(cls, value: TokenPair) -> "TokenPairResponse":

@@ -13,7 +13,18 @@ if (-not (Test-Path -LiteralPath 'backend/pyproject.toml')) { throw 'Backend pro
 
 $pytestArgs = @('run', '--locked', '--python', $python, 'pytest')
 if ($Suite -eq 'integration') { $pytestArgs += @('-m', 'integration') }
-if ($Suite -eq 'contract') { $pytestArgs += @('-m', 'contract') }
+if ($Suite -eq 'contract') {
+    $contractTests = @(
+        Get-ChildItem -LiteralPath (Join-Path $root 'backend\tests') -Filter 'test_*_contract.py' -File |
+            Sort-Object Name |
+            ForEach-Object { $_.FullName }
+    )
+    $contractTests += (Join-Path $root 'backend\tests\test_auth_api.py')
+    if ($contractTests.Count -lt 2) {
+        throw 'Contract suite discovery did not find the expected contract test files.'
+    }
+    $pytestArgs += @('--strict-markers') + $contractTests
+}
 Push-Location 'backend'
 try {
     & $uv @pytestArgs

@@ -139,6 +139,24 @@ def test_profile_reads_and_patches_are_scoped_to_authenticated_user() -> None:
     assert (stale.value.status, stale.value.code) == (409, "RECORD_VERSION_CONFLICT")
     assert patient_a.nickname == "A"
 
+    with pytest.raises(Problem) as invalid_timezone:
+        service.patch_my_profile(
+            AuthContext(user_a, uuid4()),
+            profile_version=2,
+            changes={"timezone": "Mars/Olympus"},
+        )
+    assert (invalid_timezone.value.status, invalid_timezone.value.code) == (
+        422,
+        "VALIDATION_ERROR",
+    )
+    assert patient_a.timezone == "Asia/Shanghai"
+
+    with pytest.raises(Problem) as null_timezone:
+        service.patch_my_profile(
+            AuthContext(user_a, uuid4()), profile_version=2, changes={"timezone": None}
+        )
+    assert (null_timezone.value.status, null_timezone.value.code) == (422, "VALIDATION_ERROR")
+
 
 def test_consent_history_keeps_each_type_version_hash_and_revocation() -> None:
     user_id = uuid4()

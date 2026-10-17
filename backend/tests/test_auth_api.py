@@ -1,17 +1,17 @@
 """Contract-level tests for the F01 email authentication routes."""
 
+from pathlib import Path
 from uuid import UUID, uuid4  # noqa: I001 - gutcare.app preloads logging before FastAPI on Python 3.13
 
 import pytest
+import yaml
+from fastapi.testclient import TestClient
 
 from gutcare.app import create_app
 from gutcare.auth.api import AuthContext
-from gutcare.auth.service import TokenPair
-from gutcare.auth.service import ConsentDecisionData, PatientProfileData
+from gutcare.auth.service import ConsentDecisionData, PatientProfileData, TokenPair
 from gutcare.config import Settings
 from gutcare.shared.errors import Problem
-
-from fastapi.testclient import TestClient
 
 
 class FakeAuthService:
@@ -55,12 +55,12 @@ class FakeAuthService:
     def login(self, email_value: str, password: str, source: str) -> TokenPair:
         if password == "incorrect-password":
             raise Problem(401, "INVALID_CREDENTIALS", "Invalid email or password")
-        return TokenPair("access-value", "refresh-value")
+        return TokenPair("access-value-that-is-long", "refresh-value-that-is-long")
 
     def refresh(self, raw_refresh: str) -> TokenPair:
         if raw_refresh == "expired-value":
             raise Problem(401, "AUTHENTICATION_REQUIRED", "Authentication required")
-        return TokenPair("rotated-access", "rotated-refresh")
+        return TokenPair("rotated-access-value-long", "rotated-refresh-value-long")
 
     def request_password_reset(self, email_value: str, source: str) -> UUID:
         return uuid4()
@@ -69,7 +69,7 @@ class FakeAuthService:
         return None
 
     def authenticate_access_token(self, raw_access: str) -> AuthContext:
-        if raw_access != "access-value":
+        if raw_access != "access-value-that-is-long":
             raise Problem(401, "AUTHENTICATION_REQUIRED", "Authentication required")
         return AuthContext(uuid4(), uuid4())
 
@@ -171,6 +171,7 @@ def test_register_uses_frozen_request_and_accepted_response(client: TestClient) 
         },
     )
     assert response.status_code == 202
+    assert set(response.json()) == {"operation_id", "status"}
     assert response.json()["status"] == "accepted"
     UUID(response.json()["operation_id"])
     assert client.app.state.auth_service.registered[0]["birth_year"] == 1990
@@ -212,14 +213,20 @@ def test_login_and_refresh_use_frozen_token_pair_dto(client: TestClient) -> None
     )
     assert login.status_code == 200
     assert login.json() == {
-        "access_token": "access-value",
-        "refresh_token": "refresh-value",
+        "access_token": "access-value-that-is-long",
+        "refresh_token": "refresh-value-that-is-long",
         "token_type": "Bearer",
         "expires_in": 900,
     }
-    refresh = client.post("/api/v1/auth/refresh", json={"refresh_token": "refresh-value"})
+    refresh = client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": "refresh-value-that-is-long"}
+    )
     assert refresh.status_code == 200
-    assert refresh.json()["refresh_token"] == "rotated-refresh"
+    assert refresh.json()["refresh_token"] == "rotated-refresh-value-long"
+
+    short_refresh = client.post("/api/v1/auth/refresh", json={"refresh_token": "short"})
+    assert short_refresh.status_code == 422
+    assert short_refresh.json()["code"] == "VALIDATION_ERROR"
 
 
 def test_logout_requires_bearer_and_revokes_current_context(client: TestClient) -> None:
@@ -227,7 +234,9 @@ def test_logout_requires_bearer_and_revokes_current_context(client: TestClient) 
     assert missing.status_code == 401
     assert missing.json()["code"] == "AUTHENTICATION_REQUIRED"
 
-    response = client.post("/api/v1/auth/logout", headers={"Authorization": "Bearer access-value"})
+    response = client.post(
+        "/api/v1/auth/logout", headers={"Authorization": "Bearer access-value-that-is-long"}
+    )
     assert response.status_code == 204
     assert len(client.app.state.auth_service.logged_out) == 1
 
@@ -265,6 +274,13 @@ def test_openapi_exposes_frozen_auth_operations_and_bearer_logout(client: TestCl
     assert "privacy_policy_version" in register_body["required"]
     assert "health_data_processing_consent" in register_body["required"]
     assert register_body["properties"]["health_data_processing_consent"]["const"] is True
+    accepted = schema["components"]["schemas"]["AcceptedOperation"]
+    assert accepted["additionalProperties"] is False
+    assert accepted["properties"]["status"]["const"] == "accepted"
+    token_pair = schema["components"]["schemas"]["TokenPairResponse"]
+    assert token_pair["additionalProperties"] is False
+    assert token_pair["properties"]["access_token"]["minLength"] == 20
+    assert token_pair["properties"]["refresh_token"]["minLength"] == 20
     assert (
         paths["/api/v1/auth/password/reset/request"]["post"]["operationId"]
         == "requestPasswordReset"
@@ -287,20 +303,10 @@ def test_openapi_exposes_frozen_auth_operations_and_bearer_logout(client: TestCl
         paths["/api/v1/patients/me/account-deletion"]["post"]["operationId"]
         == "requestAccountDeletion"
     )
-    assert (
-        paths["/api/v1/patients/me/account-deletion"]["post"]["operationId"]
-        == "requestAccountDeletion"
-    )
     profile_patch = schema["components"]["schemas"]["PatientProfilePatchRequest"]
     assert profile_patch["additionalProperties"] is False
     assert profile_patch["required"] == ["profile_version"]
     assert "profile_version" in profile_patch["properties"]
-    consent_input = paths["/api/v1/patients/me/consents"]["post"]["requestBody"]["content"][
-        "application/json"
-    ]["schema"]
-    if "$ref" in consent_input:
-        consent_input = schema["components"]["schemas"][consent_input["$ref"].rsplit("/", 1)[-1]]
-    assert "privacy_policy" not in consent_input["properties"]["consent_type"]["enum"]
     consent_input = paths["/api/v1/patients/me/consents"]["post"]["requestBody"]["content"][
         "application/json"
     ]["schema"]
@@ -321,7 +327,7 @@ def test_profile_routes_require_auth_and_use_optimistic_version(client: TestClie
     assert unauthenticated.headers["content-type"].startswith("application/problem+json")
     assert unauthenticated.json()["code"] == "AUTHENTICATION_REQUIRED"
 
-    headers = {"Authorization": "Bearer access-value"}
+    headers = {"Authorization": "Bearer access-value-that-is-long"}
     current = client.get("/api/v1/patients/me", headers=headers)
     assert current.status_code == 200
     assert current.json()["profile_version"] == 1
@@ -349,7 +355,7 @@ def test_profile_routes_require_auth_and_use_optimistic_version(client: TestClie
 
 
 def test_profile_patch_null_and_foreign_scope_fields_are_rejected(client: TestClient) -> None:
-    headers = {"Authorization": "Bearer access-value"}
+    headers = {"Authorization": "Bearer access-value-that-is-long"}
     null_birth_year = client.patch(
         "/api/v1/patients/me",
         headers=headers,
@@ -360,14 +366,40 @@ def test_profile_patch_null_and_foreign_scope_fields_are_rejected(client: TestCl
         headers=headers,
         json={"profile_version": 1, "patient_id": str(uuid4())},
     )
-    for response in (null_birth_year, foreign_id):
+    null_timezone = client.patch(
+        "/api/v1/patients/me",
+        headers=headers,
+        json={"profile_version": 1, "timezone": None},
+    )
+    for response in (null_birth_year, null_timezone, foreign_id):
         assert response.status_code == 422
         assert response.headers["content-type"].startswith("application/problem+json")
         assert response.json()["code"] == "VALIDATION_ERROR"
 
 
+def test_profile_timezone_requires_an_iana_zone(client: TestClient) -> None:
+    headers = {"Authorization": "Bearer access-value-that-is-long"}
+    invalid = client.patch(
+        "/api/v1/patients/me",
+        headers=headers,
+        json={"profile_version": 1, "timezone": "Mars/Olympus"},
+    )
+    assert invalid.status_code == 422
+    assert invalid.headers["content-type"].startswith("application/problem+json")
+    assert invalid.json()["code"] == "VALIDATION_ERROR"
+    assert client.app.state.auth_service.profile_changes == []
+
+    valid = client.patch(
+        "/api/v1/patients/me",
+        headers=headers,
+        json={"profile_version": 1, "timezone": "America/New_York"},
+    )
+    assert valid.status_code == 200
+    assert valid.json()["timezone"] == "America/New_York"
+
+
 def test_consent_decisions_record_version_and_allow_revocation(client: TestClient) -> None:
-    headers = {"Authorization": "Bearer access-value"}
+    headers = {"Authorization": "Bearer access-value-that-is-long"}
     granted = client.post(
         "/api/v1/patients/me/consents",
         headers=headers,
@@ -413,7 +445,7 @@ def test_account_deletion_requires_auth_and_returns_operation(client: TestClient
 
     response = client.post(
         "/api/v1/patients/me/account-deletion",
-        headers={"Authorization": "Bearer access-value"},
+        headers={"Authorization": "Bearer access-value-that-is-long"},
     )
     assert response.status_code == 202
     assert response.json()["status"] == "accepted"
@@ -465,3 +497,40 @@ def test_password_reset_routes_follow_frozen_contract(client: TestClient) -> Non
         json={"token": "t" * 32, "new_password": "new-correct-horse"},
     )
     assert confirm.status_code == 204
+
+
+def test_frozen_openapi_auth_shapes_match_runtime_constraints() -> None:
+    contract_path = Path(__file__).resolve().parents[2] / "contracts/openapi/gutcare-v1.yaml"
+    contract = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
+    runtime = create_app(Settings(env="test")).openapi()
+    static_register_responses = contract["paths"]["/auth/register"]["post"]["responses"]
+    runtime_register_responses = runtime["paths"]["/api/v1/auth/register"]["post"]["responses"]
+    assert (
+        set(static_register_responses)
+        == set(runtime_register_responses)
+        == {
+            "202",
+            "422",
+            "429",
+            "500",
+        }
+    )
+    assert "401" not in static_register_responses
+    schemas = contract["components"]["schemas"]
+    accepted = schemas["AcceptedOperation"]
+    assert accepted["additionalProperties"] is False
+    assert accepted["properties"]["status"] == {"const": "accepted"}
+    token_pair = schemas["TokenPair"]
+    assert token_pair["additionalProperties"] is False
+    assert token_pair["properties"]["access_token"]["minLength"] == 20
+    assert token_pair["properties"]["refresh_token"]["minLength"] == 20
+    for path, field in (
+        ("/auth/email/verify", "token"),
+        ("/auth/refresh", "refresh_token"),
+        ("/auth/password/reset/confirm", "token"),
+    ):
+        body = contract["paths"][path]["post"]["requestBody"]["content"]["application/json"][
+            "schema"
+        ]
+        assert body["additionalProperties"] is False
+        assert body["properties"][field]["minLength"] == 20

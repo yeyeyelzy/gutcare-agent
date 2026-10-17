@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from email.message import EmailMessage
 from typing import Literal, Protocol, cast
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import jwt
 from pwdlib import PasswordHash
@@ -111,7 +112,7 @@ class RedisRateLimiter:
 class TokenPair:
     access_token: str
     refresh_token: str
-    token_type: str = "Bearer"
+    token_type: Literal["Bearer"] = "Bearer"
     expires_in: int = ACCESS_TOKEN_MINUTES * 60
 
 
@@ -752,6 +753,14 @@ class AuthService:
         profile_version: int,
         changes: dict[str, str | int | None],
     ) -> PatientProfileData:
+        if "timezone" in changes:
+            timezone_value = changes["timezone"]
+            if not isinstance(timezone_value, str):
+                raise Problem(422, "VALIDATION_ERROR", "Invalid patient timezone")
+            try:
+                ZoneInfo(timezone_value)
+            except (ZoneInfoNotFoundError, ValueError) as exc:
+                raise Problem(422, "VALIDATION_ERROR", "Invalid patient timezone") from exc
         with self._sessions.begin() as db:
             scoped_profile = self._set_patient_rls_context(db, context.user_id)
             profile = db.scalar(

@@ -61,8 +61,15 @@ jobs:
           if (-not $?) { throw 'Lint checks failed.' }
           ./scripts/test.ps1 -Suite unit
           if (-not $?) { throw 'Unit checks failed.' }
+          ./scripts/test.ps1 -Suite contract
+          if (-not $?) { throw 'Contract checks failed or did not execute tests.' }
           ./scripts/app-build.ps1
           if (-not $?) { throw 'APP Android/iOS builds failed.' }
+      - name: Validate registration notice source
+        shell: pwsh
+        run: |
+          ./scripts/validate-registration-notices.ps1
+          ./scripts/test-registration-notice-validator.ps1
       - name: Parse PowerShell scripts
         shell: pwsh
         run: |

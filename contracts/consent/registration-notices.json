@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "artifact_classification": "development_test_only",
+  "legal_approval_status": "not_approved_for_production",
+  "locale": "zh-CN",
+  "canonicalization": "UTF-8 without BOM; JSON summary string normalized to LF before SHA-256",
+  "notices": [
+    {
+      "consent_type": "privacy_policy",
+      "policy_version": "test-only-privacy-v1",
+      "summary": "本测试构建仅用于验证注册流程。继续表示已阅读测试版隐私说明；该文案未经过法律审核，不得用于生产环境。",
+      "summary_sha256": "e17c133d1e39a51c8b4370fce470196f24b50ec099edbd1d7f6dedd4c8672991"
+    },
+    {
+      "consent_type": "health_data_processing",
+      "policy_version": "test-only-health-v1",
+      "summary": "本测试构建仅使用合成数据验证健康资料处理流程。继续表示单独同意测试环境处理出生年份及主动提交的健康记录；该文案未经过法律审核，不得用于生产环境。",
+      "summary_sha256": "c3c38f369746498cab3b6e9c96bfda09c42230e44e257d56dc47c972e5139be1"
+    }
+  ],
+  "backend_config": {
+    "PRIVACY_POLICY_VERSION": "test-only-privacy-v1",
+    "PRIVACY_POLICY_SUMMARY_HASH": "e17c133d1e39a51c8b4370fce470196f24b50ec099edbd1d7f6dedd4c8672991",
+    "HEALTH_DATA_PROCESSING_POLICY_VERSION": "test-only-health-v1",
+    "HEALTH_DATA_PROCESSING_SUMMARY_HASH": "c3c38f369746498cab3b6e9c96bfda09c42230e44e257d56dc47c972e5139be1"
+  }
+}

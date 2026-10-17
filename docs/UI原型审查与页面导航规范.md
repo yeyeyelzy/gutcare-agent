@@ -35,7 +35,7 @@
 | 21 | 登录 | 原型占位符为“手机号 / 邮箱” | `/auth/login` |
 | 22 | 注册 | 原型使用手机号 | `/auth/register` |
 
-必要但不单独计入 22 个原型页面的流程路由：`/auth/email-verification`（邮箱验证）、`/onboarding/profile`（已认证账户资料补全；仅适用于服务端确认为未完成的账户）以及后端授权后的会话恢复状态。不得虚构新的患者功能页面；它们是注册/认证流程状态。
+必要但不单独计入 22 个原型页面的流程状态只有 `/auth/email-verification`（邮箱验证）、会话恢复、登录后 `GET /patients/me` 资料加载和资料 404 安全错误态。P0 注册已必填出生年份并同事务创建 profile，服务端没有“资料未完成”状态或补全接口，因此不得实现 `/onboarding/profile` 分支或虚构新的患者功能页面。
 
 以上只记录已读取的内容，不代表页面之间现有跳转已验证，也不证明原型未列出的交互已经存在。
 
@@ -83,11 +83,10 @@
 
 | 目标页面 | 合法入口 | 成功/返回行为 |
 |---|---|---|
-| `/welcome` | 首次安装或无已完成初始化标记 | 继续到登录/注册；已认证且完成建档则跳今日，不重复显示欢迎页 |
-| `/auth/login` | 欢迎页、注册页已有账户链接、失效会话 | 成功后按账户建档状态跳 `/onboarding/profile` 或今日；返回到欢迎/注册，不返回受保护页面 |
+| `/welcome` | 首次安装或无已完成初始化标记 | 继续到登录/注册；有效会话加载本人资料成功后跳今日，不重复显示欢迎页 |
+| `/auth/login` | 欢迎页、注册页已有账户链接、失效会话 | 成功后立即 `GET /patients/me`；200 进入今日，404 清除会话并显示含 request_id 的一致性故障；返回到欢迎/注册，不返回受保护页面 |
 | `/auth/register` | 欢迎页、登录页注册链接 | 第 22 页校验后转至 `/auth/register/profile`；合并 DTO 提交后进入邮箱验证，再引导登录；不跳过验证/登录进入受保护页 |
 | `/auth/register/profile` | 22 注册页点击继续 | 收集出生年份与健康数据处理独立同意；合并内存草稿调用 `POST /auth/register`，成功进入邮箱验证 |
-| `/onboarding/profile` | 登录/会话恢复后，后端明确返回档案未完成 | 仅补齐服务端指出的缺失资料；完成后进入今日；不得把该路由误作普通注册流程 |
 | 记录新建/编辑 | 记录 Tab、首页快速入口、对应详情 | 保存成功回到来源详情或列表；取消不提交；并发版本冲突提示刷新，不覆盖他人/新版本数据 |
 | 分析新建 | 分析 Tab、首页分析卡片、历史报告入口 | 创建成功进入任务详情；用户取消回来源页；失败保留输入范围并允许显式重试 |
 | 风险详情 | 今日风险卡片、风险列表、相关通知 | 返回原入口；紧急风险提示须允许直接查看明确就医提示，不要求先经过 Agent 分析 |
@@ -114,8 +113,7 @@ stateDiagram-v2
   [*] --> Launch
   Launch --> Welcome: 首次安装/无有效会话
   Launch --> Restoring: 有本地安全会话材料
-  Restoring --> Home: refresh 成功且 profile_complete
-  Restoring --> ProfileCompletion: refresh 成功且 profile_incomplete
+  Restoring --> ProfileLoading: refresh 成功
   Restoring --> Welcome: refresh 失败/撤销/过期
   Welcome --> Login: 已有账户
   Welcome --> Register: 创建账户
@@ -123,9 +121,10 @@ stateDiagram-v2
   RegistrationProfile --> EmailVerification: 收齐birth_year与独立健康授权后提交注册并获接受
   EmailVerification --> Login: 验证成功/前往邮箱密码登录
   EmailVerification --> Login: 验证过期/需重新认证
-  Login --> ProfileCompletion: 登录成功且服务端确认资料未完成
-  Login --> Home: 登录成功且建档完成
-  ProfileCompletion --> Home: 服务端要求的资料已补齐
+  Login --> ProfileLoading: 登录成功
+  ProfileLoading --> Home: GET /patients/me 返回 200
+  ProfileLoading --> ProfileConsistencyError: GET /patients/me 返回 404，清除会话
+  ProfileConsistencyError --> Login: 重新认证或联系支持
   Home --> Login: 用户退出/会话不可恢复
   Home --> AccountFrozen: 注销或隐私策略撤回流程提交
   AccountFrozen --> [*]
@@ -133,10 +132,10 @@ stateDiagram-v2
 
 规范说明：
 
-- `Launch/Restoring/Welcome/Login/Register/RegistrationProfile/EmailVerification` 属于公开或会话建立流程；注册中的 17 开始建档页是 `/auth/register/profile`，仅在内存中暂存待提交字段。登录后资料补全使用受保护的 `ProfileCompletion` 状态/`/onboarding/profile` 路由；记录、报告、建议、趋势、设置和 Agent 任务均为受保护页面。
+- `Launch/Restoring/Welcome/Login/Register/RegistrationProfile/EmailVerification/ProfileLoading/ProfileConsistencyError` 属于公开或会话建立流程；注册中的 17 开始建档页是 `/auth/register/profile`，仅在内存中暂存待提交字段。登录或 refresh 成功后必须先读取 `/patients/me`，200 才进入受保护页面；404 清除会话、保留 request_id 并显示不可继续的安全错误，不创建本地假资料。
 - 登录方式固定邮箱 + 密码。邮箱验证通过后方可建立正式患者会话；重复注册/凭据错误提示不得泄露账户是否存在。
 - 17 页的注册前置采集为邮箱注册 DTO 的必要字段：`birth_year`、`health_data_processing_consent` 和对应告知版本；该页只在本地内存收集，用户未同意前不采集出生年份、不创建患者资料，也不发送注册请求。最终请求一次携带两页字段。
-- 注册请求经服务端接受后仍须邮箱验证；验证接口返回成功不自动代表 APP 已持有患者会话，按冻结认证契约再使用邮箱密码登录。首次注册已带出生年份，进入首页无需重复建档；若服务端因历史/迁移等情况返回资料未完成，才进入认证后的 `/onboarding/profile`。
+- 注册请求经服务端接受后仍须邮箱验证；验证接口返回成功不自动代表 APP 已持有患者会话，按冻结认证契约再使用邮箱密码登录。首次注册已带出生年份且后端同事务创建 profile；P0 不存在“资料未完成”分支，资料缺失视为服务端数据一致性故障。
 - 必填资料与授权要求遵循 F01 和隐私授权契约；未同意健康数据处理时不得采集出生年份或健康档案信息，也不得创建受保护的医疗资料。
 - 建档可分步保存非敏感进度，但敏感字段不应在未经授权时本地持久化；中断恢复前重新鉴权。
 - `AccountFrozen` 不允许恢复到普通首页，按 F13 注销/冻结状态显示受限处理状态或终态确认。
