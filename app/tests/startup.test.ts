@@ -18,13 +18,13 @@ const profile: PatientProfile = {
   profile_version: 1,
 }
 
-function makeStartup(profileRequest: () => Promise<PatientProfile>) {
+function makeStartup(profileRequest: () => Promise<PatientProfile>, restoreResult = true) {
   const auth = useAuthStore()
   const navigator = { navigateTo: vi.fn(), redirectTo: vi.fn(), reLaunch: vi.fn(), navigateBack: vi.fn() }
   const router = new AppRouter(navigator, () => auth.state as AuthState)
   const clearStoredSession = vi.fn(async () => { auth.clear() })
   const session = {
-    restore: vi.fn(async () => { auth.acceptAccessToken('fixture-access-value'); return true }),
+    restore: vi.fn(async () => { if (restoreResult) auth.acceptAccessToken('fixture-access-value'); return restoreResult }),
   }
   const profileApi = { getMyProfile: vi.fn(profileRequest) }
   const coordinator = new StartupCoordinator(
@@ -34,7 +34,7 @@ function makeStartup(profileRequest: () => Promise<PatientProfile>) {
     auth,
     router,
   )
-  return { auth, navigator, router, clearStoredSession, profileApi, coordinator }
+  return { auth, navigator, router, clearStoredSession, profileApi, session, coordinator }
 }
 
 describe('startup session and patient profile state machine', () => {
@@ -48,6 +48,13 @@ describe('startup session and patient profile state machine', () => {
     expect(harness.auth.state).toBe('authenticated')
     expect(harness.navigator.reLaunch).toHaveBeenCalledWith('/pages/home/index')
     expect(harness.clearStoredSession).not.toHaveBeenCalled()
+  })
+
+  it('leaves an account with no saved session on the welcome route', async () => {
+    const harness = makeStartup(async () => profile, false)
+    await expect(harness.coordinator.start()).resolves.toBe('anonymous')
+    expect(harness.profileApi.getMyProfile).not.toHaveBeenCalled()
+    expect(harness.navigator.reLaunch).not.toHaveBeenCalled()
   })
 
   it('clears session and returns to login on 401', async () => {
@@ -73,12 +80,35 @@ describe('startup session and patient profile state machine', () => {
   })
 
   it('keeps a valid in-memory session for transient profile loading errors without entering protected routes', async () => {
-    const harness = makeStartup(async () => { throw new AppError('network', 'network unavailable') })
+    const harness = makeStartup(async () => { throw new AppError('network', 'network unavailable', { requestId: 'fixture-network-request-id' }) })
     await expect(harness.coordinator.start()).resolves.toBe('unavailable')
     expect(harness.clearStoredSession).not.toHaveBeenCalled()
     expect(harness.auth.accessToken).toBe('fixture-access-value')
     expect(harness.auth.state).toBe('session_ready')
     expect(harness.navigator.reLaunch).not.toHaveBeenCalledWith('/pages/home/index')
+    expect(harness.auth.startupError).toEqual({ kind: 'network', requestId: 'fixture-network-request-id' })
+  })
+
+  it('projects profile 503 status, code and request_id for a safe retry message', async () => {
+    const harness = makeStartup(async () => { throw new AppError('unavailable', 'private detail', { status: 503, code: 'service_unavailable', requestId: 'fixture-503-request-id' }) })
+    await expect(harness.coordinator.start()).resolves.toBe('unavailable')
+    expect(harness.auth.startupError).toEqual({ kind: 'unavailable', status: 503, code: 'service_unavailable', requestId: 'fixture-503-request-id' })
+  })
+
+  it('preserves restore timeout metadata while remaining on the welcome state', async () => {
+    const harness = makeStartup(async () => profile)
+    vi.mocked(harness.session.restore).mockRejectedValueOnce(new AppError('timeout', 'private detail', { status: 504, code: 'gateway_timeout', requestId: 'fixture-timeout-id' }))
+    await expect(harness.coordinator.start()).resolves.toBe('unavailable')
+    expect(harness.auth.startupError).toEqual({ kind: 'timeout', status: 504, code: 'gateway_timeout', requestId: 'fixture-timeout-id' })
+    expect(harness.navigator.reLaunch).not.toHaveBeenCalled()
+  })
+
+  it('preserves a restore HTTP 500 error and request id for retry instead of deleting the session', async () => {
+    const harness = makeStartup(async () => profile)
+    vi.mocked(harness.session.restore).mockRejectedValueOnce(new AppError('http', 'private detail', { status: 500, code: 'internal_error', requestId: 'fixture-restore-500-id' }))
+    await expect(harness.coordinator.start()).resolves.toBe('unavailable')
+    expect(harness.auth.startupError).toEqual({ kind: 'http', status: 500, code: 'internal_error', requestId: 'fixture-restore-500-id' })
+    expect(harness.navigator.reLaunch).not.toHaveBeenCalled()
   })
 
   it('clears the in-memory return target and re-launches login on logout to clear the page stack', async () => {

@@ -7,6 +7,7 @@ import type { AppRouter } from '../navigation/router'
 import type { StartupCoordinator } from '../navigation/startup'
 import type { RegistrationService } from './registrationService'
 import type { EmailVerificationService } from './emailVerificationService'
+import type { PasswordResetService } from './passwordResetService'
 
 export const requestClientKey: InjectionKey<RequestClient> = Symbol('gutcare-request-client')
 export const sessionServiceKey: InjectionKey<SessionService> = Symbol('gutcare-session-service')
@@ -16,3 +17,4 @@ export const appRouterKey: InjectionKey<AppRouter> = Symbol('gutcare-app-router'
 export const startupCoordinatorKey: InjectionKey<StartupCoordinator> = Symbol('gutcare-startup-coordinator')
 export const registrationServiceKey: InjectionKey<RegistrationService> = Symbol('gutcare-registration-service')
 export const emailVerificationServiceKey: InjectionKey<EmailVerificationService> = Symbol('gutcare-email-verification-service')
+export const passwordResetServiceKey: InjectionKey<PasswordResetService> = Symbol('gutcare-password-reset-service')

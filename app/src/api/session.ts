@@ -73,6 +73,8 @@ export class SessionService {
 }
 
 function isTransientRestoreError(error: unknown): boolean {
-  return error instanceof Error && 'kind' in error
-    && ['network', 'timeout', 'offline', 'unavailable'].includes(String((error as { kind: unknown }).kind))
+  return error instanceof Error && (
+    ('kind' in error && ['network', 'timeout', 'offline', 'unavailable'].includes(String((error as { kind: unknown }).kind)))
+    || ('status' in error && typeof (error as { status?: unknown }).status === 'number' && (error as { status: number }).status >= 500)
+  )
 }

@@ -90,6 +90,11 @@ export class AppRouter {
   }
 
   guardUrl(url: string): boolean {
+    if (containsAuthSecretQuery(url)) {
+      this.clearRegistrationDraft()
+      this.navigator.reLaunch(APP_ROUTES.login.path)
+      return false
+    }
     const name = routeNameFromUrl(url)
     if (!name) return true
     this.clearDraftIfLeavingFlow(name)
@@ -109,6 +114,15 @@ export class AppRouter {
   private clearDraftIfLeavingFlow(name: AppRouteName): void {
     if (!isRegistrationFlowRoute(name)) this.clearRegistrationDraft()
   }
+}
+
+function containsAuthSecretQuery(url: string): boolean {
+  const query = url.split('?')[1]?.split('#')[0]
+  if (!query) return false
+  for (const key of new URLSearchParams(query).keys()) {
+    if (['token', 'access_token', 'refresh_token', 'password', 'new_password'].includes(key.toLowerCase())) return true
+  }
+  return false
 }
 
 /** Install before app launch so known protected pages cannot be navigated to anonymously. */

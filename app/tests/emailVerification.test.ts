@@ -52,10 +52,10 @@ describe('email verification workflow', () => {
     expect(draft.confirmPassword).toBe('')
   })
 
-  it('rejects an empty token without calling the API', async () => {
+  it('rejects a token shorter than the frozen contract minimum without calling the API', async () => {
     const verifyEmail = vi.fn()
     const service = new EmailVerificationService({ verifyEmail } as never, makeDraft())
-    await expect(service.verify('  ')).rejects.toThrow('请输入')
+    await expect(service.verify('too-short')).rejects.toThrow('请输入')
     expect(verifyEmail).not.toHaveBeenCalled()
   })
 })

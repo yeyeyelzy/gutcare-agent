@@ -14,6 +14,7 @@
 已采纳 ADR-0020：注册告知单一来源、生产 fail-closed 与登录后资料引导，见 `ADR/0020-registration-notice-source-and-profile-bootstrap.md`；仓库开发/测试告知制品见 `../contracts/consent/registration-notices.json`。
 APP 22 页原型事实、导航规范、视觉验收与编码前 G1 数据契约门禁见 `UI原型审查与页面导航规范.md`。
 源码输入哈希、视觉令牌、资产隔离导入、静态跳转缺陷及 GcAvatar 几何基线见 `UI源码基线与导入规范.md`。
+认证公开页面和组件化交付跟踪见 `前端开发与前后端联调计划.md` 的 B01-2 小节及 `需求追踪矩阵.md`。
 F02 的表/状态/API/隐私/测试追踪增补见 `F02-文件与医疗档案实现补充.md`。
 后端完成性与验收证据归档见 `后端交付验收报告.md`；该报告区分已实现证据、独立验收状态与外部依赖。
 

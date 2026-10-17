@@ -62,6 +62,23 @@ describe('auth and profile contract adapters', () => {
     })
   })
 
+  it('uses the frozen password-reset request and confirmation operations', async () => {
+    const request = vi.fn(async () => ({ operation_id: 'fixture-reset-operation', status: 'accepted' as const }))
+    const authApi = new AuthApi(
+      { request } as unknown as RequestClient,
+      { login: vi.fn(), logout: vi.fn() } as unknown as SessionService,
+    )
+    await authApi.requestPasswordReset({ email: 'patient@example.test' })
+    expect(request).toHaveBeenNthCalledWith(1, {
+      method: 'POST', path: '/auth/password/reset/request', data: { email: 'patient@example.test' }, retryOnUnauthorized: false,
+    })
+    await authApi.confirmPasswordReset({ token: 'fixture-reset-token', new_password: 'fixture-new-password' })
+    expect(request).toHaveBeenNthCalledWith(2, {
+      method: 'POST', path: '/auth/password/reset/confirm',
+      data: { token: 'fixture-reset-token', new_password: 'fixture-new-password' }, retryOnUnauthorized: false,
+    })
+  })
+
   it('maps profile get and patch to the frozen paths', async () => {
     const request = vi.fn(async (_options: RequestOptions) => ({ id: 'fixture-profile-id' }))
     const profileApi = new ProfileApi({ request } as unknown as RequestClient)

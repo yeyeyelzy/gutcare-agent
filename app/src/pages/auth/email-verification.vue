@@ -1,73 +1,66 @@
 <template>
-  <view class="screen">
-    <text class="heading">验证邮箱</text>
-    <text class="intro">验证令牌将发送至 {{ emailLabel }}。请输入邮件中的一次性令牌。</text>
-    <label class="label" for="verification-token">邮箱验证令牌</label>
-    <input id="verification-token" v-model="token" class="input" type="text" autocomplete="one-time-code" placeholder="输入验证令牌" />
-    <text v-if="message" class="notice" role="alert">{{ message }}</text>
-    <button class="primary" :loading="busy" :disabled="busy || !token.trim()" @click="submit">验证邮箱</button>
-  </view>
+  <AuthScaffold test-id="auth-email-verification" eyebrow="VERIFY EMAIL" title="验证你的邮箱" :subtitle="`一次性验证令牌已发送至 ${emailLabel}。请在下方手动输入邮件中的令牌。`">
+    <view class="mail-illustration" aria-hidden="true"><view class="mail-back" /><view class="mail-front"><view class="mail-fold" /></view><view class="mail-spark spark-a" /><view class="mail-spark spark-b" /></view>
+    <view class="form-card">
+      <GcField id="verification-token" v-model="token" label="邮箱验证令牌" placeholder="输入邮件中的一次性令牌" hint="令牌至少 20 个字符。" autocomplete="one-time-code" required test-id="verification-token" />
+      <InlineProblem :error="error" fallback="邮箱验证暂未完成，请检查令牌后重试。" test-id="verification-error" />
+      <GcButton label="验证邮箱" :busy="busy" :disabled="busy || token.trim().length < 20" test-id="verification-submit" @click="submit" />
+    </view>
+    <template #footer><button class="text-link" data-testid="verification-back-login" @click="returnToLogin">返回登录</button></template>
+  </AuthScaffold>
 </template>
 
 <script setup lang="ts">
 import { computed, inject, ref } from 'vue'
 import { onBackPress, onLoad, onUnload } from '@dcloudio/uni-app'
-import { AppError } from '../../api/errors'
 import { appRouterKey, emailVerificationServiceKey } from '../../api/context'
 import { useRegistrationDraftStore } from '../../stores/registrationDraft'
+import AuthScaffold from '../../components/AuthScaffold.vue'
+import GcButton from '../../components/GcButton.vue'
+import GcField from '../../components/GcField.vue'
+import InlineProblem from '../../components/InlineProblem.vue'
 
 const draft = useRegistrationDraftStore()
 const verification = inject(emailVerificationServiceKey)
 const router = inject(appRouterKey)
 const token = ref('')
-const message = ref('')
+const error = ref<unknown>(null)
 const busy = ref(false)
-const emailLabel = computed(() => draft.email || '注册邮箱')
+const emailLabel = computed(() => draft.email || '你的注册邮箱')
 
-onLoad(() => {
-  if (!draft.email || !verification) {
-    draft.clear()
-    router?.reLaunch('login')
-  }
-})
+onLoad(() => { if (!draft.email || !verification) returnToLogin() })
+onBackPress(() => { returnToLogin(); return true })
+onUnload(() => { token.value = ''; draft.clear() })
 
-onBackPress(() => {
+function returnToLogin() {
+  token.value = ''
   draft.clear()
   router?.reLaunch('login')
-  return true
-})
-
-onUnload(() => draft.clear())
+}
 
 async function submit() {
-  if (!verification || busy.value) return
+  if (!verification || busy.value || !token.value.trim()) return
   busy.value = true
-  message.value = ''
+  error.value = null
   try {
     await verification.verify(token.value)
     token.value = ''
     uni.showToast({ title: '邮箱已验证，请登录', icon: 'none' })
     router?.reLaunch('login')
-  } catch (error) {
-    message.value = verificationFailureMessage(error)
+  } catch (cause) {
+    error.value = cause
   } finally {
     busy.value = false
   }
 }
-
-function verificationFailureMessage(error: unknown): string {
-  if (error instanceof AppError && error.kind === 'unavailable') return '验证服务暂不可用，请稍后重试。'
-  if (error instanceof AppError && error.status === 422) return '验证令牌无效或已过期，请检查邮件后重试。'
-  return '邮箱验证未完成，请检查令牌后重试。'
-}
 </script>
 
 <style lang="scss" scoped>
-.screen { min-height: 100vh; padding: 40px 24px 32px; display: flex; flex-direction: column; background: var(--gc-color-canvas); }
-.heading { font-size: 28px; font-weight: 700; }
-.intro { margin: 12px 0 24px; color: var(--gc-color-muted); line-height: 1.6; }
-.label { margin: 18px 0 8px; font-weight: 600; }
-.input { height: 52px; padding: 0 14px; border: 1px solid var(--gc-color-border); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface); }
-.notice { margin-top: 16px; color: var(--gc-color-danger); }
-.primary { margin-top: auto; border-radius: var(--gc-radius-md); background: var(--gc-color-brand); color: white; }
+.mail-illustration { width: 100%; height: 116px; margin: -2px 0 18px; position: relative; display: grid; place-items: center; }
+.mail-back { width: 105px; height: 73px; border-radius: 12px; background: var(--gc-color-sage-pale); transform: rotate(-5deg); }
+.mail-front { position: absolute; width: 96px; height: 64px; top: 32px; border-radius: 8px; background: var(--gc-color-surface); box-shadow: var(--gc-shadow-card); overflow: hidden; }
+.mail-fold { position: absolute; left: 9px; top: -34px; width: 78px; height: 78px; border-right: 2px solid var(--gc-color-brand); border-bottom: 2px solid var(--gc-color-brand); transform: rotate(45deg); background: var(--gc-color-canvas); }
+.mail-spark { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: var(--gc-color-orange); }.spark-a { left: 27%; top: 21px; }.spark-b { right: 27%; bottom: 17px; width: 5px; height: 5px; background: var(--gc-color-purple); }
+.form-card { padding: 18px; border: 1px solid var(--gc-color-border); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface); box-shadow: var(--gc-shadow-card); }
+.text-link { min-height: 44px; padding: 0 4px; background: transparent; color: var(--gc-color-brand); font-size: var(--gc-font-size-sm); font-weight: var(--gc-font-weight-semibold); }
 </style>

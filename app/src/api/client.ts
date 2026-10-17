@@ -13,6 +13,7 @@ import { StartupCoordinator } from '../navigation/startup'
 import { useRegistrationDraftStore } from '../stores/registrationDraft'
 import { RegistrationService } from './registrationService'
 import { EmailVerificationService } from './emailVerificationService'
+import { PasswordResetService } from './passwordResetService'
 
 const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, { allowLocalHttp: import.meta.env.DEV })
 
@@ -52,6 +53,7 @@ export function createAppServices(pinia: Pinia) {
   const authApi = new AuthApi(requestClient, session)
   const registration = new RegistrationService(authApi, useRegistrationDraftStore(pinia))
   const emailVerification = new EmailVerificationService(authApi, useRegistrationDraftStore(pinia))
+  const passwordReset = new PasswordResetService(authApi, useRegistrationDraftStore(pinia))
   return {
     requestClient,
     session,
@@ -59,6 +61,7 @@ export function createAppServices(pinia: Pinia) {
     profileApi,
     registration,
     emailVerification,
+    passwordReset,
     router,
     startup: new StartupCoordinator(session, profileApi, requestClient, auth, router),
   }

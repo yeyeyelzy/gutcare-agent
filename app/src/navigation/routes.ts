@@ -4,6 +4,8 @@ export const APP_ROUTES = {
   register: { path: '/pages/auth/register', access: 'public', returnToAllowed: false },
   registerProfile: { path: '/pages/auth/register-profile', access: 'public', returnToAllowed: false },
   emailVerification: { path: '/pages/auth/email-verification', access: 'public', returnToAllowed: false },
+  forgotPassword: { path: '/pages/auth/forgot-password', access: 'public', returnToAllowed: false },
+  resetPassword: { path: '/pages/auth/reset-password', access: 'public', returnToAllowed: false },
   profileError: { path: '/pages/auth/profile-error', access: 'public', returnToAllowed: false },
   today: { path: '/pages/home/index', access: 'authenticated', returnToAllowed: true },
 } as const

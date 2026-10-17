@@ -8,7 +8,7 @@ export class EmailVerificationService {
 
   async verify(token: string): Promise<void> {
     const normalizedToken = token.trim()
-    if (!normalizedToken) throw new Error('请输入邮箱验证令牌。')
+    if (normalizedToken.length < 20) throw new Error('请输入有效的邮箱验证令牌。')
     await this.authApi.verifyEmail({ token: normalizedToken })
     this.draft.clear()
   }
