@@ -17,6 +17,7 @@
     { "path": "pages/records/bowel/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/records/symptoms/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/records/mood/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/records/activity/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/placeholder/index", "style": { "navigationStyle": "custom" } }
   ],
   "globalStyle": {

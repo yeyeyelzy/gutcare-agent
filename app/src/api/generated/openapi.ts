@@ -4,6 +4,45 @@
  */
 
 export interface paths {
+    "/activity-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 游标分页读取本人活动记录 */
+        get: operations["listActivityRecords"];
+        put?: never;
+        /** 创建本人活动记录 */
+        post: operations["createActivityRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/activity-records/{record_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        /** 读取本人活动记录 */
+        get: operations["getActivityRecord"];
+        put?: never;
+        post?: never;
+        /** 软删除本人活动记录 */
+        delete: operations["deleteActivityRecord"];
+        options?: never;
+        head?: never;
+        /** 修改本人活动记录 */
+        patch: operations["patchActivityRecord"];
+        trace?: never;
+    };
     "/mood-records": {
         parameters: {
             query?: never;
@@ -1174,6 +1213,140 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listActivityRecords: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                since?: string;
+                until?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 活动记录页 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    createActivityRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivityWrite"];
+            };
+        };
+        responses: {
+            /** @description 已创建 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityRecord"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    getActivityRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 活动记录 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityRecord"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    deleteActivityRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    record_version: number;
+                };
+            };
+        };
+        responses: {
+            /** @description 已删除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+        };
+    };
+    patchActivityRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivityPatch"];
+            };
+        };
+        responses: {
+            /** @description 已修改 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityRecord"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
     listMoodRecords: {
         parameters: {
             query?: {

@@ -31,6 +31,11 @@ const requiredOperationIds = new Set([
   'getRecord',
   'updateRecord',
   'deleteRecord',
+  'listActivityRecords',
+  'createActivityRecord',
+  'getActivityRecord',
+  'patchActivityRecord',
+  'deleteActivityRecord',
   'getSymptomStatusHistory',
   'listMoodRecords',
   'createMoodRecord',
@@ -61,7 +66,7 @@ if (missingOperations.length || duplicatedOperations.length || foundOperations.s
   throw new Error(`APP OpenAPI operation set mismatch. Missing: ${missingOperations.join(', ') || 'none'}; duplicated: ${duplicatedOperations.map(([id]) => id).join(', ') || 'none'}.`)
 }
 
-// Generate the frozen auth/profile, consent and F03-F05/F14 record surfaces only. Every DTO
+// Generate the frozen auth/profile, consent and F03-F07/F14 record surfaces only. Every DTO
 // remains derived from the authoritative OpenAPI contract.
 const subset = {
   ...document,

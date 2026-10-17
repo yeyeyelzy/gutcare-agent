@@ -11,6 +11,7 @@ import type { PasswordResetService } from './passwordResetService'
 import type { RecordsApi } from './recordsApi'
 import type { MoodApi } from './moodApi'
 import type { ConsentApi } from './consentApi'
+import type { ActivityApi } from './activityApi'
 
 export const requestClientKey: InjectionKey<RequestClient> = Symbol('gutcare-request-client')
 export const sessionServiceKey: InjectionKey<SessionService> = Symbol('gutcare-session-service')
@@ -24,3 +25,4 @@ export const passwordResetServiceKey: InjectionKey<PasswordResetService> = Symbo
 export const recordsApiKey: InjectionKey<RecordsApi> = Symbol('gutcare-records-api')
 export const moodApiKey: InjectionKey<MoodApi> = Symbol('gutcare-mood-api')
 export const consentApiKey: InjectionKey<ConsentApi> = Symbol('gutcare-consent-api')
+export const activityApiKey: InjectionKey<ActivityApi> = Symbol('gutcare-activity-api')
