@@ -9,9 +9,11 @@ from fastapi import APIRouter, Depends, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from gutcare.auth.consent_notices import resolve_current_consent_notice
 from gutcare.auth.service import (
     AuthContext,
     ConsentDecisionData,
+    ConsentStatusData,
     ConsentType,
     PatientProfileData,
     TokenPair,
@@ -49,6 +51,8 @@ class AuthServicePort(Protocol):
     def logout(self, context: AuthContext) -> None: ...
 
     def get_my_profile(self, context: AuthContext) -> PatientProfileData: ...
+
+    def get_my_consents(self, context: AuthContext) -> list[ConsentStatusData]: ...
 
     def patch_my_profile(
         self,
@@ -184,6 +188,41 @@ class ConsentDecisionResponse(BaseModel):
         )
 
 
+class ConsentStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    consent_type: ConsentType
+    policy_version: str | None
+    granted: bool
+    decided_at: datetime | None
+    revoked_at: datetime | None
+
+    @classmethod
+    def from_domain(cls, value: ConsentStatusData) -> "ConsentStatusResponse":
+        return cls(
+            consent_type=value.consent_type,
+            policy_version=value.policy_version,
+            granted=value.granted,
+            decided_at=value.decided_at,
+            revoked_at=value.revoked_at,
+        )
+
+
+class ConsentNoticeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    consent_type: Literal[
+        "health_data_processing", "mood_data_processing", "mood_ai_sharing", "third_party_ai"
+    ]
+    enabled: bool
+    policy_version: str | None = None
+    summary: str | None = None
+    purpose: str | None = None
+    data_scope: str | None = None
+    recipient: str | None = None
+    withdrawal_effect: str | None = None
+
+
 class AcceptedOperation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -204,10 +243,13 @@ class ProblemResponse(BaseModel):
     errors: list[dict[str, Any]] | None = None
 
 
-def problem_response(description: str) -> dict[str, Any]:
+def problem_response(description: str, example: dict[str, Any] | None = None) -> dict[str, Any]:
+    content: dict[str, Any] = {"schema": ProblemResponse.model_json_schema()}
+    if example is not None:
+        content["examples"] = {"problem": {"value": example}}
     return {
         "description": description,
-        "content": {"application/problem+json": {"schema": ProblemResponse.model_json_schema()}},
+        "content": {"application/problem+json": content},
     }
 
 
@@ -456,7 +498,29 @@ def patch_my_profile(
     responses={
         401: problem_response("访问令牌缺失、无效、过期或已撤销"),
         404: problem_response("患者资料不存在"),
+        409: problem_response(
+            "没有可撤回的有效授权",
+            {
+                "type": "about:blank",
+                "title": "Conflict",
+                "status": 409,
+                "code": "CONSENT_NOT_ACTIVE",
+                "request_id": "00000000-0000-4000-8000-000000000409",
+                "detail": "No active consent to withdraw",
+            },
+        ),
         422: problem_response("请求字段无效"),
+        503: problem_response(
+            "当前服务端告知不可用，未记录同意",
+            {
+                "type": "about:blank",
+                "title": "Service Unavailable",
+                "status": 503,
+                "code": "CONSENT_NOTICE_UNAVAILABLE",
+                "request_id": "00000000-0000-4000-8000-000000000503",
+                "detail": "Current consent notice is unavailable",
+            },
+        ),
         500: problem_response("内部错误"),
     },
     tags=["Privacy"],
@@ -473,4 +537,58 @@ def record_consent(
             body.policy_version,
             body.granted,
         )
+    )
+
+
+@router.get(
+    "/patients/me/consents",
+    operation_id="getMyConsents",
+    summary="获取当前患者授权状态",
+    response_model=list[ConsentStatusResponse],
+    responses={
+        401: problem_response("访问令牌缺失、无效、过期或已撤销"),
+        404: problem_response("患者资料不存在"),
+        500: problem_response("内部错误"),
+    },
+    tags=["Privacy"],
+)
+def get_my_consents(
+    context: Annotated[AuthContext, Depends(current_auth_context)],
+    service: Annotated[AuthServicePort, Depends(get_auth_service)],
+) -> list[ConsentStatusResponse]:
+    return [ConsentStatusResponse.from_domain(item) for item in service.get_my_consents(context)]
+
+
+@router.get(
+    "/consent-notices",
+    operation_id="getConsentNotice",
+    summary="获取服务端当前授权告知",
+    response_model=ConsentNoticeResponse,
+    response_model_exclude_none=True,
+    responses={
+        401: problem_response("访问令牌缺失、无效、过期或已撤销"),
+        422: problem_response("不支持的授权类型"),
+        500: problem_response("内部错误"),
+    },
+    tags=["Privacy"],
+)
+def get_consent_notice(
+    request: Request,
+    consent_type: Literal[
+        "health_data_processing", "mood_data_processing", "mood_ai_sharing", "third_party_ai"
+    ],
+    _context: Annotated[AuthContext, Depends(current_auth_context)],
+) -> ConsentNoticeResponse:
+    notice = resolve_current_consent_notice(request.app.state.settings, consent_type)
+    if notice is None:
+        return ConsentNoticeResponse(consent_type=consent_type, enabled=False)
+    return ConsentNoticeResponse(
+        consent_type=consent_type,
+        enabled=True,
+        policy_version=notice.policy_version,
+        summary=notice.summary,
+        purpose=notice.purpose,
+        data_scope=notice.data_scope,
+        recipient=notice.recipient,
+        withdrawal_effect=notice.withdrawal_effect,
     )

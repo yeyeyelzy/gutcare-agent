@@ -83,14 +83,14 @@ describe('named route registry and protected navigation', () => {
     expect(navigator.reLaunch).toHaveBeenCalledWith(APP_ROUTES.records.path)
     expect(navigator.navigateTo).not.toHaveBeenCalled()
     expect(routeNameFromUrl('/pages/tabs/analysis/index')).toBe('analysis')
-    expect(routeNameFromUrl('/pages/placeholder/index?screen=recordMood')).toBe('recordMood')
+    expect(routeNameFromUrl('/pages/records/mood/index?id=00000000-0000-4000-8000-000000000001')).toBe('recordMood')
   })
 
-  it('keeps placeholder deep links protected and preserves only their named safe route in returnTo', () => {
+  it('keeps remaining placeholder deep links protected and preserves only their named safe route in returnTo', () => {
     const navigator = makeNavigator()
     const router = new AppRouter(navigator, () => 'anonymous')
-    expect(router.guardUrl('/pages/placeholder/index?screen=recordMood')).toBe(false)
-    expect(router.returnToStore.take()).toEqual({ name: 'recordMood' })
+    expect(router.guardUrl('/pages/placeholder/index?screen=recordActivity')).toBe(false)
+    expect(router.returnToStore.take()).toEqual({ name: 'recordActivity' })
     expect(router.guardUrl('/pages/placeholder/index?screen=unknown')).toBe(false)
     expect(router.returnToStore.take()).toBeNull()
     expect(placeholderRouteFromScreen('recordDiet')).toBeNull()
@@ -107,9 +107,13 @@ describe('named route registry and protected navigation', () => {
     expect(APP_ROUTES.recordDiet.path).toBe('/pages/records/diet/index')
     expect(APP_ROUTES.recordBowel.path).toBe('/pages/records/bowel/index')
     expect(APP_ROUTES.recordSymptoms.path).toBe('/pages/records/symptoms/index')
+    expect(APP_ROUTES.recordMood.path).toBe('/pages/records/mood/index')
     expect(routeNameFromUrl('/pages/records/symptoms/index?id=00000000-0000-4000-8000-000000000001')).toBe('recordSymptoms')
+    expect(routeNameFromUrl('/pages/records/mood/index?id=00000000-0000-4000-8000-000000000003')).toBe('recordMood')
     expect(router.guardUrl('/pages/records/diet/index?id=00000000-0000-4000-8000-000000000002')).toBe(false)
     expect(router.returnToStore.take()).toEqual({ name: 'recordDiet' })
+    expect(router.guardUrl('/pages/records/mood/index?id=00000000-0000-4000-8000-000000000003')).toBe(false)
+    expect(router.returnToStore.take()).toEqual({ name: 'recordMood' })
     expect(navigator.reLaunch).toHaveBeenCalledWith(APP_ROUTES.login.path)
   })
 

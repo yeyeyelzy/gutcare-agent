@@ -16,6 +16,7 @@ from sqlalchemy import desc, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from gutcare.analysis.models import AnalysisTask
+from gutcare.auth.consent_notices import SUPPORTED_NOTICE_TYPES, resolve_current_consent_notice
 from gutcare.auth.models import (
     AccountDeletionRequest,
     EmailVerificationToken,
@@ -148,6 +149,15 @@ class ConsentDecisionData:
     policy_version: str
     granted: bool
     decided_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ConsentStatusData:
+    consent_type: ConsentType
+    policy_version: str | None
+    granted: bool
+    decided_at: datetime | None
+    revoked_at: datetime | None
 
 
 class AuthService:
@@ -747,6 +757,41 @@ class AuthService:
             profile = self._set_patient_rls_context(db, context.user_id)
             return self._profile_data(profile)
 
+    def get_my_consents(self, context: AuthContext) -> list[ConsentStatusData]:
+        consent_types: tuple[ConsentType, ...] = (
+            "health_data_processing",
+            "mood_data_processing",
+            "mood_ai_sharing",
+            "third_party_ai",
+            "sensitive_image",
+            "push_notification",
+        )
+        with self._sessions.begin() as db:
+            profile = self._set_patient_rls_context(db, context.user_id)
+            decisions = db.scalars(
+                select(PatientConsent)
+                .where(
+                    PatientConsent.patient_id == profile.id,
+                    PatientConsent.consent_type.in_(consent_types),
+                )
+                .order_by(desc(PatientConsent.decided_at), desc(PatientConsent.id))
+            ).all()
+            latest: dict[str, PatientConsent] = {}
+            for decision in decisions:
+                latest.setdefault(decision.consent_type, decision)
+            return [
+                ConsentStatusData(
+                    consent_type=consent_type,
+                    policy_version=latest[consent_type].document_version
+                    if consent_type in latest
+                    else None,
+                    granted=latest[consent_type].granted if consent_type in latest else False,
+                    decided_at=latest[consent_type].decided_at if consent_type in latest else None,
+                    revoked_at=latest[consent_type].revoked_at if consent_type in latest else None,
+                )
+                for consent_type in consent_types
+            ]
+
     def patch_my_profile(
         self,
         context: AuthContext,
@@ -858,23 +903,52 @@ class AuthService:
                 "VALIDATION_ERROR",
                 "Privacy policy withdrawal must use account deletion",
             )
-        summary_hash = self._consent_summary_hash(consent_type, policy_version)
+        summary_hash: str | None = None
+        if granted:
+            if consent_type in SUPPORTED_NOTICE_TYPES:
+                notice = resolve_current_consent_notice(self._settings, consent_type)
+                if notice is None:
+                    raise Problem(
+                        503,
+                        "CONSENT_NOTICE_UNAVAILABLE",
+                        "Current consent notice is unavailable",
+                    )
+                if notice.policy_version != policy_version:
+                    raise Problem(422, "VALIDATION_ERROR", "Unsupported consent policy version")
+                summary_hash = notice.summary_sha256
+            else:
+                summary_hash = self._consent_summary_hash(consent_type, policy_version)
         now = utc_now()
         with self._sessions.begin() as db:
             profile = self._set_patient_rls_context(db, context.user_id)
-            if consent_type in {
-                "health_data_processing",
-                "mood_data_processing",
-                "mood_ai_sharing",
-                "third_party_ai",
-            }:
-                db.execute(
-                    text(
-                        "SELECT pg_advisory_xact_lock(hashtextextended("
-                        "'gutcare.patient-consent-fence:' || :patient_id, 0))"
-                    ),
-                    {"patient_id": str(profile.id)},
+            db.execute(
+                text(
+                    "SELECT pg_advisory_xact_lock(hashtextextended("
+                    "'gutcare.patient-consent-fence:' || :patient_id, 0))"
+                ),
+                {"patient_id": str(profile.id)},
+            )
+            if not granted:
+                latest = db.scalar(
+                    select(PatientConsent)
+                    .where(
+                        PatientConsent.patient_id == profile.id,
+                        PatientConsent.consent_type == consent_type,
+                    )
+                    .order_by(desc(PatientConsent.decided_at), desc(PatientConsent.id))
+                    .with_for_update()
                 )
+                if latest is None or not latest.granted:
+                    raise Problem(409, "CONSENT_NOT_ACTIVE", "No active consent to withdraw")
+                if latest.document_version != policy_version:
+                    raise Problem(422, "VALIDATION_ERROR", "Consent policy version does not match")
+                summary_hash = (latest.metadata_json or {}).get("notice_summary_hash")
+                if (
+                    not isinstance(summary_hash, str)
+                    or len(summary_hash) != 64
+                    or any(character not in "0123456789abcdef" for character in summary_hash)
+                ):
+                    raise RuntimeError("Stored consent notice summary hash is invalid")
             db.add(
                 PatientConsent(
                     patient_id=profile.id,

@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "artifact_classification": "development_test_only",
+  "legal_approval_status": "not_approved_for_production",
+  "locale": "zh-CN",
+  "canonicalization": "UTF-8 without BOM; summary normalized to LF before SHA-256",
+  "backend_config": {
+    "HEALTH_DATA_PROCESSING_POLICY_VERSION": "test-only-health-v1",
+    "HEALTH_DATA_PROCESSING_SUMMARY_HASH": "c3c38f369746498cab3b6e9c96bfda09c42230e44e257d56dc47c972e5139be1",
+    "MOOD_DATA_PROCESSING_POLICY_VERSION": "test-only-mood-data-v1",
+    "MOOD_DATA_PROCESSING_SUMMARY_HASH": "7d30d978677482a02db144506c80aed867dcc395b82a96a4a1eda90a87c578e4",
+    "MOOD_AI_SHARING_POLICY_VERSION": "test-only-mood-ai-v1",
+    "MOOD_AI_SHARING_SUMMARY_HASH": "b21634c2767bb3134f265cd057eac0e3a1d2363b93850400190e4a20f18f0de8",
+    "THIRD_PARTY_AI_POLICY_VERSION": "test-only-third-party-ai-v1",
+    "THIRD_PARTY_AI_SUMMARY_HASH": "37ae67bc63b6571098aeda40b399ba03ae65270d7aaa451484d06279cdcaa95b"
+  },
+  "notices": [
+    {
+      "consent_type": "health_data_processing",
+      "policy_version": "test-only-health-v1",
+      "enabled": true,
+      "summary": "本测试构建仅使用合成数据验证健康资料处理流程。继续表示单独同意测试环境处理出生年份及主动提交的健康记录；该文案未经过法律审核，不得用于生产环境。",
+      "summary_sha256": "c3c38f369746498cab3b6e9c96bfda09c42230e44e257d56dc47c972e5139be1",
+      "purpose": "仅在 development/test 环境验证健康资料处理授权流程。",
+      "data_scope": "出生年份及患者主动提交的健康记录；具体记录仍按各功能授权和数据最小化规则处理。",
+      "recipient": "GutCare 业务服务及经授权执行任务的处理组件；测试环境使用合成数据。",
+      "withdrawal_effect": "停止依赖健康数据处理授权的新增处理；本人读取或删除既有记录的能力依适用功能规则保留。"
+    },
+    {
+      "consent_type": "mood_data_processing",
+      "policy_version": "test-only-mood-data-v1",
+      "enabled": true,
+      "summary": "本测试构建仅使用合成数据验证心情记录流程。继续表示单独同意在 GutCare 中记录和保存本人主动提交的主观心情等级、发生时间及可选备注，供本人回顾；不用于诊断、治疗建议或推断情绪与症状的因果关系。该文案由已冻结的产品工程语义整理，未经过法律审核，不得用于生产环境。",
+      "summary_sha256": "7d30d978677482a02db144506c80aed867dcc395b82a96a4a1eda90a87c578e4",
+      "purpose": "仅在 development/test 环境验证心情数据的本人记录、保存和回顾。",
+      "data_scope": "本人主动提交的 mood_level、occurred_at 与可选 note；P0 emotion_tags 为空。",
+      "recipient": "GutCare 业务服务；该授权本身不授权向智能服务共享。",
+      "withdrawal_effect": "停止新增或修改心情记录，并取消尚未完成且含心情的分析任务；本人读取和删除既有记录仍可用。"
+    },
+    {
+      "consent_type": "mood_ai_sharing",
+      "policy_version": "test-only-mood-ai-v1",
+      "enabled": true,
+      "summary": "本测试构建仅用于验证心情智能共享授权。继续表示单独同意在创建获准的健康分析任务时，将符合授权与范围条件的心情等级、发生时间和受控标签纳入不可变任务快照并由指定智能服务处理；备注不会共享。拒绝或撤回不会影响本人查看或删除记录，也不阻断其他符合条件的健康分析。该文案由已冻结的产品工程语义整理，未经过法律审核，不得用于生产环境。",
+      "summary_sha256": "b21634c2767bb3134f265cd057eac0e3a1d2363b93850400190e4a20f18f0de8",
+      "purpose": "仅在 development/test 环境验证患者单独选择是否将心情结构化数据纳入智能分析。",
+      "data_scope": "符合任务范围的 mood_level、occurred_at、受控 emotion_tags 与来源引用；不包括 note。",
+      "recipient": "GutCare 业务服务和当前配置的智能体服务；智能体只读取任务冻结快照。",
+      "withdrawal_effect": "停止新的含心情分析快照输入，并取消尚未完成且含心情的分析任务；其他符合条件的健康分析不因此阻断。"
+    },
+    {
+      "consent_type": "third_party_ai",
+      "policy_version": "test-only-third-party-ai-v1",
+      "enabled": true,
+      "summary": "本测试构建仅用于验证第三方智能处理授权。继续表示单独同意将符合授权条件的健康分析任务快照发送给配置的第三方智能服务处理；该授权与心情智能共享授权分开管理，单独撤回会阻止新的第三方智能分析任务。该文案由已冻结的产品工程语义整理，未经过法律审核，不得用于生产环境。",
+      "summary_sha256": "37ae67bc63b6571098aeda40b399ba03ae65270d7aaa451484d06279cdcaa95b",
+      "purpose": "仅在 development/test 环境验证第三方智能处理授权。",
+      "data_scope": "依据分析类型、有效授权和任务范围冻结的最小化健康数据快照。",
+      "recipient": "部署配置指定的第三方智能处理服务；具体处理边界以正式签核告知为准。",
+      "withdrawal_effect": "阻止新的第三方智能分析任务；既有记录的本人读取和删除不受影响。"
+    }
+  ]
+}

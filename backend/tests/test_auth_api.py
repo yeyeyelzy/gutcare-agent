@@ -9,7 +9,12 @@ from fastapi.testclient import TestClient
 
 from gutcare.app import create_app
 from gutcare.auth.api import AuthContext
-from gutcare.auth.service import ConsentDecisionData, PatientProfileData, TokenPair
+from gutcare.auth.service import (
+    ConsentDecisionData,
+    ConsentStatusData,
+    PatientProfileData,
+    TokenPair,
+)
 from gutcare.config import Settings
 from gutcare.shared.errors import Problem
 
@@ -24,6 +29,23 @@ class FakeAuthService:
         )
         self.profile_changes: list[dict[str, object]] = []
         self.consent_decisions: list[tuple[str, str, bool]] = []
+        self.consent_statuses: list[ConsentStatusData] = [
+            ConsentStatusData(
+                consent_type=kind,
+                policy_version=None,
+                granted=False,
+                decided_at=None,
+                revoked_at=None,
+            )
+            for kind in (
+                "health_data_processing",
+                "mood_data_processing",
+                "mood_ai_sharing",
+                "third_party_ai",
+                "sensitive_image",
+                "push_notification",
+            )
+        ]
         self.deletion_requests: list[AuthContext] = []
 
     def register(
@@ -113,6 +135,9 @@ class FakeAuthService:
             granted=granted,
             decided_at=datetime.now(UTC),
         )
+
+    def get_my_consents(self, context: AuthContext) -> list[ConsentStatusData]:
+        return self.consent_statuses
 
     def request_account_deletion(self, context: AuthContext) -> UUID:
         self.deletion_requests.append(context)
@@ -299,6 +324,8 @@ def test_openapi_exposes_frozen_auth_operations_and_bearer_logout(client: TestCl
     assert paths["/api/v1/patients/me"]["get"]["operationId"] == "getMyProfile"
     assert paths["/api/v1/patients/me"]["patch"]["operationId"] == "updateMyProfile"
     assert paths["/api/v1/patients/me/consents"]["post"]["operationId"] == "recordConsent"
+    assert paths["/api/v1/patients/me/consents"]["get"]["operationId"] == "getMyConsents"
+    assert paths["/api/v1/consent-notices"]["get"]["operationId"] == "getConsentNotice"
     assert (
         paths["/api/v1/patients/me/account-deletion"]["post"]["operationId"]
         == "requestAccountDeletion"
@@ -436,6 +463,96 @@ def test_consent_decisions_record_version_and_allow_revocation(client: TestClien
     )
     assert privacy_withdrawal.status_code == 422
     assert privacy_withdrawal.json()["code"] == "VALIDATION_ERROR"
+
+
+def test_consent_status_is_authenticated_latest_only_and_never_exposes_metadata(
+    client: TestClient,
+) -> None:
+    unauthenticated = client.get("/api/v1/patients/me/consents")
+    assert unauthenticated.status_code == 401
+    response = client.get(
+        "/api/v1/patients/me/consents",
+        headers={"Authorization": "Bearer access-value-that-is-long"},
+    )
+    assert response.status_code == 200
+    mood = next(item for item in response.json() if item["consent_type"] == "mood_data_processing")
+    assert mood == {
+        "consent_type": "mood_data_processing",
+        "policy_version": None,
+        "granted": False,
+        "decided_at": None,
+        "revoked_at": None,
+    }
+    assert all("metadata" not in item and "summary_hash" not in item for item in response.json())
+
+    from datetime import UTC, datetime
+
+    decided_at = datetime(2026, 10, 17, 12, 0, tzinfo=UTC)
+    client.app.state.auth_service.consent_statuses = [
+        ConsentStatusData(
+            consent_type="mood_data_processing",
+            policy_version="test-only-mood-data-v1",
+            granted=False,
+            decided_at=decided_at,
+            revoked_at=decided_at,
+        )
+    ]
+    revoked_response = client.get(
+        "/api/v1/patients/me/consents",
+        headers={"Authorization": "Bearer access-value-that-is-long"},
+    )
+    revoked = next(
+        item for item in revoked_response.json() if item["consent_type"] == "mood_data_processing"
+    )
+    assert revoked["granted"] is False
+    assert revoked["policy_version"] == "test-only-mood-data-v1"
+    assert revoked["revoked_at"] == decided_at.isoformat().replace("+00:00", "Z")
+
+
+def test_consent_notice_is_authenticated_and_fails_closed_without_matching_config(
+    client: TestClient,
+) -> None:
+    unauthenticated = client.get(
+        "/api/v1/consent-notices", params={"consent_type": "mood_data_processing"}
+    )
+    assert unauthenticated.status_code == 401
+    response = client.get(
+        "/api/v1/consent-notices",
+        params={"consent_type": "mood_data_processing"},
+        headers={"Authorization": "Bearer access-value-that-is-long"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"consent_type": "mood_data_processing", "enabled": False}
+    assert (
+        client.get(
+            "/api/v1/consent-notices",
+            params={"consent_type": "unknown"},
+            headers={"Authorization": "Bearer access-value-that-is-long"},
+        ).status_code
+        == 422
+    )
+
+
+def test_consent_notice_returns_only_matching_test_artifact_without_hash(
+    client: TestClient,
+) -> None:
+    settings = client.app.state.settings
+    settings.mood_data_processing_policy_version = "test-only-mood-data-v1"
+    settings.mood_data_processing_summary_hash = (
+        "7d30d978677482a02db144506c80aed867dcc395b82a96a4a1eda90a87c578e4"
+    )
+    response = client.get(
+        "/api/v1/consent-notices",
+        params={"consent_type": "mood_data_processing"},
+        headers={"Authorization": "Bearer access-value-that-is-long"},
+    )
+    assert response.status_code == 200
+    notice = response.json()
+    assert notice["enabled"] is True
+    assert notice["policy_version"] == "test-only-mood-data-v1"
+    assert "test build" not in notice["summary"].lower()
+    assert "开发/自动化" not in notice["summary"]
+    assert "summary_sha256" not in notice and "metadata" not in notice
 
 
 def test_account_deletion_requires_auth_and_returns_operation(client: TestClient) -> None:

@@ -4,6 +4,60 @@
  */
 
 export interface paths {
+    "/mood-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 游标分页读取本人心情记录摘要
+         * @description 本人读取属于数据主体访问能力；账户可用时即使已撤回 mood_data_processing 仍可读取既有记录。列表不包含 note。
+         */
+        get: operations["listMoodRecords"];
+        put?: never;
+        /**
+         * 创建本人心情记录
+         * @description 要求 health_data_processing 与 mood_data_processing 当前均有效；不要求授权第三方智能处理。
+         */
+        post: operations["createMoodRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mood-records/{record_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * 读取本人心情记录详情
+         * @description 本人读取属于数据主体访问能力；账户可用时即使已撤回 mood_data_processing 仍可读取既有记录。
+         */
+        get: operations["getMoodRecord"];
+        put?: never;
+        post?: never;
+        /**
+         * 软删除本人心情记录
+         * @description 删除作为数据主体权利，不因撤回 mood_data_processing 而关闭；立即软删除并从后续分析排除。
+         */
+        delete: operations["deleteMoodRecord"];
+        options?: never;
+        head?: never;
+        /**
+         * 修改本人心情记录
+         * @description 要求 health_data_processing 与 mood_data_processing 当前均有效；须提交当前 record_version。
+         */
+        patch: operations["patchMoodRecord"];
+        trace?: never;
+    };
     "/auth/register": {
         parameters: {
             query?: never;
@@ -139,6 +193,41 @@ export interface paths {
         head?: never;
         /** 更新当前患者资料 */
         patch: operations["updateMyProfile"];
+        trace?: never;
+    };
+    "/patients/me/consents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取当前患者各授权类型的最新决定 */
+        get: operations["getMyConsents"];
+        put?: never;
+        /** 记录或撤回授权 */
+        post: operations["recordConsent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/consent-notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取服务端当前授权告知 */
+        get: operations["getConsentNotice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/symptom-records/{record_id}/status-history": {
@@ -360,7 +449,7 @@ export interface components {
             timezone?: string;
             profile_version: number;
         };
-        /** @description 每次决定追加授权历史；privacy_policy 仅能通过 account-deletion 撤回，不接受通用决定。服务端按 consent_type 验证配置的当前 policy_version 并绑定独立告知摘要哈希，不接受客户端传入摘要。granted=false 表示拒绝或撤回。 */
+        /** @description 每次决定追加授权历史；privacy_policy 仅能通过 account-deletion 撤回，不接受通用决定。支持告知的四种类型只有在服务端当前告知 enabled 且制品、runtime version/规范化 hash 一致时才允许 grant；否则返回 CONSENT_NOTICE_UNAVAILABLE 且不写决定。撤回需匹配本人仍有效的最新决定版本，不依赖当前告知；未决定或已撤回返回 CONSENT_NOT_ACTIVE 409。服务端不接受客户端传入摘要。 */
         ConsentDecision: {
             /** @enum {string} */
             consent_type: "health_data_processing" | "mood_data_processing" | "mood_ai_sharing" | "sensitive_image" | "third_party_ai" | "push_notification";
@@ -368,6 +457,29 @@ export interface components {
             granted: boolean;
             /** Format: date-time */
             readonly decided_at?: string;
+        };
+        /** @description 各类型最新决定；从未决定时 granted=false 且其余 nullable 字段为 null。不得返回 metadata 或摘要哈希。 */
+        ConsentStatus: {
+            /** @enum {string} */
+            consent_type: "health_data_processing" | "mood_data_processing" | "mood_ai_sharing" | "sensitive_image" | "third_party_ai" | "push_notification";
+            policy_version: string | null;
+            granted: boolean;
+            /** Format: date-time */
+            decided_at: string | null;
+            /** Format: date-time */
+            revoked_at: string | null;
+        };
+        /** @description 当前告知由服务端制品提供；不可用或未获准时 enabled=false 且不可返回 policy_version 和文案。 */
+        ConsentNotice: {
+            /** @enum {string} */
+            consent_type: "health_data_processing" | "mood_data_processing" | "mood_ai_sharing" | "third_party_ai";
+            enabled: boolean;
+            policy_version?: string | null;
+            summary?: string | null;
+            purpose?: string | null;
+            data_scope?: string | null;
+            recipient?: string | null;
+            withdrawal_effect?: string | null;
         };
         UploadSession: {
             /** Format: uuid */
@@ -1062,6 +1174,147 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listMoodRecords: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                since?: string;
+                until?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 仅含时间、等级和受控情绪标签的记录页 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MoodPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    createMoodRecord: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoodWrite"];
+            };
+        };
+        responses: {
+            /** @description 已创建 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MoodDetail"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    getMoodRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 本人心情记录详情 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MoodDetail"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    deleteMoodRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    record_version: number;
+                };
+            };
+        };
+        responses: {
+            /** @description 已删除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    patchMoodRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoodPatch"];
+            };
+        };
+        responses: {
+            /** @description 已修改 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MoodDetail"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
     register: {
         parameters: {
             query?: never;
@@ -1303,6 +1556,119 @@ export interface operations {
             401: components["responses"]["Problem"];
             404: components["responses"]["Problem"];
             409: components["responses"]["RecordVersionConflict"];
+            422: components["responses"]["Problem"];
+            500: components["responses"]["Problem"];
+        };
+    };
+    getMyConsents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 每类仅返回最新决定；从未决定时 granted=false 且版本/时间为空。不含 metadata 或摘要哈希。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "consent_type": "mood_data_processing",
+                     *         "policy_version": null,
+                     *         "granted": false,
+                     *         "decided_at": null,
+                     *         "revoked_at": null
+                     *       },
+                     *       {
+                     *         "consent_type": "mood_ai_sharing",
+                     *         "policy_version": "mood-ai-v1",
+                     *         "granted": true,
+                     *         "decided_at": "2026-10-15T08:30:00Z",
+                     *         "revoked_at": null
+                     *       }
+                     *     ]
+                     */
+                    "application/json": components["schemas"]["ConsentStatus"][];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            500: components["responses"]["Problem"];
+        };
+    };
+    recordConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsentDecision"];
+            };
+        };
+        responses: {
+            /** @description 已记录 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentDecision"];
+                    examples: unknown;
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            /** @description 未决定或已撤回，不存在可撤回的有效授权 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["Problem"];
+            500: components["responses"]["Problem"];
+            /** @description 当前服务端告知不可用或与运行时配置不匹配；不记录同意 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getConsentNotice: {
+        parameters: {
+            query: {
+                consent_type: "health_data_processing" | "mood_data_processing" | "mood_ai_sharing" | "third_party_ai";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description enabled=false 时不返回可提交的版本或告知内容；客户端必须 fail closed。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentNotice"];
+                };
+            };
+            401: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             500: components["responses"]["Problem"];
         };

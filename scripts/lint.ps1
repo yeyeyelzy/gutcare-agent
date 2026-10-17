@@ -9,6 +9,8 @@ if (-not $python) { throw 'Project Python resolver did not return an executable.
 if (-not $uv) { throw 'Project uv resolver did not return an executable.' }
 if (-not $node) { throw 'Project Node resolver did not return an executable.' }
 Set-Location $root
+& (Join-Path $PSScriptRoot 'validate-consent-notices.ps1')
+if (-not $?) { throw 'Consent notice artifact validation failed.' }
 
 $corepack = Join-Path (Split-Path -Parent $node) 'node_modules\corepack\dist\corepack.js'
 if (-not (Test-Path -LiteralPath $corepack -PathType Leaf)) { throw 'Project Node 22 Corepack runtime is missing.' }

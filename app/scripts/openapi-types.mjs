@@ -32,6 +32,14 @@ const requiredOperationIds = new Set([
   'updateRecord',
   'deleteRecord',
   'getSymptomStatusHistory',
+  'listMoodRecords',
+  'createMoodRecord',
+  'getMoodRecord',
+  'patchMoodRecord',
+  'deleteMoodRecord',
+  'getMyConsents',
+  'getConsentNotice',
+  'recordConsent',
 ])
 const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
 const foundOperations = new Map()
@@ -50,10 +58,10 @@ for (const [path, pathItem] of Object.entries(document.paths ?? {})) {
 const missingOperations = [...requiredOperationIds].filter((operationId) => !foundOperations.has(operationId))
 const duplicatedOperations = [...foundOperations.entries()].filter(([, locations]) => locations.length !== 1)
 if (missingOperations.length || duplicatedOperations.length || foundOperations.size !== requiredOperationIds.size) {
-  throw new Error(`Auth/profile OpenAPI operation set mismatch. Missing: ${missingOperations.join(', ') || 'none'}; duplicated: ${duplicatedOperations.map(([id]) => id).join(', ') || 'none'}.`)
+  throw new Error(`APP OpenAPI operation set mismatch. Missing: ${missingOperations.join(', ') || 'none'}; duplicated: ${duplicatedOperations.map(([id]) => id).join(', ') || 'none'}.`)
 }
 
-// Generate the frozen auth/profile and F03-F05 record surfaces only. Every DTO
+// Generate the frozen auth/profile, consent and F03-F05/F14 record surfaces only. Every DTO
 // remains derived from the authoritative OpenAPI contract.
 const subset = {
   ...document,
@@ -107,7 +115,7 @@ try {
     if (generated !== checkedIn) {
       throw new Error('Generated OpenAPI types differ. Run `pnpm openapi:generate` and review the result.')
     }
-    process.stdout.write('Generated OpenAPI auth/profile/records types are current.\n')
+    process.stdout.write('Generated OpenAPI auth/profile/records/consent types are current.\n')
   }
 } finally {
   // The CLI is launched synchronously above, so no process retains these files.

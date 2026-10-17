@@ -1447,6 +1447,45 @@ def test_account_deletion_is_atomic_and_idempotent(database: Any) -> None:
     assert deletion_rows == [(deletion_id, "pending")]
 
 
+def test_consent_status_read_is_patient_scoped_and_returns_latest_decision(database: Any) -> None:
+    app_engine, _ = database
+    user_a, patient_a = _seed_patient(app_engine, nickname="consent-status-a")
+    user_b, patient_b = _seed_patient(app_engine, nickname="consent-status-b")
+    now = utc_now()
+    with _sessions(app_engine).begin() as db:
+        for patient, kind, version, granted, decided in (
+            (patient_a, "mood_data_processing", "a-mood-v1", True, now - timedelta(minutes=2)),
+            (patient_a, "mood_data_processing", "a-mood-v2", False, now - timedelta(minutes=1)),
+            (patient_b, "mood_data_processing", "b-mood-v1", True, now),
+        ):
+            db.execute(text("SELECT set_config('app.patient_id', :id, true)"), {"id": str(patient)})
+            db.add(
+                PatientConsent(
+                    patient_id=patient,
+                    consent_type=kind,
+                    document_version=version,
+                    granted=granted,
+                    decided_at=decided,
+                    revoked_at=decided if not granted else None,
+                    metadata_json={"notice_summary_hash": "f" * 64},
+                )
+            )
+    service = AuthService(Settings(env="test"), _sessions(app_engine))
+    status_a = {
+        item.consent_type: item for item in service.get_my_consents(AuthContext(user_a, uuid4()))
+    }
+    status_b = {
+        item.consent_type: item for item in service.get_my_consents(AuthContext(user_b, uuid4()))
+    }
+    assert status_a["mood_data_processing"].granted is False
+    assert status_a["mood_data_processing"].policy_version == "a-mood-v2"
+    assert status_a["mood_data_processing"].revoked_at == now - timedelta(minutes=1)
+    assert status_b["mood_data_processing"].granted is True
+    assert status_b["mood_data_processing"].policy_version == "b-mood-v1"
+    assert status_a["mood_ai_sharing"].granted is False
+    assert status_a["mood_ai_sharing"].policy_version is None
+
+
 def test_t105_mood_crud_consent_idempotency_rls_and_database_checks(database: Any) -> None:
     app_engine, migrator_engine = database
     user_a, patient_a = _seed_patient(app_engine, nickname="mood-a")
@@ -2191,12 +2230,14 @@ def test_f02_real_minio_clamav_upload_document_delete_and_patient_isolation(data
             jwt_signing_key="integration-only-signing-key-000000000000000000000000",
             jwt_issuer="gutcare-business-api",
             jwt_audience="gutcare-mobile-app",
-            third_party_ai_policy_version="third_party_ai-v1",
-            third_party_ai_summary_hash="0" * 64,
+            third_party_ai_policy_version="test-only-third-party-ai-v1",
+            third_party_ai_summary_hash="37ae67bc63b6571098aeda40b399ba03ae65270d7aaa451484d06279cdcaa95b",
         ),
         _sessions(app_engine),
     )
-    ai_consent_service.record_consent(context_a, "third_party_ai", "third_party_ai-v1", True)
+    ai_consent_service.record_consent(
+        context_a, "third_party_ai", "test-only-third-party-ai-v1", True
+    )
     analyze_doc = service.create_medical_document(
         context_a,
         file_object_id=analyze_file.id,
@@ -2499,7 +2540,7 @@ def test_f02_real_minio_clamav_upload_document_delete_and_patient_isolation(data
                 ai_consent_service.record_consent,
                 context_a,
                 "third_party_ai",
-                "third_party_ai-v1",
+                "test-only-third-party-ai-v1",
                 False,
             )
             with pytest.raises(FuturesTimeoutError):
@@ -2511,7 +2552,9 @@ def test_f02_real_minio_clamav_upload_document_delete_and_patient_isolation(data
         allow_read_finish.set()
         service._storage = original_storage
 
-    ai_consent_service.record_consent(context_a, "third_party_ai", "third_party_ai-v1", True)
+    ai_consent_service.record_consent(
+        context_a, "third_party_ai", "test-only-third-party-ai-v1", True
+    )
     create_analyze_doc("callback-race.jpg", "f02-callback-race-upload-01")
     callback_request_id = service.claim_medical_parse_request()
     assert callback_request_id is not None
@@ -2540,7 +2583,9 @@ def test_f02_real_minio_clamav_upload_document_delete_and_patient_isolation(data
 
     def race_revoke() -> None:
         assert callback_gate.wait(timeout=5)
-        ai_consent_service.record_consent(context_a, "third_party_ai", "third_party_ai-v1", False)
+        ai_consent_service.record_consent(
+            context_a, "third_party_ai", "test-only-third-party-ai-v1", False
+        )
 
     with ThreadPoolExecutor(max_workers=3) as pool:
         claim_future = pool.submit(race_claim)
@@ -5710,19 +5755,20 @@ def test_f14_h2_t106_t108_preview_mood_snapshot_and_consent_exclusion(database: 
                 )
             )
             db.flush()
+    consent_service = AuthService(
+        Settings(
+            env="test",
+            jwt_signing_key="integration-only-signing-key-000000000000000000000000",
+            jwt_issuer="gutcare-business-api",
+            jwt_audience="gutcare-mobile-app",
+            mood_data_processing_policy_version="h2-v1",
+            mood_data_processing_summary_hash="3" * 64,
+        ),
+        _sessions(app_engine),
+    )
+    consent_service.record_consent(context, "mood_data_processing", "h2-v1", False)
     with _sessions(app_engine).begin() as db:
         db.execute(text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient)})
-        db.add(
-            PatientConsent(
-                patient_id=patient,
-                consent_type="mood_data_processing",
-                document_version="h2-v1",
-                granted=False,
-                decided_at=occurred + timedelta(seconds=1),
-                revoked_at=occurred + timedelta(seconds=1),
-                metadata_json={"notice_summary_hash": "3" * 64},
-            )
-        )
         db.add(
             DietRecord(
                 patient_id=patient,
@@ -5739,18 +5785,6 @@ def test_f14_h2_t106_t108_preview_mood_snapshot_and_consent_exclusion(database: 
     assert excluded["mood_exclusion_reasons"] == ["mood_data_processing_missing"]
     without_mood, _ = service.create(context, payload, "h2-mood-revoked-0001")
     assert without_mood["input_summary"] == {"included_mood_record_count": 0}
-    consent_service = AuthService(
-        Settings(
-            env="test",
-            jwt_signing_key="integration-only-signing-key-000000000000000000000000",
-            jwt_issuer="gutcare-business-api",
-            jwt_audience="gutcare-mobile-app",
-            mood_data_processing_policy_version="mood-data-v1",
-            mood_data_processing_summary_hash="4" * 64,
-        ),
-        _sessions(app_engine),
-    )
-    consent_service.record_consent(context, "mood_data_processing", "mood-data-v1", False)
     assert service.get(context, UUID(created["id"]))["status"] == "cancelled"
     assert service.get(context, UUID(without_mood["id"]))["status"] == "pending"
     worker_engine.dispose()
@@ -5829,7 +5863,9 @@ def test_f14_h2_all_mood_consent_combinations_and_create_revoke_fence(database: 
                 PatientConsent(
                     patient_id=patient,
                     consent_type=consent_type,
-                    document_version="h2-race-v1",
+                    document_version=(
+                        "mood-race-v1" if consent_type == "mood_data_processing" else "h2-race-v1"
+                    ),
                     granted=True,
                     decided_at=now,
                     metadata_json={"notice_summary_hash": "6" * 64},
@@ -6075,7 +6111,7 @@ def test_f08_t68_t71_worker_lifecycle_and_snapshot_boundaries(database: Any) -> 
             PatientConsent(
                 patient_id=patient,
                 consent_type="third_party_ai",
-                document_version="t-v1",
+                document_version="third_party_ai-v1",
                 granted=True,
                 decided_at=utc_now(),
                 metadata_json={"notice_summary_hash": "2" * 64},

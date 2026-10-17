@@ -1,6 +1,7 @@
 """Validated application settings."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import AliasChoices, AnyHttpUrl, Field, PostgresDsn, model_validator
@@ -18,6 +19,12 @@ class Settings(BaseSettings):
     env: Literal["local", "test", "staging", "production"] = Field(
         default="local",
         validation_alias=AliasChoices("APP__ENV", "APP_ENV", "env"),
+    )
+    consent_notices_path: Path | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "PRIVACY__CONSENT_NOTICES_PATH", "PRIVACY_CONSENT_NOTICES_PATH", "consent_notices_path"
+        ),
     )
     service_name: str = Field(
         default="gutcare-business-api",

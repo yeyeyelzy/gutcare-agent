@@ -104,6 +104,7 @@ describe('authentication component and page contracts', () => {
     expect(placeholder).toContain('功能建设中')
     expect(placeholder).toContain('不会展示模拟记录')
     expect(placeholder).toContain('router?.switchTab(owner.value)')
+    expect(placeholder).toContain('if (isSettings.value && getCurrentPages().length > 1)')
     expect(routes).not.toContain("assistant: {")
     expect(read('src/pages/tabs/analysis/index.vue')).not.toContain('AI 助手')
     expect(read('src/pages/tabs/me/index.vue')).toContain('<GcAvatar size="profile" />')
@@ -122,6 +123,9 @@ describe('authentication component and page contracts', () => {
       expect(today).toContain(`route: '${route}'`)
       expect(records).toContain(`route: '${route}'`)
     }
+    expect(read('src/navigation/routes.ts')).toContain("recordMood: { path: '/pages/records/mood/index', access: 'authenticated', returnToAllowed: true }")
+    expect(read('src/pages.json')).toContain('"path": "pages/records/mood/index"')
+    expect(read('src/pages/records/mood/index.vue')).toContain('<MoodWorkspace route-name="recordMood" />')
     expect(records).toContain('record-categories')
   })
 })

@@ -16,7 +16,7 @@ export const APP_ROUTES = {
   recordDiet: { path: '/pages/records/diet/index', access: 'authenticated', returnToAllowed: true },
   recordBowel: { path: '/pages/records/bowel/index', access: 'authenticated', returnToAllowed: true },
   recordSymptoms: { path: '/pages/records/symptoms/index', access: 'authenticated', returnToAllowed: true },
-  recordMood: { path: '/pages/placeholder/index?screen=recordMood', access: 'authenticated', returnToAllowed: true },
+  recordMood: { path: '/pages/records/mood/index', access: 'authenticated', returnToAllowed: true },
   recordActivity: { path: '/pages/placeholder/index?screen=recordActivity', access: 'authenticated', returnToAllowed: true },
   medications: { path: '/pages/placeholder/index?screen=medications', access: 'authenticated', returnToAllowed: true },
   analysisNew: { path: '/pages/placeholder/index?screen=analysisNew', access: 'authenticated', returnToAllowed: true },
@@ -34,7 +34,8 @@ export type AppRouteName = keyof typeof APP_ROUTES
 export const APP_TABS = ['today', 'records', 'analysis', 'me'] as const
 export type AppTabName = typeof APP_TABS[number]
 export type RecordWorkspaceRouteName = 'recordDiet' | 'recordBowel' | 'recordSymptoms'
-export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'placeholder' | RecordWorkspaceRouteName>
+export type MoodWorkspaceRouteName = 'recordMood'
+export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'placeholder' | RecordWorkspaceRouteName | MoodWorkspaceRouteName>
 export type ProtectedRouteName = {
   [Name in AppRouteName]: typeof APP_ROUTES[Name]['access'] extends 'authenticated' ? Name : never
 }[AppRouteName]
@@ -79,7 +80,6 @@ export function routeNameFromUrl(url: string): AppRouteName | null {
 }
 
 export const PLACEHOLDER_META: Record<PlaceholderRouteName, { title: string; ownerTab: AppTabName }> = {
-  recordMood: { title: '心情记录', ownerTab: 'records' },
   recordActivity: { title: '运动记录', ownerTab: 'records' },
   medications: { title: '用药计划', ownerTab: 'me' },
   analysisNew: { title: '发起分析', ownerTab: 'analysis' },

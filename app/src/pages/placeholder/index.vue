@@ -1,13 +1,14 @@
 <template>
-  <view v-if="pageMeta" class="placeholder-page" data-testid="feature-placeholder">
+  <PrivacyConsentSettings v-if="isSettings" @back="returnToOwner" />
+  <view v-else-if="pageMeta" class="placeholder-page" data-testid="feature-placeholder">
     <view class="placeholder-shell">
-      <view class="topbar"><button class="back-button" :aria-label="`返回${ownerLabel}`" data-testid="placeholder-back" @click="returnToOwner">‹</button><text class="topbar-title">{{ pageMeta.title }}</text><view class="topbar-spacer" /></view>
+      <view class="topbar"><button class="back-button" :aria-label="backLabel" data-testid="placeholder-back" @click="returnToOwner">‹</button><text class="topbar-title">{{ pageMeta.title }}</text><view class="topbar-spacer" /></view>
       <view class="placeholder-card">
         <view class="placeholder-mark" aria-hidden="true"><text>· · ·</text></view>
         <text class="eyebrow">GUTCARE</text>
         <text class="title">功能建设中</text>
         <text class="copy">{{ pageMeta.title }}页面尚未开放。当前不会展示模拟记录、虚构的分析结果或未载入的数据。</text>
-        <GcButton :label="`返回${ownerLabel}`" variant="primary" test-id="placeholder-return" @click="returnToOwner" />
+        <GcButton :label="returnLabel" variant="primary" test-id="placeholder-return" @click="returnToOwner" />
       </view>
       <text class="security-note">此页面受本人账户访问保护。</text>
     </view>
@@ -23,6 +24,7 @@ import { canRenderRoute, PLACEHOLDER_META, placeholderRouteFromScreen } from '..
 import type { AppTabName, PlaceholderRouteName } from '../../navigation/routes'
 import { useAuthStore } from '../../stores/auth'
 import GcButton from '../../components/GcButton.vue'
+import PrivacyConsentSettings from '../../components/PrivacyConsentSettings.vue'
 
 const auth = useAuthStore()
 const router = inject(appRouterKey)
@@ -30,6 +32,9 @@ const routeName = ref<PlaceholderRouteName | null>(null)
 const pageMeta = computed(() => routeName.value ? PLACEHOLDER_META[routeName.value] : null)
 const owner = computed<AppTabName>(() => pageMeta.value?.ownerTab ?? 'today')
 const ownerLabel = computed(() => ({ today: '今日', records: '记录', analysis: '分析', me: '我的' }[owner.value]))
+const isSettings = computed(() => routeName.value === 'settings')
+const backLabel = computed(() => isSettings.value ? '返回上一页' : `返回${ownerLabel.value}`)
+const returnLabel = computed(() => isSettings.value ? '返回记录' : `返回${ownerLabel.value}`)
 
 onLoad((options) => {
   const name = placeholderRouteFromScreen(options?.screen)
@@ -47,7 +52,10 @@ onLoad((options) => {
 
 onBackPress(() => { returnToOwner(); return true })
 
-function returnToOwner() { router?.switchTab(owner.value) }
+function returnToOwner() {
+  if (isSettings.value && getCurrentPages().length > 1) { router?.navigateBack(); return }
+  router?.switchTab(owner.value)
+}
 </script>
 
 <style lang="scss" scoped>

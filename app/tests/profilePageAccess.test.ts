@@ -125,7 +125,7 @@ describe('protected profile page cold-entry gate', () => {
       expect(page).toContain('onShow(() => { if (!authorized.value) router?.requireAuthentication(')
     }
     const placeholder = await read('../src/pages/placeholder/index.vue')
-    expect(placeholder).toContain('v-if="pageMeta"')
+    expect(placeholder).toContain('v-else-if="pageMeta"')
     expect(placeholder).toContain('if (!canRenderRoute(name, auth.state))')
     expect(placeholder).toContain('if (!name)')
   })

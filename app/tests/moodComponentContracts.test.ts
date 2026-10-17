@@ -1,0 +1,56 @@
+import { readFileSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+
+const workspace = readFileSync(new URL('../src/components/MoodWorkspace.vue', import.meta.url), 'utf8')
+const placeholder = readFileSync(new URL('../src/pages/placeholder/index.vue', import.meta.url), 'utf8')
+const settings = readFileSync(new URL('../src/components/PrivacyConsentSettings.vue', import.meta.url), 'utf8')
+
+describe('F14 protected mood workspace', () => {
+  it('protects deep links and keeps list summary free of note data', () => {
+    expect(workspace).toContain("canRenderRoute('recordMood', auth.state)")
+    expect(workspace).toContain("requireAuthentication('recordMood')")
+    expect(workspace).toContain('options?.id')
+    expect(workspace).toContain("api.list({ limit: 30 })")
+    expect(workspace).toContain('await api.get(id)')
+    const list = workspace.slice(workspace.indexOf('data-testid="mood-list"'), workspace.indexOf('</template>', workspace.indexOf('data-testid="mood-list"')))
+    expect(list).not.toMatch(/record\.note|\.note/)
+    expect(workspace).toContain('data-testid="mood-note-detail"')
+    expect(workspace).toContain('data-testid="mood-note-input"')
+  })
+
+  it('does not mix record consent with AI-sharing consent and retains draft on consent errors', () => {
+    expect(workspace).toContain('健康数据处理”与“心情数据处理')
+    expect(workspace).toContain('mood_ai_sharing')
+    expect(workspace).toContain('third_party_ai')
+    expect(workspace).toContain('CONSENT_REQUIRED')
+    expect(workspace).toContain('草稿已保留')
+    expect(workspace).toContain("router?.navigate('settings')")
+    expect(workspace).toContain('await consentApi.list()')
+    expect(workspace).toContain("['health_data_processing', 'mood_data_processing']")
+    expect(workspace).not.toMatch(/mood_ai_sharing.{0,40}consentStatuses|consentStatuses.{0,40}mood_ai_sharing/)
+    expect(placeholder).toContain('if (isSettings.value && getCurrentPages().length > 1)')
+    expect(placeholder).toContain('router?.navigateBack()')
+    expect(placeholder).toContain('<PrivacyConsentSettings v-if="isSettings"')
+    expect(settings).toContain('api.notice(type)')
+    expect(settings).toContain('item.status?.policy_version')
+    expect(settings).toContain('v-if="item.notice?.enabled || item.status?.granted"')
+    expect(settings).toContain('当前告知不可用；不能新同意，但可撤回已有授权。')
+    expect(settings).toContain('api.decide({ consent_type: item.type, policy_version: policyVersion, granted })')
+    expect(settings).toContain('正式告知尚未配置')
+    expect(settings).toContain('开发/自动化测试专用告知，未获生产法律批准。')
+  })
+
+  it('keeps append pagination errors separate, blocks duplicate submit and requires explicit version-conflict confirmation', () => {
+    expect(workspace).toContain('mood-more-error')
+    expect(workspace).toContain('mood-more-retry')
+    expect(workspace).toContain('failRecordPage(starting, problemMessage.value, requestId.value)')
+    expect(workspace).toContain('if (!api || busy.value || !canRenderRoute')
+    expect(workspace).toContain('getIdempotencyKey(built.body)')
+    expect(workspace).toContain('RECORD_VERSION_CONFLICT')
+    expect(workspace).toContain('mood-conflict-confirm')
+    expect(workspace).toContain('if (conflict.value) {')
+    expect(workspace).toContain('确认基于最新版本保存我的草稿')
+    expect(workspace).toContain('records.value = records.value.filter((record) => record.id !== deletedId)')
+    expect(workspace).not.toMatch(/patient_id|source_type|diagnos|caused by|导致/)
+  })
+})

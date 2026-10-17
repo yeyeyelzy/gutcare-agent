@@ -1,6 +1,8 @@
 """Patient profile and consent scoping tests without a PostgreSQL replacement claim."""
 
+import json
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -41,6 +43,18 @@ class _ProfileDatabase:
 
     def scalar(self, query: Any) -> PatientProfile | None:
         entity = query.column_descriptions[0]["entity"]
+        if entity is PatientConsent:
+            parameters = query.compile().params
+            patient_id = parameters.get("patient_id_1")
+            consent_type = parameters.get("consent_type_1")
+            matches = [
+                item
+                for item in self.consents
+                if item.patient_id == patient_id and item.consent_type == consent_type
+            ]
+            return (
+                max(matches, key=lambda item: (item.decided_at, str(item.id))) if matches else None
+            )
         if entity is not PatientProfile:
             raise AssertionError(f"Unexpected query entity: {entity}")
         parameters = query.compile().params
@@ -86,18 +100,26 @@ def _service(database: _ProfileDatabase) -> AuthService:
             return database.begin()
 
     hashes = [f"{number:x}" * 64 for number in range(1, 6)]
+    artifact = json.loads(
+        (Path(__file__).resolve().parents[2] / "contracts/consent/consent-notices.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    config = artifact["backend_config"]
     return AuthService(
         Settings(
             env="test",
+            consent_notices_path=Path(__file__).resolve().parents[2]
+            / "contracts/consent/consent-notices.json",
             privacy_policy_summary_hash=hashes[0],
-            health_data_processing_summary_hash=hashes[1],
+            health_data_processing_summary_hash=config["HEALTH_DATA_PROCESSING_SUMMARY_HASH"],
             sensitive_image_summary_hash=hashes[2],
-            third_party_ai_summary_hash=hashes[3],
+            third_party_ai_summary_hash=config["THIRD_PARTY_AI_SUMMARY_HASH"],
             push_notification_summary_hash=hashes[4],
             privacy_policy_version="privacy-v1",
-            health_data_processing_policy_version="health_data_processing-v1",
+            health_data_processing_policy_version=config["HEALTH_DATA_PROCESSING_POLICY_VERSION"],
             sensitive_image_policy_version="sensitive_image-v1",
-            third_party_ai_policy_version="third_party_ai-v1",
+            third_party_ai_policy_version=config["THIRD_PARTY_AI_POLICY_VERSION"],
             push_notification_policy_version="push_notification-v1",
         ),
         Factory(),  # type: ignore[arg-type]
@@ -165,8 +187,9 @@ def test_consent_history_keeps_each_type_version_hash_and_revocation() -> None:
     service = _service(database)
     context = AuthContext(user_id, uuid4())
 
-    first = service.record_consent(context, "third_party_ai", "third_party_ai-v1", True)
-    second = service.record_consent(context, "third_party_ai", "third_party_ai-v1", False)
+    version = "test-only-third-party-ai-v1"
+    first = service.record_consent(context, "third_party_ai", version, True)
+    second = service.record_consent(context, "third_party_ai", version, False)
 
     assert first.granted is True
     assert second.granted is False
@@ -174,15 +197,51 @@ def test_consent_history_keeps_each_type_version_hash_and_revocation() -> None:
     assert len(database.consents) == 2
     grant, revoke = database.consents
     assert grant.patient_id == revoke.patient_id == profile.id
-    assert grant.document_version == revoke.document_version == "third_party_ai-v1"
+    assert grant.document_version == revoke.document_version == version
     assert grant.consent_type == revoke.consent_type == "third_party_ai"
     assert grant.granted is True and grant.revoked_at is None
     assert revoke.granted is False and revoke.revoked_at == revoke.decided_at
     assert grant.metadata_json == {
         "channel": "mobile_app",
-        "notice_summary_hash": "4" * 64,
+        "notice_summary_hash": "37ae67bc63b6571098aeda40b399ba03ae65270d7aaa451484d06279cdcaa95b",
     }
     assert revoke.metadata_json == grant.metadata_json
+
+
+def test_withdrawal_uses_existing_notice_hash_without_current_notice_configuration() -> None:
+    user_id = uuid4()
+    profile = _profile(user_id, 1990)
+    database = _ProfileDatabase([profile])
+    service = _service(database)
+    context = AuthContext(user_id, uuid4())
+    service.record_consent(context, "third_party_ai", "test-only-third-party-ai-v1", True)
+
+    service._consent_summary_hash = lambda *_args: (_ for _ in ()).throw(  # type: ignore[method-assign]
+        AssertionError("withdrawal must not require a current notice")
+    )
+    revoked = service.record_consent(
+        context, "third_party_ai", "test-only-third-party-ai-v1", False
+    )
+
+    assert revoked.granted is False
+    assert database.consents[-1].metadata_json == database.consents[0].metadata_json
+
+
+def test_withdrawal_requires_an_active_decision_and_matching_policy_version() -> None:
+    user_id = uuid4()
+    profile = _profile(user_id, 1990)
+    database = _ProfileDatabase([profile])
+    service = _service(database)
+    context = AuthContext(user_id, uuid4())
+
+    with pytest.raises(Problem) as missing:
+        service.record_consent(context, "third_party_ai", "test-only-third-party-ai-v1", False)
+    assert (missing.value.status, missing.value.code) == (409, "CONSENT_NOT_ACTIVE")
+
+    service.record_consent(context, "third_party_ai", "test-only-third-party-ai-v1", True)
+    with pytest.raises(Problem) as stale:
+        service.record_consent(context, "third_party_ai", "stale-version", False)
+    assert (stale.value.status, stale.value.code) == (422, "VALIDATION_ERROR")
 
 
 def test_each_consent_type_uses_its_own_server_notice_hash() -> None:
@@ -192,14 +251,20 @@ def test_each_consent_type_uses_its_own_server_notice_hash() -> None:
     service = _service(database)
     context = AuthContext(user_id, uuid4())
     expected_hashes = {
-        "health_data_processing": "2" * 64,
+        "health_data_processing": (
+            "c3c38f369746498cab3b6e9c96bfda09c42230e44e257d56dc47c972e5139be1"
+        ),
         "sensitive_image": "3" * 64,
-        "third_party_ai": "4" * 64,
+        "third_party_ai": "37ae67bc63b6571098aeda40b399ba03ae65270d7aaa451484d06279cdcaa95b",
         "push_notification": "5" * 64,
     }
 
     for consent_type in expected_hashes:
-        service.record_consent(context, consent_type, f"{consent_type}-v1", True)  # type: ignore[arg-type]
+        version = {
+            "health_data_processing": "test-only-health-v1",
+            "third_party_ai": "test-only-third-party-ai-v1",
+        }.get(consent_type, f"{consent_type}-v1")
+        service.record_consent(context, consent_type, version, True)  # type: ignore[arg-type]
 
     assert [item.metadata_json["notice_summary_hash"] for item in database.consents] == list(
         expected_hashes.values()

@@ -464,6 +464,24 @@ paths:
         '422': {$ref: '#/components/responses/Problem'}
         '500': {$ref: '#/components/responses/Problem'}
   /patients/me/consents:
+    get:
+      summary: 获取当前患者各授权类型的最新决定
+      tags: [Privacy]
+      operationId: getMyConsents
+      responses:
+        '200':
+          description: 每类仅返回最新决定；从未决定时 granted=false 且版本/时间为空。不含 metadata 或摘要哈希。
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/ConsentStatus'}
+              example:
+                - {consent_type: mood_data_processing, policy_version: null, granted: false, decided_at: null, revoked_at: null}
+                - {consent_type: mood_ai_sharing, policy_version: mood-ai-v1, granted: true, decided_at: '2026-10-15T08:30:00Z', revoked_at: null}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
     post:
       summary: 记录或撤回授权
       tags: [Privacy]
@@ -491,6 +509,44 @@ paths:
                   decided_at: '2026-10-15T08:30:00Z'
         '401': {$ref: '#/components/responses/Problem'}
         '404': {$ref: '#/components/responses/Problem'}
+        '409':
+          description: 未决定或已撤回，不存在可撤回的有效授权
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+              examples:
+                consentNotActive:
+                  value: {type: about:blank, title: Conflict, status: 409, code: CONSENT_NOT_ACTIVE, request_id: '00000000-0000-4000-8000-000000000409', detail: 'No active consent to withdraw'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '503':
+          description: 当前服务端告知不可用或与运行时配置不匹配；不记录同意
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+              examples:
+                consentNoticeUnavailable:
+                  value: {type: about:blank, title: Service Unavailable, status: 503, code: CONSENT_NOTICE_UNAVAILABLE, request_id: '00000000-0000-4000-8000-000000000503', detail: 'Current consent notice is unavailable'}
+        '500': {$ref: '#/components/responses/Problem'}
+  /consent-notices:
+    get:
+      summary: 获取服务端当前授权告知
+      tags: [Privacy]
+      operationId: getConsentNotice
+      parameters:
+        - name: consent_type
+          in: query
+          required: true
+          schema: {type: string, enum: [health_data_processing, mood_data_processing, mood_ai_sharing, third_party_ai]}
+      responses:
+        '200':
+          description: enabled=false 时不返回可提交的版本或告知内容；客户端必须 fail closed。
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConsentNotice'}
+              examples:
+                unavailable:
+                  value: {consent_type: mood_data_processing, enabled: false}
+        '401': {$ref: '#/components/responses/Problem'}
         '422': {$ref: '#/components/responses/Problem'}
         '500': {$ref: '#/components/responses/Problem'}
   /patients/me/account-deletion:
@@ -1480,12 +1536,37 @@ components:
       type: object
       additionalProperties: false
       required: [consent_type, policy_version, granted]
-      description: 每次决定追加授权历史；privacy_policy 仅能通过 account-deletion 撤回，不接受通用决定。服务端按 consent_type 验证配置的当前 policy_version 并绑定独立告知摘要哈希，不接受客户端传入摘要。granted=false 表示拒绝或撤回。
+      description: 每次决定追加授权历史；privacy_policy 仅能通过 account-deletion 撤回，不接受通用决定。支持告知的四种类型只有在服务端当前告知 enabled 且制品、runtime version/规范化 hash 一致时才允许 grant；否则返回 CONSENT_NOTICE_UNAVAILABLE 且不写决定。撤回需匹配本人仍有效的最新决定版本，不依赖当前告知；未决定或已撤回返回 CONSENT_NOT_ACTIVE 409。服务端不接受客户端传入摘要。
       properties:
         consent_type: {type: string, enum: [health_data_processing, mood_data_processing, mood_ai_sharing, sensitive_image, third_party_ai, push_notification]}
         policy_version: {type: string, minLength: 1, maxLength: 32}
         granted: {type: boolean}
         decided_at: {type: string, format: date-time, readOnly: true}
+    ConsentStatus:
+      type: object
+      additionalProperties: false
+      required: [consent_type, policy_version, granted, decided_at, revoked_at]
+      description: 各类型最新决定；从未决定时 granted=false 且其余 nullable 字段为 null。不得返回 metadata 或摘要哈希。
+      properties:
+        consent_type: {type: string, enum: [health_data_processing, mood_data_processing, mood_ai_sharing, sensitive_image, third_party_ai, push_notification]}
+        policy_version: {type: [string, 'null'], maxLength: 32}
+        granted: {type: boolean}
+        decided_at: {type: [string, 'null'], format: date-time}
+        revoked_at: {type: [string, 'null'], format: date-time}
+    ConsentNotice:
+      type: object
+      additionalProperties: false
+      required: [consent_type, enabled]
+      description: 当前告知由服务端制品提供；不可用或未获准时 enabled=false 且不可返回 policy_version 和文案。
+      properties:
+        consent_type: {type: string, enum: [health_data_processing, mood_data_processing, mood_ai_sharing, third_party_ai]}
+        enabled: {type: boolean}
+        policy_version: {type: [string, 'null'], maxLength: 32}
+        summary: {type: [string, 'null']}
+        purpose: {type: [string, 'null']}
+        data_scope: {type: [string, 'null']}
+        recipient: {type: [string, 'null']}
+        withdrawal_effect: {type: [string, 'null']}
     UploadSession:
       type: object
       required: [upload_id, upload_url, expires_at]
