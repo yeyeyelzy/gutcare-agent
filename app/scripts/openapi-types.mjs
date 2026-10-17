@@ -61,6 +61,7 @@ const subset = {
 }
 
 const scratchPrefix = '.tmp-openapi-generation-'
+const normalizeEol = (value) => value.replace(/\r\n?/g, '\n')
 const temporaryDirectory = mkdtempSync(join(appRoot, scratchPrefix))
 try {
   const temporaryContract = join(temporaryDirectory, 'auth-profile.yaml')
@@ -83,13 +84,20 @@ try {
   if (result.stderr) process.stderr.write(result.stderr)
   if (result.status !== 0) throw new Error(`openapi-typescript failed with exit code ${result.status ?? 'unknown'}.`)
 
-  const generated = readFileSync(temporaryOutput, 'utf8')
+  const generated = normalizeEol(readFileSync(temporaryOutput, 'utf8'))
   if (requestedMode === '--write') {
     mkdirSync(dirname(generatedPath), { recursive: true })
     writeFileSync(generatedPath, generated, 'utf8')
     process.stdout.write(`Generated ${generatedPath}\n`)
   } else {
-    const checkedIn = readFileSync(generatedPath, 'utf8')
+    const checkedInBytes = readFileSync(generatedPath)
+    if (checkedInBytes[0] === 0xef && checkedInBytes[1] === 0xbb && checkedInBytes[2] === 0xbf) {
+      throw new Error('Generated OpenAPI types must be UTF-8 without a BOM.')
+    }
+    const checkedIn = checkedInBytes.toString('utf8')
+    if (checkedIn.includes('\r')) {
+      throw new Error('Generated OpenAPI types must use LF line endings. Ensure Git checks out this file with LF.')
+    }
     if (generated !== checkedIn) {
       throw new Error('Generated OpenAPI types differ. Run `pnpm openapi:generate` and review the result.')
     }
