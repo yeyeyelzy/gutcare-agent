@@ -29,7 +29,7 @@ describe('F10 risk UI contract', () => {
     expect(today).toContain('router?.navigateRiskAlertDetail(item.id)')
     expect(today).toContain('today-risk-status')
     expect(today).toContain('item.recommended_action')
-    expect(today).toContain("onShow(() => { if (!authorized.value) router?.requireAuthentication('today'); else { void loadTodayMedication(); void loadTodayRisk() } })")
+    expect(today).toContain("onShow(() => { if (!authorized.value) router?.requireAuthentication('today'); else { void loadTodayMedication(); void loadTodayRisk(); void loadNotificationCount() } })")
   })
 
   it('refreshes the same list filter when returning from detail without duplicate initial fetch or losing cached cards on error', () => {

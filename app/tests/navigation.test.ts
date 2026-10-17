@@ -144,6 +144,28 @@ describe('named route registry and protected navigation', () => {
     expect(APP_ROUTES.medications.access).toBe('authenticated')
   })
 
+  it('registers F12 pages as protected routes and preserves only allow-listed analysis/advice target IDs through re-auth', () => {
+    const navigator = makeNavigator()
+    let state: AuthState = 'anonymous'
+    const router = new AppRouter(navigator, () => state)
+    const id = '00000000-0000-4000-8000-000000000009'
+    expect(router.guardUrl('/pages/notifications/index')).toBe(false)
+    expect(router.returnToStore.take()).toEqual({ name: 'notifications' })
+    expect(canRenderRoute('notificationDetail', 'anonymous')).toBe(false)
+    expect(router.navigateNotificationTarget('analysis_task', id)).toBe(false)
+    expect(router.returnToStore.takeNotificationTarget()).toEqual({ type: 'analysis_task', id })
+    expect(router.guardUrl(`/pages/notifications/target?target_type=advice&target_id=${id}`)).toBe(false)
+    expect(router.returnToStore.takeNotificationTarget()).toEqual({ type: 'advice', id })
+    expect(router.navigateNotificationTarget('advice', 'not-a-uuid')).toBe(false)
+    expect(navigator.navigateTo).not.toHaveBeenCalled()
+    state = 'authenticated'
+    router.returnToStore.save({ name: 'notificationTarget' })
+    router.returnToStore.saveNotificationTarget('advice', id)
+    router.afterAuthentication()
+    expect(navigator.reLaunch).toHaveBeenLastCalledWith(`/pages/notifications/target?target_type=advice&target_id=${id}`)
+    expect(routeNameFromUrl(`/pages/notifications/target?target_type=analysis_task&target_id=${id}`)).toBe('notificationTarget')
+  })
+
   it('clears the complete registration draft before rejecting secrets on registration routes', () => {
     setActivePinia(createPinia())
     const draft = useRegistrationDraftStore()

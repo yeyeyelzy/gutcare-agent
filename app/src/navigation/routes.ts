@@ -21,6 +21,10 @@ export const APP_ROUTES = {
   medications: { path: '/pages/medications/index', access: 'authenticated', returnToAllowed: true },
   riskAlerts: { path: '/pages/risk-alerts/index', access: 'authenticated', returnToAllowed: true },
   riskAlertDetail: { path: '/pages/risk-alerts/detail', access: 'authenticated', returnToAllowed: false },
+  notifications: { path: '/pages/notifications/index', access: 'authenticated', returnToAllowed: true },
+  notificationDetail: { path: '/pages/notifications/detail', access: 'authenticated', returnToAllowed: false },
+  notificationPreferences: { path: '/pages/notifications/preferences', access: 'authenticated', returnToAllowed: true },
+  notificationTarget: { path: '/pages/notifications/target', access: 'authenticated', returnToAllowed: true },
   analysisNew: { path: '/pages/placeholder/index?screen=analysisNew', access: 'authenticated', returnToAllowed: true },
   analysisHistory: { path: '/pages/placeholder/index?screen=analysisHistory', access: 'authenticated', returnToAllowed: true },
   analysisReports: { path: '/pages/placeholder/index?screen=analysisReports', access: 'authenticated', returnToAllowed: true },
@@ -40,7 +44,25 @@ export type MoodWorkspaceRouteName = 'recordMood'
 export type ActivityWorkspaceRouteName = 'recordActivity'
 export type MedicationWorkspaceRouteName = 'medications'
 export type RiskRouteName = 'riskAlerts' | 'riskAlertDetail'
-export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'placeholder' | RecordWorkspaceRouteName | MoodWorkspaceRouteName | ActivityWorkspaceRouteName | MedicationWorkspaceRouteName | RiskRouteName>
+export type NotificationRouteName = 'notifications' | 'notificationDetail' | 'notificationPreferences' | 'notificationTarget'
+export function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
+export type SafeNotificationTarget =
+  | { kind: 'risk_alert'; id: string }
+  | { kind: 'medication_checkin'; id: string }
+  | { kind: 'analysis_task'; id: string }
+  | { kind: 'advice'; id: string }
+  | { kind: 'unavailable' }
+
+export function mapNotificationTarget(target: { type: string; id: string } | null, targetUnavailable: boolean): SafeNotificationTarget {
+  if (targetUnavailable || !target || !isUuid(target.id)) return { kind: 'unavailable' }
+  if (target.type === 'risk_alert' || target.type === 'medication_checkin' || target.type === 'analysis_task' || target.type === 'advice') {
+    return { kind: target.type, id: target.id }
+  }
+  return { kind: 'unavailable' }
+}
+export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'placeholder' | RecordWorkspaceRouteName | MoodWorkspaceRouteName | ActivityWorkspaceRouteName | MedicationWorkspaceRouteName | RiskRouteName | NotificationRouteName>
 export type ProtectedRouteName = {
   [Name in AppRouteName]: typeof APP_ROUTES[Name]['access'] extends 'authenticated' ? Name : never
 }[AppRouteName]

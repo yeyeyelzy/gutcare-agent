@@ -1,13 +1,13 @@
 # GutCare 移动端
 
-uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端。患者端交付目标是原生 APP；不提供 H5 发布脚本。认证、本人资料、四个 Tab 根页，以及 F03 饮食、F04 排便、F05 症状、F07 活动和 F14 心情记录页面已有实现；其他尚未接入模块仍显示受保护占位。隐私设置页使用服务端当前授权状态与告知，不在客户端伪造授权版本。
+uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端。患者端交付目标是原生 APP；不提供 H5 发布脚本。认证、本人资料、四个 Tab 根页，以及 F03 饮食、F04 排便、F05 症状、F07 活动、F10 风险提示、F12 站内通知和 F14 心情记录页面已有实现；其他尚未接入模块仍显示受保护占位。隐私设置页使用服务端当前授权状态与告知，不在客户端伪造授权版本。
 
 ## 命令
 
 - `pnpm typecheck`：Vue / TypeScript 静态检查
-- `pnpm openapi:generate`：从冻结 OpenAPI 的 auth/profile、consent 与 F03–F07/F14 records operation 生成 TypeScript 类型
+- `pnpm openapi:generate`：从冻结 OpenAPI 的 auth/profile、consent 与 F03–F07/F10/F12/F14 operations 生成 TypeScript 类型
 - `pnpm openapi:check`：重新过滤并生成后与受检入库类型逐字节比对；`pnpm check` 和仓库 lint 门禁执行此检查
-- `pnpm test`：API、记录/活动/心情表单与 API、授权分流、会话、注册草稿、邮箱验证、导航与启动状态单元测试
+- `pnpm test`：API、记录/活动/心情/风险/通知组件契约、偏好与状态 helper、会话、注册草稿、邮箱验证、导航与启动状态单元测试
 - `pnpm build:android`：生成 Android 平台的 HBuilderX 导入工程
 - `pnpm build:ios`：生成 iOS 平台的 HBuilderX 导入工程
 - `pnpm dev:app`：使用 uni-app App 运行目标启动调试
@@ -74,3 +74,9 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 今日页包含摘要、快捷记录、用药、饮食和趋势卡片；未接入服务时只显示“未接入”而非假数据。“我的”使用无图片 GcAvatar 占位。底栏和页面图形均由组件/CSS/code-native SVG 构成，不引用隔离的原型素材。数据状态组件支持 loading/empty/error/unavailable；需由真实 API 驱动状态后才能显示数据态。Android/iOS CLI 构建不等于真机视觉/可访问性签收。
 
 当前组件状态映射、表单/服务流程和页面约束测试、类型检查与 Android/iOS CLI 导出可自动验证；这不构成真机视觉签收。当前未生成或签收 430×880 像素基线；Android/iOS 真机截图、键盘/安全区/动态字号检查、逐页像素对比 SSIM ≥0.95，以及经法律批准的生产注册告知，仍是发布门禁。无患者 Web/H5 发布目标。
+
+## B05b F12 站内通知
+
+通知中心、详情、普通通知偏好和分析/建议安全占位均为受保护路由。`NotificationApi` 复用共享 RequestClient；筛选、cursor、未读计数、单条/批量已读及偏好 DTO 直接来自 OpenAPI 生成类型。通知仅显示契约事件类别/时间/优先级，不构造通知正文、药名剂量、报告或建议内容。target 严格按服务端类型 allowlist 映射；target 缺失/不可用时不推测路由，分析/建议 UUID 在需要重新认证时只保存在进程内受控返回目标。
+
+批量操作仅提交患者明确选择的未读通知 ID；后端失败时列表与选择保留，成功按返回 DTO 精确更新。首页和“我的”通过 `/notifications/unread-count` 显示真实数字，错误不显示成 0。普通提醒开关/quiet hours 不隐藏风险通知、不更改风险提示状态；不接外部 push 或供应商 SDK。T121 自动化覆盖 API、过滤与分页、目标 allowlist、批量状态 helper、偏好豁免及未读入口；设备真机/无障碍验收仍单独进行。

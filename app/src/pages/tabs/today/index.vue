@@ -5,10 +5,17 @@
         <text class="eyebrow">GUTCARE · {{ dateLabel }}</text>
         <text class="title">今日</text>
       </view>
+      <button class="notification-trigger" :aria-label="notificationCount === null ? '打开通知中心' : `打开通知中心，未读 ${notificationCount} 条`" data-testid="today-notifications" @click="router?.navigate('notifications')">
+        <svg class="bell-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
+        <text v-if="notificationCount !== null && notificationCount > 0" class="notification-badge" data-testid="today-notification-count">{{ notificationCount > 99 ? '99+' : notificationCount }}</text>
+      </button>
       <button class="profile-trigger" aria-label="打开我的页面" data-testid="today-profile" @click="router?.switchTab('me')">
         <GcAvatar size="header" />
       </button>
     </view>
+
+    <view class="section-heading section-heading--tight"><text class="section-title">站内通知</text><button class="text-link" data-testid="today-notification-link" @click="router?.navigate('notifications')">查看全部</button></view>
+    <view class="panel notification-summary" data-testid="today-notification-summary"><text class="notification-count">{{ notificationCount === null ? '—' : notificationCount }}</text><text class="notification-copy">条未读通知</text><view v-if="notificationCountError" class="notification-error" role="status"><text>{{ notificationCountError }}</text><button class="notification-retry" data-testid="today-notification-retry" @click="loadNotificationCount">重试</button></view></view>
 
     <view class="welcome-card">
       <view class="welcome-copy">
@@ -67,7 +74,7 @@
 <script setup lang="ts">
 import { computed, inject, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { appRouterKey, medicationApiKey, riskApiKey } from '../../../api/context'
+import { appRouterKey, medicationApiKey, notificationApiKey, riskApiKey } from '../../../api/context'
 import type { AppRouteName } from '../../../navigation/routes'
 import { canRenderRoute } from '../../../navigation/routes'
 import { useAuthStore } from '../../../stores/auth'
@@ -81,6 +88,7 @@ const auth = useAuthStore()
 const router = inject(appRouterKey)
 const medicationApi = inject(medicationApiKey)
 const riskApi = inject(riskApiKey)
+const notificationApi = inject(notificationApiKey)
 const authorized = computed(() => canRenderRoute('today', auth.state))
 const medicationState = ref<'loading' | 'empty' | 'error' | 'unavailable' | 'ready'>(medicationApi ? 'loading' : 'unavailable')
 const medicationLoading = ref(false)
@@ -95,6 +103,8 @@ const riskState = ref<'loading' | 'empty' | 'error' | 'unavailable' | 'ready'>(r
 const riskLoading = ref(false)
 const riskMessage = ref('')
 const riskAlerts = ref<RiskAlert[]>([])
+const notificationCount = ref<number | null>(null)
+const notificationCountError = ref('')
 const dateLabel = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(new Date())
 const quickActions: ReadonlyArray<{ route: AppRouteName; label: string; icon: string; tint: string }> = [
   { route: 'recordDiet', label: '饮食', icon: '餐', tint: 'peach' },
@@ -104,7 +114,7 @@ const quickActions: ReadonlyArray<{ route: AppRouteName; label: string; icon: st
   { route: 'recordActivity', label: '运动', icon: '↗', tint: 'sage' },
 ]
 
-onShow(() => { if (!authorized.value) router?.requireAuthentication('today'); else { void loadTodayMedication(); void loadTodayRisk() } })
+onShow(() => { if (!authorized.value) router?.requireAuthentication('today'); else { void loadTodayMedication(); void loadTodayRisk(); void loadNotificationCount() } })
 
 async function loadTodayMedication() {
   if (!medicationApi || !authorized.value || medicationLoading.value) return
@@ -120,12 +130,18 @@ async function loadTodayRisk() {
   catch { riskState.value = 'error'; riskMessage.value = '暂时无法载入风险提示；加载失败不代表没有风险。' }
   finally { riskLoading.value = false }
 }
+async function loadNotificationCount() {
+  if (!notificationApi || !authorized.value) return
+  try { notificationCount.value = (await notificationApi.unreadCount()).count; notificationCountError.value = '' }
+  catch { notificationCountError.value = '未读数暂不可用；未按失败推断为 0。' }
+}
 function riskLabel(severity: RiskAlert['severity']) { return severity === 'emergency' ? '紧急提示' : severity === 'seek_care' ? '尽快就医提示' : '关注提示' }
 function riskIcon(severity: RiskAlert['severity']) { return severity === 'emergency' ? '!' : severity === 'seek_care' ? '△' : 'i' }
 </script>
 
 <style lang="scss" scoped>
 .header { display: flex; align-items: center; justify-content: space-between; margin: 2px 2px 20px; }
+.notification-trigger { position: relative; display: grid; width: 44px; height: 44px; margin-left: auto; margin-right: 8px; padding: 9px; place-items: center; border: 1px solid var(--gc-color-border); border-radius: 50%; background: var(--gc-color-surface); color: var(--gc-color-brand-strong); }.bell-icon { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }.notification-badge { position: absolute; top: -2px; right: -3px; min-width: 17px; height: 17px; padding: 0 4px; border: 1px solid var(--gc-color-surface); border-radius: 10px; background: var(--gc-color-danger); color: white; font-size: 9px; line-height: 15px; text-align: center; }.notification-summary { display: flex; min-height: 64px; align-items: center; gap: 8px; }.notification-count { color: var(--gc-color-brand-strong); font-size: 24px; font-weight: var(--gc-font-weight-bold); }.notification-copy { color: var(--gc-color-muted); font-size: 12px; }.notification-error { display: flex; margin-left: auto; align-items: center; gap: 4px; color: var(--gc-color-danger); font-size: 10px; }.notification-retry { min-height: 44px; border: 0; background: transparent; color: var(--gc-color-brand-strong); font-size: 11px; }
 .header-copy { display: flex; flex-direction: column; }
 .eyebrow { color: var(--gc-color-brand); font-size: 10px; font-weight: var(--gc-font-weight-semibold); letter-spacing: 1px; }
 .title { margin-top: 3px; color: var(--gc-color-text); font-size: 28px; line-height: 1.25; font-weight: var(--gc-font-weight-bold); }

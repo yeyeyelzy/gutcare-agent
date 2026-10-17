@@ -14,7 +14,7 @@
     <view class="entry-list" data-testid="me-entry-list">
       <button v-for="item in entries" :key="item.route" class="entry-card" :data-testid="`me-${item.route}`" @click="router?.navigate(item.route)">
         <view class="entry-icon" :class="`entry-icon--${item.tint}`" aria-hidden="true"><text>{{ item.icon }}</text></view>
-        <view class="entry-copy"><text class="entry-title">{{ item.title }}</text><text class="entry-description">{{ item.description }}</text></view>
+        <view class="entry-copy"><text class="entry-title">{{ item.title }}</text><text class="entry-description">{{ item.route === 'notifications' ? `${notificationCount === null ? '未读数暂不可用' : `未读 ${notificationCount} 条`} · ${item.description}` : item.description }}</text></view>
         <text class="chevron" aria-hidden="true">›</text>
       </button>
     </view>
@@ -24,9 +24,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { appRouterKey } from '../../../api/context'
+import { appRouterKey, notificationApiKey } from '../../../api/context'
 import type { AppRouteName } from '../../../navigation/routes'
 import { canRenderRoute } from '../../../navigation/routes'
 import { useAuthStore } from '../../../stores/auth'
@@ -35,8 +35,11 @@ import TabRoot from '../../../components/TabRoot.vue'
 
 const auth = useAuthStore()
 const router = inject(appRouterKey)
+const notificationApi = inject(notificationApiKey)
+const notificationCount = ref<number | null>(null)
 const authorized = computed(() => canRenderRoute('me', auth.state))
 const entries: ReadonlyArray<{ route: AppRouteName; title: string; description: string; icon: string; tint: string }> = [
+  { route: 'notifications', title: '站内通知', description: '查看本人通知与普通提醒偏好', icon: '◉', tint: 'yellow' },
   { route: 'healthArchive', title: '健康档案', description: '本人检查资料与已确认信息', icon: '▤', tint: 'peach' },
   { route: 'medications', title: '用药计划', description: '查看已确认的用药安排', icon: '＋', tint: 'sage' },
   { route: 'advice', title: '个性化建议', description: '查看建议与相关依据', icon: '✧', tint: 'lilac' },
@@ -44,7 +47,8 @@ const entries: ReadonlyArray<{ route: AppRouteName; title: string; description: 
   { route: 'settings', title: '设置与隐私', description: '管理账户与隐私选项', icon: '⚙', tint: 'sage' },
 ]
 
-onShow(() => { if (!authorized.value) router?.requireAuthentication('me') })
+onShow(() => { if (!authorized.value) router?.requireAuthentication('me'); else void loadNotificationCount() })
+async function loadNotificationCount() { if (!notificationApi) return; try { notificationCount.value = (await notificationApi.unreadCount()).count } catch { /* Keep prior server value; never infer zero from failure. */ } }
 </script>
 
 <style lang="scss" scoped>

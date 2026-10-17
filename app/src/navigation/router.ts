@@ -1,4 +1,4 @@
-import { APP_ROUTES, APP_TABS, decideRouteAccess, isRegistrationFlowRoute, parseReturnTo, routeNameFromUrl } from './routes'
+import { APP_ROUTES, APP_TABS, decideRouteAccess, isRegistrationFlowRoute, isUuid, parseReturnTo, routeNameFromUrl } from './routes'
 import type { AppRouteName, AppTabName, ReturnToTarget } from './routes'
 import type { AuthState } from '../stores/auth'
 
@@ -12,6 +12,7 @@ export interface Navigator {
 
 export class MemoryReturnToStore {
   private value: ReturnToTarget | null = null
+  private notificationTarget: { type: 'analysis_task' | 'advice'; id: string } | null = null
 
   save(value: unknown): void {
     this.value = parseReturnTo(value)
@@ -25,6 +26,17 @@ export class MemoryReturnToStore {
 
   clear(): void {
     this.value = null
+    this.notificationTarget = null
+  }
+
+  saveNotificationTarget(type: 'analysis_task' | 'advice', id: string): void {
+    this.notificationTarget = isUuid(id) ? { type, id } : null
+  }
+
+  takeNotificationTarget(): { type: 'analysis_task' | 'advice'; id: string } | null {
+    const value = this.notificationTarget
+    this.notificationTarget = null
+    return value
   }
 }
 
@@ -49,6 +61,22 @@ export class AppRouter {
     if (!this.authorize('riskAlertDetail')) return false
     if (!/^[0-9a-f-]{36}$/i.test(id)) return false
     this.navigator.navigateTo(`${APP_ROUTES.riskAlertDetail.path}?alert_id=${encodeURIComponent(id)}`)
+    return true
+  }
+
+  navigateNotificationDetail(id: string): boolean {
+    if (!this.authorize('notificationDetail') || !isUuid(id)) return false
+    this.navigator.navigateTo(`${APP_ROUTES.notificationDetail.path}?notification_id=${encodeURIComponent(id)}`)
+    return true
+  }
+
+  navigateNotificationTarget(type: 'analysis_task' | 'advice', id: string): boolean {
+    if (!isUuid(id)) return false
+    if (!this.authorize('notificationTarget')) {
+      this.returnToStore.saveNotificationTarget(type, id)
+      return false
+    }
+    this.navigator.navigateTo(`${APP_ROUTES.notificationTarget.path}?target_type=${type}&target_id=${encodeURIComponent(id)}`)
     return true
   }
 
@@ -91,7 +119,12 @@ export class AppRouter {
 
   afterAuthentication(): void {
     this.loginRedirectPending = false
+    const notificationTarget = this.returnToStore.takeNotificationTarget()
     const target = this.returnToStore.take() ?? { name: 'today' as const }
+    if (notificationTarget) {
+      this.navigator.reLaunch(`${APP_ROUTES.notificationTarget.path}?target_type=${notificationTarget.type}&target_id=${encodeURIComponent(notificationTarget.id)}`)
+      return
+    }
     this.navigator.reLaunch(APP_ROUTES[target.name].path)
   }
 
@@ -120,6 +153,14 @@ export class AppRouter {
     }
     const name = routeNameFromUrl(url)
     if (!name) return true
+    if (name === 'notificationTarget' && this.getAuthState() !== 'authenticated') {
+      const query = new URLSearchParams(url.split('?')[1]?.split('#')[0] ?? '')
+      const type = query.get('target_type')
+      const id = query.get('target_id')
+      if ((type === 'analysis_task' || type === 'advice') && isUuid(id)) {
+        this.returnToStore.saveNotificationTarget(type, id)
+      }
+    }
     this.clearDraftIfLeavingFlow(name)
     const decision = decideRouteAccess(name, this.getAuthState())
     if (decision.action === 'allow') return true

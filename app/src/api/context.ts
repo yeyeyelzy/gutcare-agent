@@ -14,6 +14,7 @@ import type { ConsentApi } from './consentApi'
 import type { ActivityApi } from './activityApi'
 import type { MedicationApi } from './medicationApi'
 import type { RiskApi } from './riskApi'
+import type { NotificationApi } from './notificationApi'
 
 export const requestClientKey: InjectionKey<RequestClient> = Symbol('gutcare-request-client')
 export const sessionServiceKey: InjectionKey<SessionService> = Symbol('gutcare-session-service')
@@ -30,3 +31,4 @@ export const consentApiKey: InjectionKey<ConsentApi> = Symbol('gutcare-consent-a
 export const activityApiKey: InjectionKey<ActivityApi> = Symbol('gutcare-activity-api')
 export const medicationApiKey: InjectionKey<MedicationApi> = Symbol('gutcare-medication-api')
 export const riskApiKey: InjectionKey<RiskApi> = Symbol('gutcare-risk-api')
+export const notificationApiKey: InjectionKey<NotificationApi> = Symbol('gutcare-notification-api')

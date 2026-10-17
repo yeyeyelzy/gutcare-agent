@@ -20,6 +20,7 @@ import { ConsentApi } from './consentApi'
 import { ActivityApi } from './activityApi'
 import { MedicationApi } from './medicationApi'
 import { RiskApi } from './riskApi'
+import { NotificationApi } from './notificationApi'
 
 const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, { allowLocalHttp: import.meta.env.DEV })
 
@@ -63,6 +64,7 @@ export function createAppServices(pinia: Pinia) {
   const activityApi = new ActivityApi(requestClient)
   const medicationApi = new MedicationApi(requestClient)
   const riskApi = new RiskApi(requestClient)
+  const notificationApi = new NotificationApi(requestClient)
   const authApi = new AuthApi(requestClient, session)
   const registration = new RegistrationService(authApi, useRegistrationDraftStore(pinia))
   const emailVerification = new EmailVerificationService(authApi, useRegistrationDraftStore(pinia))
@@ -78,6 +80,7 @@ export function createAppServices(pinia: Pinia) {
     activityApi,
     medicationApi,
     riskApi,
+    notificationApi,
     registration,
     emailVerification,
     passwordReset,
