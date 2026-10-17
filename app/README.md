@@ -39,7 +39,13 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 - RFC 9457 `ProblemDetails` 从生成的 OpenAPI `components.schemas.Problem` 派生；客户端稳定错误类型只封装 kind/status/code/requestId，不另行复制契约字段。
 - `RecordsApi`、`MoodApi` 与 `ActivityApi` 复用唯一 RequestClient、RFC 9457 错误映射与既有 refresh 单飞逻辑。F03–F05/F14 创建使用生成 DTO 和幂等键；F07 冻结契约不定义创建幂等键，APP 仅以单飞状态阻止重复点击；PATCH/DELETE 使用服务端 `record_version`，409 不覆盖。F14 P0 总是写空 `emotion_tags` 数组。心情备注仅本人详情/编辑可见；列表不展示，页面不输出分析/日志/埋点。心情新建/修改先读服务端当前授权状态并要求 `health_data_processing` 与 `mood_data_processing` 同意；AI共享两项独立管理。Settings 仅显示与运行时版本/hash匹配的服务端告知；开发测试文案醒目标记 test-only，生产无获批告知时禁用同意操作。错误/版本冲突保留草稿并要求患者明确操作。
 
-生成器过滤范围包括 auth/profile、consent、F03–F07/F14 记录 CRUD/状态历史及 F06 用药端点。F14 增加授权当前状态与当前告知端点；状态响应不含 metadata/hash，未决定明确返回 `granted=false`，告知不可用时不泄露可提交版本。此前症状 `status-history` 的 200 缺失媒体类型 schema 已按后端实际 DTO 补全 OpenAPI 引用及示例；记录 DELETE 现要求当前 `record_version`，过期版本返回 RFC 9457 409。
+生成器过滤范围包括 auth/profile、consent、F03–F07/F10/F14 记录 CRUD/状态历史、F06 用药与 F10 风险提示端点；每个 F10 operationId 由集合断言唯一覆盖。`RiskApi` 使用同一 `RequestClient` 与 RFC 9457/401 refresh，提供游标分页、未读筛选、详情、独立标记已查看和重新评估动作。
+
+## B05a F10 风险提示
+
+`/pages/risk-alerts/index` 与 `/pages/risk-alerts/detail` 是受保护的风险列表和详情入口；列表支持全部/未查看过滤、游标追加及明确的加载/空/离线/失败/追加重试状态，详情 GET 不隐式标记已查看。详情的“标记已查看”和“标记已重新评估”调用不同端点；状态说明明确二者均不等于风险解除或确认安全。严重级别和状态仅展示后端值，不计算阈值或改写等级；紧急等级用“紧急提示”文字、符号、边框和可见行动建议，不只依赖颜色。原始 evidence 对象及规则内部信息不显示；不声称 test-only 规则经过生产专业审核。
+
+今日页单独加载真实未读风险列表；API 失败会显示可重试错误而非无风险空态。风险列表从详情返回时按当前筛选刷新首屏；首次 onShow 跳过以免和 onLoad 重复请求，刷新失败保留已显示列表/游标并提供重试。详情无需 Agent/通知服务；深链通过全局路由及页面 auth guard，详情栈隐藏底栏并沿所属入口返回。没有发送 `patient_id`、规则内部字段或自由推断内容。自动化契约测试覆盖查询参数、read/reevaluate 分流、紧急行动可见、失败非空态和深链守卫；Android/iOS CLI 导出不替代原生真机与无障碍验收。
 
 ## B04 F06 用药管理
 

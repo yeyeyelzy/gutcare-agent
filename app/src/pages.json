@@ -19,6 +19,8 @@
     { "path": "pages/records/mood/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/records/activity/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/medications/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/risk-alerts/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/risk-alerts/detail", "style": { "navigationStyle": "custom" } },
     { "path": "pages/placeholder/index", "style": { "navigationStyle": "custom" } }
   ],
   "globalStyle": {

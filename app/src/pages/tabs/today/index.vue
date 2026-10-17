@@ -18,6 +18,18 @@
       <view class="hero-mark" aria-hidden="true"><text>+</text></view>
     </view>
 
+    <view class="section-heading section-heading--tight"><text class="section-title">风险提示</text><button class="text-link" data-testid="today-risk-link" @click="router?.navigate('riskAlerts')">查看全部</button></view>
+    <view class="panel risk-panel" data-testid="today-risk-alerts">
+      <DashboardDataStatus v-if="riskState !== 'ready' || riskAlerts.length === 0" :state="riskState === 'ready' ? 'empty' : riskState" :message="riskMessage" :retryable="riskState === 'error'" :busy="riskLoading" test-id="today-risk-status" @retry="loadTodayRisk" />
+      <view v-else class="risk-items">
+        <button v-for="item in riskAlerts" :key="item.id" class="risk-item" :class="`risk-item--${item.severity}`" :data-testid="`today-risk-${item.id}`" @click="router?.navigateRiskAlertDetail(item.id)">
+          <text class="risk-symbol" aria-hidden="true">{{ riskIcon(item.severity) }}</text>
+          <view class="risk-copy"><text class="risk-severity">{{ riskLabel(item.severity) }} · {{ item.status === 'unread' ? '未查看' : '已查看' }}</text><text class="risk-message">{{ item.message }}</text><text class="risk-action">{{ item.recommended_action }}</text></view>
+        </button>
+      </view>
+      <text class="risk-disclaimer">已查看或已重新评估不表示风险解除或确认安全。</text>
+    </view>
+
     <view class="section-heading"><text class="section-title">今日概览</text><text class="section-caption">仅显示已连接的本人数据</text></view>
     <view class="panel summary-panel" data-testid="today-summary">
       <view class="panel-top"><text class="panel-title">今日健康摘要</text><text class="panel-kicker">TODAY</text></view>
@@ -55,7 +67,7 @@
 <script setup lang="ts">
 import { computed, inject, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { appRouterKey, medicationApiKey } from '../../../api/context'
+import { appRouterKey, medicationApiKey, riskApiKey } from '../../../api/context'
 import type { AppRouteName } from '../../../navigation/routes'
 import { canRenderRoute } from '../../../navigation/routes'
 import { useAuthStore } from '../../../stores/auth'
@@ -63,10 +75,12 @@ import DashboardDataStatus from '../../../components/DashboardDataStatus.vue'
 import GcAvatar from '../../../components/GcAvatar.vue'
 import TabRoot from '../../../components/TabRoot.vue'
 import type { MedicationCheckin } from '../../../api/openapiTypes'
+import type { RiskAlert } from '../../../api/openapiTypes'
 
 const auth = useAuthStore()
 const router = inject(appRouterKey)
 const medicationApi = inject(medicationApiKey)
+const riskApi = inject(riskApiKey)
 const authorized = computed(() => canRenderRoute('today', auth.state))
 const medicationState = ref<'loading' | 'empty' | 'error' | 'unavailable' | 'ready'>(medicationApi ? 'loading' : 'unavailable')
 const medicationLoading = ref(false)
@@ -77,6 +91,10 @@ const medicationStatusSummary = computed(() => {
   for (const checkin of medicationCheckins.value) counts[checkin.status] += 1
   return `已记录 ${counts.taken} · 待确认 ${counts.pending} · 本人记录未服用 ${counts.not_taken} · 已跳过 ${counts.skipped}`
 })
+const riskState = ref<'loading' | 'empty' | 'error' | 'unavailable' | 'ready'>(riskApi ? 'loading' : 'unavailable')
+const riskLoading = ref(false)
+const riskMessage = ref('')
+const riskAlerts = ref<RiskAlert[]>([])
 const dateLabel = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(new Date())
 const quickActions: ReadonlyArray<{ route: AppRouteName; label: string; icon: string; tint: string }> = [
   { route: 'recordDiet', label: '饮食', icon: '餐', tint: 'peach' },
@@ -86,7 +104,7 @@ const quickActions: ReadonlyArray<{ route: AppRouteName; label: string; icon: st
   { route: 'recordActivity', label: '运动', icon: '↗', tint: 'sage' },
 ]
 
-onShow(() => { if (!authorized.value) router?.requireAuthentication('today'); else void loadTodayMedication() })
+onShow(() => { if (!authorized.value) router?.requireAuthentication('today'); else { void loadTodayMedication(); void loadTodayRisk() } })
 
 async function loadTodayMedication() {
   if (!medicationApi || !authorized.value || medicationLoading.value) return
@@ -95,6 +113,15 @@ async function loadTodayMedication() {
   catch { medicationState.value = 'error'; medicationMessage.value = '暂时无法载入今日打卡安排；没有把失败显示为已完成或无计划。' }
   finally { medicationLoading.value = false }
 }
+async function loadTodayRisk() {
+  if (!riskApi || !authorized.value || riskLoading.value) return
+  riskLoading.value = true; riskState.value = 'loading'; riskMessage.value = ''
+  try { riskAlerts.value = (await riskApi.list({ limit: 20, unread_only: true })).items; riskState.value = riskAlerts.value.length ? 'ready' : 'empty' }
+  catch { riskState.value = 'error'; riskMessage.value = '暂时无法载入风险提示；加载失败不代表没有风险。' }
+  finally { riskLoading.value = false }
+}
+function riskLabel(severity: RiskAlert['severity']) { return severity === 'emergency' ? '紧急提示' : severity === 'seek_care' ? '尽快就医提示' : '关注提示' }
+function riskIcon(severity: RiskAlert['severity']) { return severity === 'emergency' ? '!' : severity === 'seek_care' ? '△' : 'i' }
 </script>
 
 <style lang="scss" scoped>
@@ -112,5 +139,6 @@ async function loadTodayMedication() {
 .text-link { min-height: 44px; padding: 0 3px; border: 0; background: transparent; color: var(--gc-color-brand); font-size: 12px; font-weight: var(--gc-font-weight-semibold); }
 .compact-panel { display: flex; min-height: 94px; align-items: flex-start; gap: 12px; }.panel-icon { display: grid; width: 38px; height: 38px; flex: 0 0 38px; place-items: center; border-radius: 13px; color: var(--gc-color-brand); font-size: 20px; }.panel-content { min-width: 0; flex: 1; }.compact-panel :deep(.data-status) { min-height: 42px; }
 .medication-summary { display: flex; margin-top: 8px; flex-direction: column; gap: 5px; color: var(--gc-color-brand-strong); font-size: 12px; line-height: 1.5; }.medication-detail { color: var(--gc-color-muted); font-size: 10px; }
+.risk-panel { display: flex; flex-direction: column; gap: 8px; }.risk-items { display: flex; flex-direction: column; gap: 8px; }.risk-item { display: flex; width: 100%; min-height: 72px; align-items: flex-start; gap: 10px; padding: 10px; border: 1px solid var(--gc-color-border); border-left: 5px solid var(--gc-color-brand); border-radius: 12px; background: var(--gc-color-surface); text-align: left; }.risk-item--seek_care { border-left-color: var(--gc-color-peach-strong, #B84E2A); }.risk-item--emergency { border: 2px solid var(--gc-color-danger); border-left-width: 7px; background: var(--gc-color-danger-pale); }.risk-symbol { display: grid; width: 28px; height: 28px; flex: 0 0 28px; place-items: center; border: 1px solid currentColor; border-radius: 50%; color: var(--gc-color-brand-strong); font-weight: var(--gc-font-weight-bold); }.risk-item--emergency .risk-symbol,.risk-item--emergency .risk-severity { color: var(--gc-color-danger); }.risk-copy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }.risk-severity { color: var(--gc-color-brand-strong); font-size: 12px; font-weight: var(--gc-font-weight-bold); }.risk-message,.risk-action { color: var(--gc-color-text); font-size: 11px; line-height: 1.45; }.risk-action { font-weight: var(--gc-font-weight-semibold); }.risk-disclaimer { color: var(--gc-color-muted); font-size: 10px; line-height: 1.45; }
 @media (max-width: 360px) { .tab-content { padding-right: 14px; padding-left: 14px; }.quick-grid { gap: 4px; }.quick-label { font-size: 10px; } }
 </style>

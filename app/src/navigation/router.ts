@@ -45,6 +45,13 @@ export class AppRouter {
     return true
   }
 
+  navigateRiskAlertDetail(id: string): boolean {
+    if (!this.authorize('riskAlertDetail')) return false
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return false
+    this.navigator.navigateTo(`${APP_ROUTES.riskAlertDetail.path}?alert_id=${encodeURIComponent(id)}`)
+    return true
+  }
+
   switchTab(name: AppTabName): boolean {
     if (!this.authorize(name)) return false
     this.clearDraftIfLeavingFlow(name)

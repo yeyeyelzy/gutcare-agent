@@ -22,6 +22,8 @@ describe('named route registry and protected navigation', () => {
     expect(canRenderRoute('records', 'authenticated')).toBe(true)
     expect(canRenderRoute('analysis', 'authenticated')).toBe(true)
     expect(canRenderRoute('me', 'authenticated')).toBe(true)
+    expect(canRenderRoute('riskAlerts', 'authenticated')).toBe(true)
+    expect(canRenderRoute('riskAlertDetail', 'anonymous')).toBe(false)
   })
 
   it('blocks an unauthenticated deep link before navigation and stores only the allow-listed route name', () => {
@@ -35,6 +37,17 @@ describe('named route registry and protected navigation', () => {
 
     state = 'authenticated'
     expect(router.guardUrl('/pages/tabs/today/index')).toBe(true)
+  })
+
+  it('guards risk alert deep links and encodes the identifier for an authenticated detail route', () => {
+    const navigator = makeNavigator()
+    let state: AuthState = 'anonymous'
+    const router = new AppRouter(navigator, () => state)
+    expect(router.guardUrl('/pages/risk-alerts/detail?alert_id=00000000-0000-4000-8000-000000000001')).toBe(false)
+    expect(navigator.reLaunch).toHaveBeenCalledWith('/pages/auth/login')
+    state = 'authenticated'
+    expect(router.navigateRiskAlertDetail('00000000-0000-4000-8000-000000000001')).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenCalledWith('/pages/risk-alerts/detail?alert_id=00000000-0000-4000-8000-000000000001')
   })
 
   it('allows only the protected profile route as a safe profile return target and drops it after auth invalidation', () => {

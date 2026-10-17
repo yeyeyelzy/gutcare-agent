@@ -40,3 +40,5 @@ export type MedicationSchedulePatch = operations['updateMedicationSchedule']['re
 export type MedicationSchedule = components['schemas']['MedicationSchedule']
 export type MedicationCheckinUpdate = operations['updateMedicationCheckin']['requestBody']['content']['application/json']
 export type MedicationCheckin = components['schemas']['MedicationCheckin']
+export type RiskAlert = components['schemas']['RiskAlert']
+export type RiskAlertPage = components['schemas']['RiskAlertPage']
