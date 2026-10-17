@@ -76,6 +76,8 @@ export class AppRouter {
   }
 
   onAuthenticationRequired(): void {
+    // A rejected refresh can mean expiry or account deactivation; both start with a clean public stack.
+    this.returnToStore.clear()
     this.navigator.reLaunch(APP_ROUTES.login.path)
   }
 

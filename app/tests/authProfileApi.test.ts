@@ -89,4 +89,17 @@ describe('auth and profile contract adapters', () => {
       { method: 'PATCH', path: '/patients/me', data: { profile_version: 1, nickname: 'Test user' } },
     ])
   })
+
+  it('sends only the explicit profile patch fields and never accepts a patient identifier', async () => {
+    const request = vi.fn(async (_options: RequestOptions) => ({ id: 'fixture-profile-id' }))
+    const profileApi = new ProfileApi({ request } as unknown as RequestClient)
+    await profileApi.updateMyProfile({ profile_version: 3, nickname: null, birth_year: 1988, timezone: 'Asia/Shanghai' })
+    expect(request).toHaveBeenCalledWith({
+      method: 'PATCH', path: '/patients/me',
+      data: { profile_version: 3, nickname: null, birth_year: 1988, timezone: 'Asia/Shanghai' },
+    })
+    const payload = request.mock.calls[0]?.[0]?.data as Record<string, unknown>
+    expect(payload).not.toHaveProperty('patient_id')
+    expect(payload).not.toHaveProperty('id')
+  })
 })

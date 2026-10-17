@@ -8,6 +8,7 @@ export const APP_ROUTES = {
   resetPassword: { path: '/pages/auth/reset-password', access: 'public', returnToAllowed: false },
   profileError: { path: '/pages/auth/profile-error', access: 'public', returnToAllowed: false },
   today: { path: '/pages/home/index', access: 'authenticated', returnToAllowed: true },
+  profile: { path: '/pages/profile/index', access: 'authenticated', returnToAllowed: true },
 } as const
 
 export type AppRouteName = keyof typeof APP_ROUTES

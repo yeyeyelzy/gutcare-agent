@@ -38,6 +38,7 @@ function createRequestClient(pinia: Pinia, tokenStore: SecureTokenStore, onAuthe
       auth.clear()
     },
     onAuthenticationRequired,
+    onSecureTokenDeletionFailure: (error) => auth.setLogoutWarning({ kind: 'secure_storage_cleanup_failed', code: error.code }),
   })
   return requestClient
 }

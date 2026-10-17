@@ -49,4 +49,10 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 
 公开认证页面采用 430px 原型宽度基准、安全区可滚动布局、48px/16px 圆角主按钮、邮箱/密码图标输入行与无外层大表单卡片；欢迎页以内联 SVG 和三条 feature 文案替代隔离原型图像，并以横排注册/登录作为入口。启动/资料加载安全错误保留 transport kind、status、code 与 request_id；一致性错误支持说明入口只指导用户经官方渠道手动联系，不自动发送数据。router 对任何路径上的 token/access_token/refresh_token/password/new_password query 先清空注册草稿再返回登录。
 
+## B01-3 本人资料与会话安全
+
+`/pages/profile/index` 是认证路由，资料读取和编辑只使用 `/patients/me`；PATCH 以当前 `profile_version` 为准，仅提交患者改动过的 `nickname`、`birth_year`、`timezone` 字段，清空昵称发送 `null`。409 不自动覆盖，先重新 GET 并向患者展示最新值/拟改值，由患者确认后再重试。资料 404 会清会话、保留 request_id 并跳转资料一致性错误页。
+
+退出有二次确认和防重复调用。刷新令牌删除和服务端 logout 都会尝试；Access Token 与 profile 内存态始终清除，受保护页面栈及 `returnTo` 被清空后 reLaunch 到登录页。若本机安全存储拒绝删除，登录页显示原生安全存储错误码，不把 token 放入 UI 状态或日志。无效 refresh 对过期/冻结账户统一按认证失败处理，不恢复旧 returnTo。双患者资料隔离和 profile 乐观锁由后端 T49/PG18 集成证据覆盖；客户端不提交 patient id。
+
 当前组件状态映射、表单/服务流程和页面约束测试、类型检查与 Android/iOS CLI 导出可自动验证；这不构成真机视觉签收。当前未生成或签收 430×880 像素基线；Android/iOS 真机截图、键盘/安全区/动态字号检查、逐页像素对比 SSIM ≥0.95，以及经法律批准的生产注册告知，仍是发布门禁。无患者 Web/H5 发布目标。

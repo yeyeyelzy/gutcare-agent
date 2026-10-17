@@ -11,6 +11,7 @@ function makeAuth() {
     accessToken: null as string | null,
     beginRestore() { this.state = 'restoring' },
     acceptAccessToken(token: string) { this.accessToken = token; this.state = 'authenticated' },
+    setLogoutWarning(_warning: unknown) {},
     clear() { this.accessToken = null; this.state = 'anonymous' },
   }
 }
@@ -81,5 +82,35 @@ describe('SessionService secure-store failure handling', () => {
     expect(await tokenStore.has()).toBe(true)
     expect(auth.accessToken).toBeNull()
     expect(onAuthenticationRequired).toHaveBeenCalledOnce()
+  })
+
+  it('retains the exact secure-store error code for the post-logout safety notice', async () => {
+    const tokenStore = {
+      set: async () => undefined, get: async () => 'fixture-refresh-value',
+      remove: vi.fn(async () => { throw new SecureTokenStoreError('KEY_INVALIDATED') }), has: async () => true,
+    } satisfies SecureTokenStore
+    const auth = makeAuth() as ReturnType<typeof makeAuth> & { warning?: unknown }
+    auth.setLogoutWarning = (warning) => { auth.warning = warning }
+    const request = vi.fn(async () => undefined)
+    const service = new SessionService({ request } as unknown as RequestClient, tokenStore, auth as unknown as ReturnType<typeof useAuthStore>, vi.fn())
+    await expect(service.logout()).rejects.toMatchObject({ code: 'KEY_INVALIDATED' })
+    expect(auth.accessToken).toBeNull()
+    expect(auth.warning).toEqual({ kind: 'secure_storage_cleanup_failed', code: 'KEY_INVALIDATED' })
+  })
+
+  it('coalesces concurrent logout requests and sends only one server revocation', async () => {
+    const store = new MemorySecureTokenStore()
+    await store.set('fixture-concurrent-refresh')
+    let finishRequest!: () => void
+    const request = vi.fn(() => new Promise<void>((resolve) => { finishRequest = resolve }))
+    const auth = makeAuth()
+    auth.acceptAccessToken('fixture-access')
+    const service = new SessionService({ request } as unknown as RequestClient, store, auth as unknown as ReturnType<typeof useAuthStore>, vi.fn())
+    const first = service.logout()
+    const second = service.logout()
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce())
+    expect(request).toHaveBeenCalledOnce()
+    finishRequest()
+    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined])
   })
 })

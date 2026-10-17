@@ -25,6 +25,7 @@ export interface RequestClientConfig {
   setTokens: (tokens: SessionTokens) => void
   clearSession: () => Promise<void>
   onAuthenticationRequired: () => void
+  onSecureTokenDeletionFailure?: (error: SecureTokenStoreError) => void
   createRequestId?: () => string
 }
 
@@ -123,8 +124,17 @@ export class RequestClient {
   }
 
   private async clearSession(): Promise<void> {
-    await this.config.tokenStore.remove().catch(() => undefined)
-    await this.config.clearSession()
+    let storageError: unknown
+    try {
+      await this.config.tokenStore.remove()
+    } catch (error) {
+      storageError = error
+    } finally {
+      await this.config.clearSession()
+    }
+    if (storageError !== undefined) {
+      this.config.onSecureTokenDeletionFailure?.(mapSecureTokenStoreError(storageError))
+    }
   }
 
   private async send<T>(options: RequestOptions, includeAccessToken = true): Promise<HttpResponse<T>> {

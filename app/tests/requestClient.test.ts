@@ -151,4 +151,30 @@ describe('RequestClient', () => {
     expect(access.value).toBeNull()
     expect(onAuthenticationRequired).not.toHaveBeenCalled()
   })
+
+  it('reports native refresh-token deletion errors after clearing memory and redirects authentication', async () => {
+    const tokenStore = {
+      get: async () => 'fixture-revoked-refresh',
+      set: async () => undefined,
+      has: async () => true,
+      remove: vi.fn(async () => { throw new SecureTokenStoreError('KEY_INVALIDATED') }),
+    }
+    const access = { value: 'fixture-expired-access' as string | null }
+    const reportFailure = vi.fn()
+    const onAuthenticationRequired = vi.fn()
+    const send: HttpTransport['send'] = async <T>() => ({ status: 401, data: { title: 'Unauthorized', status: 401, code: 'AUTHENTICATION_REQUIRED' } as T })
+    const client = new RequestClient({
+      baseUrl: 'https://api.example.invalid/api/v1', appVersion: 'test', transport: { send }, tokenStore,
+      getAccessToken: () => access.value,
+      setTokens: (value) => { access.value = value.access_token },
+      clearSession: async () => { access.value = null },
+      onAuthenticationRequired,
+      onSecureTokenDeletionFailure: reportFailure,
+    })
+    await expect(client.request({ method: 'GET', path: '/patients/me' })).rejects.toMatchObject({ status: 401 })
+    expect(tokenStore.remove).toHaveBeenCalledOnce()
+    expect(access.value).toBeNull()
+    expect(reportFailure).toHaveBeenCalledWith(expect.objectContaining({ code: 'KEY_INVALIDATED' }))
+    expect(onAuthenticationRequired).toHaveBeenCalledOnce()
+  })
 })

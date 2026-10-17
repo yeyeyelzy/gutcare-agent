@@ -8,7 +8,8 @@
     { "path": "pages/auth/forgot-password", "style": { "navigationStyle": "custom" } },
     { "path": "pages/auth/reset-password", "style": { "navigationStyle": "custom" } },
     { "path": "pages/auth/profile-error", "style": { "navigationStyle": "custom" } },
-    { "path": "pages/home/index", "style": { "navigationBarTitleText": "GutCare" } }
+    { "path": "pages/home/index", "style": { "navigationBarTitleText": "GutCare" } },
+    { "path": "pages/profile/index", "style": { "navigationStyle": "custom" } }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "black",

@@ -10,6 +10,7 @@ export type { LoginRequest } from './openapiTypes'
 
 /** Session orchestration; credentials and refresh tokens never enter persistent UI state. */
 export class SessionService {
+  private logoutInProgress: Promise<void> | null = null
   constructor(
     private readonly client: RequestClient,
     private readonly tokenStore: SecureTokenStore,
@@ -42,14 +43,28 @@ export class SessionService {
         this.auth.clear()
         throw error
       }
-      await this.tokenStore.remove().catch(() => undefined)
+      let storageError: unknown
+      try { await this.tokenStore.remove() } catch (removeError) { storageError = removeError }
       this.auth.clear()
+      if (storageError !== undefined) {
+        const secureError = mapSecureTokenStoreError(storageError)
+        this.auth.setLogoutWarning({ kind: 'secure_storage_cleanup_failed', code: secureError.code })
+      }
       this.onAuthenticationRequired()
       return false
     }
   }
 
-  async logout(): Promise<void> {
+  logout(): Promise<void> {
+    if (this.logoutInProgress) return this.logoutInProgress
+    const operation = this.performLogout()
+    this.logoutInProgress = operation
+    return operation.finally(() => {
+      if (this.logoutInProgress === operation) this.logoutInProgress = null
+    })
+  }
+
+  private async performLogout(): Promise<void> {
     let storageError: unknown
     try {
       await this.tokenStore.remove()
@@ -64,6 +79,18 @@ export class SessionService {
       requestError = error
     } finally {
       this.auth.clear()
+      if (storageError !== undefined) {
+        const secureError = mapSecureTokenStoreError(storageError)
+        this.auth.setLogoutWarning({ kind: 'secure_storage_cleanup_failed', code: secureError.code })
+      } else if (requestError !== undefined) {
+        const status = requestError instanceof Error && 'status' in requestError && typeof (requestError as { status?: unknown }).status === 'number'
+          ? (requestError as { status: number }).status
+          : undefined
+        const requestId = requestError instanceof Error && 'requestId' in requestError && typeof (requestError as { requestId?: unknown }).requestId === 'string'
+          ? (requestError as { requestId: string }).requestId
+          : undefined
+        this.auth.setLogoutWarning({ kind: 'server_logout_unconfirmed', ...(status !== undefined ? { status } : {}), ...(requestId ? { requestId } : {}) })
+      }
       this.onLogoutCompleted()
     }
 

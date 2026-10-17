@@ -14,8 +14,10 @@ describe('named route registry and protected navigation', () => {
     for (const state of ['anonymous', 'restoring', 'session_ready', 'loading_profile'] as const) {
       expect(canRenderRoute('today', state)).toBe(false)
       expect(decideRouteAccess('today', state).action).toBe('redirect_to_login')
+      expect(canRenderRoute('profile', state)).toBe(false)
     }
     expect(canRenderRoute('today', 'authenticated')).toBe(true)
+    expect(canRenderRoute('profile', 'authenticated')).toBe(true)
   })
 
   it('blocks an unauthenticated deep link before navigation and stores only the allow-listed route name', () => {
@@ -29,6 +31,17 @@ describe('named route registry and protected navigation', () => {
 
     state = 'authenticated'
     expect(router.guardUrl('/pages/home/index')).toBe(true)
+  })
+
+  it('allows only the protected profile route as a safe profile return target and drops it after auth invalidation', () => {
+    const navigator = makeNavigator()
+    const router = new AppRouter(navigator, () => 'anonymous')
+    expect(router.guardUrl('/pages/profile/index?nickname=private')).toBe(false)
+    expect(router.returnToStore.take()).toEqual({ name: 'profile' })
+    router.returnToStore.save({ name: 'profile' })
+    router.onAuthenticationRequired()
+    expect(router.returnToStore.take()).toBeNull()
+    expect(navigator.reLaunch).toHaveBeenLastCalledWith('/pages/auth/login')
   })
 
   it('rejects non-registered and public destinations from returnTo and strips extra properties', () => {
