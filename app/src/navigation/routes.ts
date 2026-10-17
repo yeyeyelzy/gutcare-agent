@@ -13,9 +13,9 @@ export const APP_ROUTES = {
   me: { path: '/pages/tabs/me/index', logicalPath: '/tabs/me', access: 'authenticated', returnToAllowed: true, tab: true },
   profile: { path: '/pages/profile/index', access: 'authenticated', returnToAllowed: true },
   placeholder: { path: '/pages/placeholder/index', access: 'authenticated', returnToAllowed: false },
-  recordDiet: { path: '/pages/placeholder/index?screen=recordDiet', access: 'authenticated', returnToAllowed: true },
-  recordBowel: { path: '/pages/placeholder/index?screen=recordBowel', access: 'authenticated', returnToAllowed: true },
-  recordSymptoms: { path: '/pages/placeholder/index?screen=recordSymptoms', access: 'authenticated', returnToAllowed: true },
+  recordDiet: { path: '/pages/records/diet/index', access: 'authenticated', returnToAllowed: true },
+  recordBowel: { path: '/pages/records/bowel/index', access: 'authenticated', returnToAllowed: true },
+  recordSymptoms: { path: '/pages/records/symptoms/index', access: 'authenticated', returnToAllowed: true },
   recordMood: { path: '/pages/placeholder/index?screen=recordMood', access: 'authenticated', returnToAllowed: true },
   recordActivity: { path: '/pages/placeholder/index?screen=recordActivity', access: 'authenticated', returnToAllowed: true },
   medications: { path: '/pages/placeholder/index?screen=medications', access: 'authenticated', returnToAllowed: true },
@@ -33,7 +33,8 @@ export const APP_ROUTES = {
 export type AppRouteName = keyof typeof APP_ROUTES
 export const APP_TABS = ['today', 'records', 'analysis', 'me'] as const
 export type AppTabName = typeof APP_TABS[number]
-export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'placeholder'>
+export type RecordWorkspaceRouteName = 'recordDiet' | 'recordBowel' | 'recordSymptoms'
+export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'placeholder' | RecordWorkspaceRouteName>
 export type ProtectedRouteName = {
   [Name in AppRouteName]: typeof APP_ROUTES[Name]['access'] extends 'authenticated' ? Name : never
 }[AppRouteName]
@@ -78,9 +79,6 @@ export function routeNameFromUrl(url: string): AppRouteName | null {
 }
 
 export const PLACEHOLDER_META: Record<PlaceholderRouteName, { title: string; ownerTab: AppTabName }> = {
-  recordDiet: { title: '饮食记录', ownerTab: 'records' },
-  recordBowel: { title: '排便记录', ownerTab: 'records' },
-  recordSymptoms: { title: '症状记录', ownerTab: 'records' },
   recordMood: { title: '心情记录', ownerTab: 'records' },
   recordActivity: { title: '运动记录', ownerTab: 'records' },
   medications: { title: '用药计划', ownerTab: 'me' },

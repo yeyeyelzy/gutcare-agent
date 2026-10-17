@@ -28,7 +28,7 @@
 import { computed, inject } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { appRouterKey } from '../../../api/context'
-import type { PlaceholderRouteName } from '../../../navigation/routes'
+import type { PlaceholderRouteName, RecordWorkspaceRouteName } from '../../../navigation/routes'
 import { canRenderRoute } from '../../../navigation/routes'
 import { useAuthStore } from '../../../stores/auth'
 import TabRoot from '../../../components/TabRoot.vue'
@@ -36,7 +36,7 @@ import TabRoot from '../../../components/TabRoot.vue'
 const auth = useAuthStore()
 const router = inject(appRouterKey)
 const authorized = computed(() => canRenderRoute('records', auth.state))
-const categories: ReadonlyArray<{ route: PlaceholderRouteName; title: string; detail: string; icon: string; tint: string }> = [
+const categories: ReadonlyArray<{ route: PlaceholderRouteName | RecordWorkspaceRouteName; title: string; detail: string; icon: string; tint: string }> = [
   { route: 'recordDiet', title: '饮食', detail: '记录餐食与饮水', icon: '餐', tint: 'peach' },
   { route: 'recordBowel', title: '排便', detail: '记录排便情况', icon: '记', tint: 'sage' },
   { route: 'recordSymptoms', title: '症状', detail: '记录身体感受', icon: '＋', tint: 'lilac' },

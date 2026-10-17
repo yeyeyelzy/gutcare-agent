@@ -8,6 +8,7 @@ import type { StartupCoordinator } from '../navigation/startup'
 import type { RegistrationService } from './registrationService'
 import type { EmailVerificationService } from './emailVerificationService'
 import type { PasswordResetService } from './passwordResetService'
+import type { RecordsApi } from './recordsApi'
 
 export const requestClientKey: InjectionKey<RequestClient> = Symbol('gutcare-request-client')
 export const sessionServiceKey: InjectionKey<SessionService> = Symbol('gutcare-session-service')
@@ -18,3 +19,4 @@ export const startupCoordinatorKey: InjectionKey<StartupCoordinator> = Symbol('g
 export const registrationServiceKey: InjectionKey<RegistrationService> = Symbol('gutcare-registration-service')
 export const emailVerificationServiceKey: InjectionKey<EmailVerificationService> = Symbol('gutcare-email-verification-service')
 export const passwordResetServiceKey: InjectionKey<PasswordResetService> = Symbol('gutcare-password-reset-service')
+export const recordsApiKey: InjectionKey<RecordsApi> = Symbol('gutcare-records-api')

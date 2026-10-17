@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import './styles/global.scss'
 import { createAppServices } from './api/client'
-import { appRouterKey, authApiKey, emailVerificationServiceKey, passwordResetServiceKey, profileApiKey, registrationServiceKey, requestClientKey, sessionServiceKey, startupCoordinatorKey } from './api/context'
+import { appRouterKey, authApiKey, emailVerificationServiceKey, passwordResetServiceKey, profileApiKey, recordsApiKey, registrationServiceKey, requestClientKey, sessionServiceKey, startupCoordinatorKey } from './api/context'
 
 export function createApp() {
   const app = createSSRApp(App)
@@ -14,6 +14,7 @@ export function createApp() {
   app.provide(sessionServiceKey, services.session)
   app.provide(authApiKey, services.authApi)
   app.provide(profileApiKey, services.profileApi)
+  app.provide(recordsApiKey, services.recordsApi)
   app.provide(registrationServiceKey, services.registration)
   app.provide(emailVerificationServiceKey, services.emailVerification)
   app.provide(passwordResetServiceKey, services.passwordReset)

@@ -97,7 +97,23 @@ def test_fastapi_openapi_exposes_record_payload_union_and_risk_routes() -> None:
     ]
     for path, method in operations:
         assert "401" in schema["paths"][path][method]["responses"]
-    assert "/api/v1/symptom-records/{record_id}/status-history" in schema["paths"]
+    history_response = schema["paths"]["/api/v1/symptom-records/{record_id}/status-history"]["get"][
+        "responses"
+    ]["200"]
+    assert history_response["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/SymptomStatusHistory"
+    }
+    history_schema = schema["components"]["schemas"]["SymptomStatusHistory"]
+    assert history_schema["required"] == ["symptom_record_id", "current_status", "events"]
+    assert history_schema["properties"]["current_status"]["enum"] == ["ongoing", "relieved"]
+    delete_operation = schema["paths"]["/api/v1/{record_type}/{record_id}"]["delete"]
+    delete_version = next(
+        parameter
+        for parameter in delete_operation["parameters"]
+        if parameter["name"] == "record_version"
+    )
+    assert delete_version["in"] == "query" and delete_version["required"] is True
+    assert delete_version["schema"]["minimum"] == 1
 
 
 def test_symptom_codes_are_controlled_and_other_needs_description() -> None:
@@ -230,3 +246,56 @@ def test_record_and_risk_openapi_operations_declare_rfc9457_401() -> None:
     ):
         response = paths[path][method]["responses"]["401"]
         assert response["$ref"] == "#/components/responses/Problem"
+    contract = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / "contracts/openapi/gutcare-v1.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    history_media = contract["paths"]["/symptom-records/{record_id}/status-history"]["get"][
+        "responses"
+    ]["200"]["content"]["application/json"]
+    assert history_media["schema"]["$ref"] == "#/components/schemas/SymptomStatusHistory"
+    assert history_media["example"]["current_status"] == "relieved"
+    assert history_media["example"]["events"][-1] == {
+        "status": "relieved",
+        "record_version": 2,
+        "changed_at": "2026-10-14T02:15:00Z",
+    }
+
+
+def test_delete_record_version_conflict_is_rfc9457_problem() -> None:
+    from uuid import uuid4
+
+    from fastapi.testclient import TestClient
+
+    from gutcare.app import create_app
+    from gutcare.auth.api import current_auth_context
+    from gutcare.auth.service import AuthContext
+    from gutcare.config import Settings
+    from gutcare.records.api import get_record_service
+
+    class ConflictService:
+        def delete(self, _context, _record_type, _record_id, version):
+            assert version == 3
+            raise Problem(409, "RECORD_VERSION_CONFLICT", "Record version has changed")
+
+    app = create_app(settings=Settings(env="test"))
+    app.dependency_overrides[current_auth_context] = lambda: AuthContext(
+        user_id=uuid4(), session_id=uuid4()
+    )
+    app.dependency_overrides[get_record_service] = lambda: ConflictService()
+    with TestClient(app) as client:
+        response = client.delete(
+            "/api/v1/diet-records/019a0000-0000-7000-8000-000000000031?record_version=3",
+            headers={"Authorization": "Bearer fixture-access-token"},
+        )
+        assert response.status_code == 409
+        assert response.headers["content-type"].startswith("application/problem+json")
+        assert response.json()["code"] == "RECORD_VERSION_CONFLICT"
+        assert response.json()["request_id"]
+        missing = client.delete(
+            "/api/v1/diet-records/019a0000-0000-7000-8000-000000000031",
+            headers={"Authorization": "Bearer fixture-access-token"},
+        )
+        assert missing.status_code == 422
+        assert missing.headers["content-type"].startswith("application/problem+json")

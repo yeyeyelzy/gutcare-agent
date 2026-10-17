@@ -93,13 +93,24 @@ describe('named route registry and protected navigation', () => {
     expect(router.returnToStore.take()).toEqual({ name: 'recordMood' })
     expect(router.guardUrl('/pages/placeholder/index?screen=unknown')).toBe(false)
     expect(router.returnToStore.take()).toBeNull()
-    expect(placeholderRouteFromScreen('recordDiet')).toBe('recordDiet')
+    expect(placeholderRouteFromScreen('recordDiet')).toBeNull()
     expect(placeholderRouteFromScreen('assistant')).toBeNull()
-    expect(PLACEHOLDER_META.recordDiet.ownerTab).toBe('records')
     expect(PLACEHOLDER_META.analysisAdvice.ownerTab).toBe('analysis')
     expect(PLACEHOLDER_META.advice.ownerTab).toBe('me')
     expect(PLACEHOLDER_META.analysisTrends.ownerTab).toBe('analysis')
     expect(PLACEHOLDER_META.trends.ownerTab).toBe('me')
+  })
+
+  it('uses dedicated protected record workspaces and recognizes ID-bearing deep links', () => {
+    const navigator = makeNavigator()
+    const router = new AppRouter(navigator, () => 'anonymous')
+    expect(APP_ROUTES.recordDiet.path).toBe('/pages/records/diet/index')
+    expect(APP_ROUTES.recordBowel.path).toBe('/pages/records/bowel/index')
+    expect(APP_ROUTES.recordSymptoms.path).toBe('/pages/records/symptoms/index')
+    expect(routeNameFromUrl('/pages/records/symptoms/index?id=00000000-0000-4000-8000-000000000001')).toBe('recordSymptoms')
+    expect(router.guardUrl('/pages/records/diet/index?id=00000000-0000-4000-8000-000000000002')).toBe(false)
+    expect(router.returnToStore.take()).toEqual({ name: 'recordDiet' })
+    expect(navigator.reLaunch).toHaveBeenCalledWith(APP_ROUTES.login.path)
   })
 
   it('clears the complete registration draft before rejecting secrets on registration routes', () => {

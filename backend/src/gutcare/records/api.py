@@ -63,7 +63,9 @@ class RecordServicePort(Protocol):
         occurred_at: datetime,
         payload: dict[str, Any],
     ) -> dict[str, Any]: ...
-    def delete(self, context: AuthContext, record_type: str, record_id: UUID) -> None: ...
+    def delete(
+        self, context: AuthContext, record_type: str, record_id: UUID, version: int
+    ) -> None: ...
     def symptom_status_history(self, context: AuthContext, record_id: UUID) -> dict[str, Any]: ...
     def alerts(
         self, context: AuthContext, *, limit: int, cursor: str | None, unread_only: bool = False
@@ -138,6 +140,20 @@ class RecordWrite(BaseModel):
     occurred_at: datetime
     payload: DietPayload | StoolPayload | SymptomPayload
     record_version: int | None = Field(default=None, ge=1)
+
+
+class SymptomStatusEventRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["ongoing", "relieved"]
+    record_version: int = Field(ge=1)
+    changed_at: datetime
+
+
+class SymptomStatusHistory(BaseModel):
+    model_config = ConfigDict(extra="forbid", title="SymptomStatusHistory")
+    symptom_record_id: UUID
+    current_status: Literal["ongoing", "relieved"]
+    events: list[SymptomStatusEventRead]
 
 
 def validate_payload(record_type: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -264,10 +280,11 @@ def patch_record(
 def delete_record(
     record_type: RecordType,
     record_id: UUID,
+    record_version: Annotated[int, Query(ge=1)],
     context: Annotated[AuthContext, Depends(current_auth_context)],
     service: Annotated[RecordServicePort, Depends(get_record_service)],
 ) -> Response:
-    service.delete(context, record_type, record_id)
+    service.delete(context, record_type, record_id, record_version)
     return Response(status_code=204)
 
 
@@ -275,6 +292,7 @@ def delete_record(
     "/symptom-records/{record_id}/status-history",
     operation_id="getSymptomStatusHistory",
     tags=["Records"],
+    response_model=SymptomStatusHistory,
     responses=AUTH_PROBLEM_RESPONSE,
 )
 def symptom_status_history(

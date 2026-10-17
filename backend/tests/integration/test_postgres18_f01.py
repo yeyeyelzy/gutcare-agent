@@ -1949,21 +1949,63 @@ def test_f03_f05_postgres_rls_composite_ownership_and_rule_review_gate(database:
                 expires_at=utc_now() + timedelta(days=1),
             )
         )
-    before = service.list(
-        context_b, "stool-records", limit=100, cursor=None, since=None, until=None
-    )
-    with pytest.raises(Problem) as rejected_text_rule:
-        service.create(
-            context_b,
-            "stool-records",
-            utc_now(),
-            {"notes": "trigger phrase"},
-            "synthetic-stage3-forbidden-free-text",
+    try:
+        before = service.list(
+            context_b, "stool-records", limit=100, cursor=None, since=None, until=None
         )
-    assert rejected_text_rule.value.status == 503
-    assert rejected_text_rule.value.code == "RISK_RULE_CONFIGURATION_ERROR"
-    after = service.list(context_b, "stool-records", limit=100, cursor=None, since=None, until=None)
-    assert after["items"] == before["items"]
+        with pytest.raises(Problem) as rejected_text_rule:
+            service.create(
+                context_b,
+                "stool-records",
+                utc_now(),
+                {"notes": "trigger phrase"},
+                "synthetic-stage3-forbidden-free-text",
+            )
+        assert rejected_text_rule.value.status == 503
+        assert rejected_text_rule.value.code == "RISK_RULE_CONFIGURATION_ERROR"
+        after = service.list(
+            context_b, "stool-records", limit=100, cursor=None, since=None, until=None
+        )
+        assert after["items"] == before["items"]
+    finally:
+        # This deliberately invalid production rule must not contaminate later
+        # assertions or other tests sharing the controlled integration database.
+        with _sessions(migrator_engine).begin() as db:
+            db.execute(
+                text("DELETE FROM safety.risk_rule WHERE rule_code=:rule_code AND version=1"),
+                {"rule_code": "SYNTHETIC_FORBIDDEN_TEXT_RULE"},
+            )
+
+    # Delete uses the current version for every F03-F05 record type; stale and
+    # cross-patient attempts do not hide or mutate another patient's record.
+    delete_cases = [
+        ("diet-records", {"text_description": "synthetic delete diet"}, "diet"),
+        ("stool-records", {"bristol_type": 4}, "stool"),
+        ("symptom-records", {"items": [{"symptom_code": "nausea"}]}, "symptom"),
+    ]
+    for record_type, record_payload, suffix in delete_cases:
+        record = service.create(
+            context_a,
+            record_type,
+            utc_now(),
+            record_payload,
+            f"synthetic-delete-version-{suffix}",
+        )
+        record_id = UUID(record["id"])
+        with pytest.raises(Problem) as stale_delete:
+            service.delete(context_a, record_type, record_id, record["record_version"] + 1)
+        assert (stale_delete.value.status, stale_delete.value.code) == (
+            409,
+            "RECORD_VERSION_CONFLICT",
+        )
+        assert service.get(context_a, record_type, record_id)["id"] == record["id"]
+        with pytest.raises(Problem) as cross_patient_delete:
+            service.delete(context_b, record_type, record_id, record["record_version"])
+        assert cross_patient_delete.value.status == 404
+        service.delete(context_a, record_type, record_id, record["record_version"])
+        with pytest.raises(Problem) as hidden_after_delete:
+            service.get(context_a, record_type, record_id)
+        assert hidden_after_delete.value.status == 404
 
 
 def test_f02_real_minio_clamav_upload_document_delete_and_patient_isolation(database: Any) -> None:

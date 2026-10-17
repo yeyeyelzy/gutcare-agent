@@ -835,7 +835,7 @@ class RecordService:
             session.flush()
             return self._dto(obj, record_type, self._items(session, record_type, obj, patient_id))
 
-    def delete(self, context: AuthContext, record_type: str, record_id: UUID) -> None:
+    def delete(self, context: AuthContext, record_type: str, record_id: UUID, version: int) -> None:
         with self._sessions.begin() as session:
             patient_id = self._patient_id(session, context)
             self._scope(session, patient_id)
@@ -849,6 +849,8 @@ class RecordService:
             )
             if obj is None:
                 raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
+            if obj.record_version != version:
+                raise Problem(409, "RECORD_VERSION_CONFLICT", "Record version has changed")
             obj.deleted_at = _utcnow()
             obj.record_version += 1
             obj.updated_at = _utcnow()

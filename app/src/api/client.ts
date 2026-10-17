@@ -14,6 +14,7 @@ import { useRegistrationDraftStore } from '../stores/registrationDraft'
 import { RegistrationService } from './registrationService'
 import { EmailVerificationService } from './emailVerificationService'
 import { PasswordResetService } from './passwordResetService'
+import { RecordsApi } from './recordsApi'
 
 const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, { allowLocalHttp: import.meta.env.DEV })
 
@@ -51,6 +52,7 @@ export function createAppServices(pinia: Pinia) {
   const requestClient = createRequestClient(pinia, tokenStore, () => router.onAuthenticationRequired())
   const session = new SessionService(requestClient, tokenStore, auth, () => router.onAuthenticationRequired(), () => router.onLogoutCompleted())
   const profileApi = new ProfileApi(requestClient)
+  const recordsApi = new RecordsApi(requestClient)
   const authApi = new AuthApi(requestClient, session)
   const registration = new RegistrationService(authApi, useRegistrationDraftStore(pinia))
   const emailVerification = new EmailVerificationService(authApi, useRegistrationDraftStore(pinia))
@@ -60,6 +62,7 @@ export function createAppServices(pinia: Pinia) {
     session,
     authApi,
     profileApi,
+    recordsApi,
     registration,
     emailVerification,
     passwordReset,

@@ -737,6 +737,13 @@ paths:
           description: 状态及按版本排序的变更事件
           content:
             application/json:
+              schema: {$ref: '#/components/schemas/SymptomStatusHistory'}
+              example:
+                symptom_record_id: 019a0000-0000-7000-8000-000000000031
+                current_status: relieved
+                events:
+                  - {status: ongoing, record_version: 1, changed_at: '2026-10-14T00:00:00Z'}
+                  - {status: relieved, record_version: 2, changed_at: '2026-10-14T02:15:00Z'}
         '413': {$ref: '#/components/responses/Problem'}
         '415': {$ref: '#/components/responses/Problem'}
         '422': {$ref: '#/components/responses/Problem'}
@@ -960,9 +967,12 @@ paths:
       parameters:
         - {$ref: '#/components/parameters/RecordType'}
         - {$ref: '#/components/parameters/RecordId'}
+        - {name: record_version, in: query, required: true, schema: {type: integer, minimum: 1}}
       responses:
         '204': {description: 已立即隐藏并进入删除流程}
         '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
         '401': {$ref: '#/components/responses/Problem'}
   /risk-alerts:
     get:

@@ -141,6 +141,60 @@ export interface paths {
         patch: operations["updateMyProfile"];
         trace?: never;
     };
+    "/symptom-records/{record_id}/status-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取症状仍持续/已缓解状态的不可变变更历史 */
+        get: operations["getSymptomStatusHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/{record_type}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 分页查询指定类型记录 */
+        get: operations["listRecords"];
+        put?: never;
+        /** 新建指定类型记录 */
+        post: operations["createRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/{record_type}/{record_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取指定记录 */
+        get: operations["getRecord"];
+        put?: never;
+        post?: never;
+        /** 删除指定记录 */
+        delete: operations["deleteRecord"];
+        options?: never;
+        head?: never;
+        /** 更新指定记录 */
+        patch: operations["updateRecord"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1251,6 +1305,195 @@ export interface operations {
             409: components["responses"]["RecordVersionConflict"];
             422: components["responses"]["Problem"];
             500: components["responses"]["Problem"];
+        };
+    };
+    getSymptomStatusHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: components["parameters"]["RecordId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 状态及按版本排序的变更事件 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "symptom_record_id": "019a0000-0000-7000-8000-000000000031",
+                     *       "current_status": "relieved",
+                     *       "events": [
+                     *         {
+                     *           "status": "ongoing",
+                     *           "record_version": 1,
+                     *           "changed_at": "2026-10-14T00:00:00Z"
+                     *         },
+                     *         {
+                     *           "status": "relieved",
+                     *           "record_version": 2,
+                     *           "changed_at": "2026-10-14T02:15:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SymptomStatusHistory"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            415: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    listRecords: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                since?: string;
+                until?: string;
+            };
+            header?: never;
+            path: {
+                record_type: components["parameters"]["RecordType"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 记录分页 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    createRecord: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                record_type: components["parameters"]["RecordType"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordWrite"];
+            };
+        };
+        responses: {
+            /** @description 已创建 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Record"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    getRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_type: components["parameters"]["RecordType"];
+                record_id: components["parameters"]["RecordId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 记录详情 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Record"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    deleteRecord: {
+        parameters: {
+            query: {
+                record_version: number;
+            };
+            header?: never;
+            path: {
+                record_type: components["parameters"]["RecordType"];
+                record_id: components["parameters"]["RecordId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 已立即隐藏并进入删除流程 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    updateRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_type: components["parameters"]["RecordType"];
+                record_id: components["parameters"]["RecordId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordPatch"];
+            };
+        };
+        responses: {
+            /** @description 已更新 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Record"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
         };
     };
 }

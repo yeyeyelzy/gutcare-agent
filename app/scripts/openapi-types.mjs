@@ -26,6 +26,12 @@ const requiredOperationIds = new Set([
   'confirmPasswordReset',
   'getMyProfile',
   'updateMyProfile',
+  'listRecords',
+  'createRecord',
+  'getRecord',
+  'updateRecord',
+  'deleteRecord',
+  'getSymptomStatusHistory',
 ])
 const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
 const foundOperations = new Map()
@@ -47,8 +53,8 @@ if (missingOperations.length || duplicatedOperations.length || foundOperations.s
   throw new Error(`Auth/profile OpenAPI operation set mismatch. Missing: ${missingOperations.join(', ') || 'none'}; duplicated: ${duplicatedOperations.map(([id]) => id).join(', ') || 'none'}.`)
 }
 
-// Limit generated operations to the B01-1 auth/profile surface. The full contract
-// currently contains an unrelated null media-type entry in symptom history.
+// Generate the frozen auth/profile and F03-F05 record surfaces only. Every DTO
+// remains derived from the authoritative OpenAPI contract.
 const subset = {
   ...document,
   paths: Object.fromEntries([...new Set([...foundOperations.values()].flat().map(({ path }) => path))].map((path) => {
@@ -64,7 +70,7 @@ const scratchPrefix = '.tmp-openapi-generation-'
 const normalizeEol = (value) => value.replace(/\r\n?/g, '\n')
 const temporaryDirectory = mkdtempSync(join(appRoot, scratchPrefix))
 try {
-  const temporaryContract = join(temporaryDirectory, 'auth-profile.yaml')
+  const temporaryContract = join(temporaryDirectory, 'app-surface.yaml')
   const temporaryOutput = join(temporaryDirectory, 'openapi.ts')
   writeFileSync(temporaryContract, YAML.stringify(subset), 'utf8')
 
@@ -101,13 +107,13 @@ try {
     if (generated !== checkedIn) {
       throw new Error('Generated OpenAPI types differ. Run `pnpm openapi:generate` and review the result.')
     }
-    process.stdout.write('Generated OpenAPI auth/profile types are current.\n')
+    process.stdout.write('Generated OpenAPI auth/profile/records types are current.\n')
   }
 } finally {
   // The CLI is launched synchronously above, so no process retains these files.
   // Delete exact files first, then remove the now-empty unique directory; this is
   // reliable on Windows where recursive cleanup may leave an open-handle residue.
-  for (const filename of ['auth-profile.yaml', 'openapi.ts']) {
+  for (const filename of ['app-surface.yaml', 'openapi.ts']) {
     const temporaryFile = join(temporaryDirectory, filename)
     if (existsSync(temporaryFile)) unlinkSync(temporaryFile)
   }
