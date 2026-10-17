@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
+import hmac
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import desc, func, select, text
+from sqlalchemy import desc, func, select, text, tuple_
 from sqlalchemy.orm import Session, sessionmaker
 
 from gutcare.analysis.models import (
@@ -52,8 +56,66 @@ def _hash(value: Any) -> str:
 
 
 class AnalysisService:
-    def __init__(self, sessions: sessionmaker[Session]) -> None:
+    def __init__(self, sessions: sessionmaker[Session], cursor_secret: str | None = None) -> None:
         self._sessions = sessions
+        self._cursor_secret = cursor_secret.encode() if cursor_secret else None
+
+    def _encode_task_cursor(self, patient_id: UUID, limit: int, task: AnalysisTask) -> str:
+        if self._cursor_secret is None:
+            raise Problem(500, "INTERNAL_ERROR", "Analysis cursor signing is unavailable")
+        patient_scope = hmac.new(
+            self._cursor_secret,
+            b"analysis-task-cursor-patient:" + patient_id.bytes,
+            hashlib.sha256,
+        ).hexdigest()
+        payload = {
+            "v": 1,
+            "patient_scope": patient_scope,
+            "limit": limit,
+            "order": "created_at_desc_id_desc",
+            "created_at": task.created_at.astimezone(UTC).isoformat(),
+            "id": str(task.id),
+        }
+        raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        signature = hmac.new(self._cursor_secret, raw, hashlib.sha256).digest()
+        return base64.urlsafe_b64encode(raw + signature).decode().rstrip("=")
+
+    def _decode_task_cursor(
+        self, cursor: str, patient_id: UUID, limit: int
+    ) -> tuple[datetime, UUID]:
+        try:
+            if self._cursor_secret is None or not re.fullmatch(r"[A-Za-z0-9_-]{1,512}", cursor):
+                raise ValueError
+            packed = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
+            if base64.urlsafe_b64encode(packed).decode().rstrip("=") != cursor:
+                raise ValueError
+            if len(packed) <= 32:
+                raise ValueError
+            raw, signature = packed[:-32], packed[-32:]
+            expected = hmac.new(self._cursor_secret, raw, hashlib.sha256).digest()
+            if not hmac.compare_digest(signature, expected):
+                raise ValueError
+            payload = json.loads(raw)
+            patient_scope = hmac.new(
+                self._cursor_secret,
+                b"analysis-task-cursor-patient:" + patient_id.bytes,
+                hashlib.sha256,
+            ).hexdigest()
+            if (
+                not isinstance(payload, dict)
+                or payload.get("v") != 1
+                or payload.get("patient_scope") != patient_scope
+                or payload.get("limit") != limit
+                or payload.get("order") != "created_at_desc_id_desc"
+            ):
+                raise ValueError
+            created_at = datetime.fromisoformat(payload["created_at"])
+            task_id = UUID(payload["id"])
+            if created_at.tzinfo is None or created_at.utcoffset() is None:
+                raise ValueError
+            return created_at.astimezone(UTC), task_id
+        except (ValueError, TypeError, KeyError, binascii.Error, json.JSONDecodeError):
+            raise Problem(400, "INVALID_CURSOR", "Analysis task cursor is invalid") from None
 
     @staticmethod
     def _profile(db: Session, context: AuthContext) -> PatientProfile:
@@ -592,6 +654,8 @@ class AnalysisService:
         if result is None:
             return None
         projected = dict(result)
+        # Callback identity is an idempotency/audit key, not patient result content.
+        projected.pop("callback_id", None)
         projected_evidence: list[dict[str, Any]] = []
         for item in result.get("evidence", []):
             evidence = dict(item)
@@ -736,22 +800,38 @@ class AnalysisService:
                 result=self._project_result(db, profile.id, task.result_payload),
             )
 
-    def list(self, context: AuthContext, limit: int = 20) -> list[dict[str, Any]]:
+    def list(
+        self, context: AuthContext, limit: int = 20, cursor: str | None = None
+    ) -> dict[str, Any]:
         with self._sessions.begin() as db:
             profile = self._profile(db, context)
-            tasks = db.scalars(
-                select(AnalysisTask)
-                .where(AnalysisTask.patient_id == profile.id)
-                .order_by(desc(AnalysisTask.created_at))
-                .limit(limit)
-            )
-            return [
-                self._dto(
-                    task,
-                    result=self._project_result(db, profile.id, task.result_payload),
+            query = select(AnalysisTask).where(AnalysisTask.patient_id == profile.id)
+            if cursor is not None:
+                created_at, task_id = self._decode_task_cursor(cursor, profile.id, limit)
+                query = query.where(
+                    tuple_(AnalysisTask.created_at, AnalysisTask.id) < (created_at, task_id)
                 )
-                for task in tasks
-            ]
+            tasks = list(
+                db.scalars(
+                    query.order_by(desc(AnalysisTask.created_at), desc(AnalysisTask.id)).limit(
+                        limit + 1
+                    )
+                )
+            )
+            has_more = len(tasks) > limit
+            tasks = tasks[:limit]
+            return {
+                "items": [
+                    self._dto(
+                        task,
+                        result=self._project_result(db, profile.id, task.result_payload),
+                    )
+                    for task in tasks
+                ],
+                "next_cursor": self._encode_task_cursor(profile.id, limit, tasks[-1])
+                if has_more and tasks
+                else None,
+            }
 
     def cancel(self, context: AuthContext, task_id: UUID) -> dict[str, Any]:
         with self._sessions.begin() as db:

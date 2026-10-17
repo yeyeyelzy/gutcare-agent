@@ -117,6 +117,8 @@ def test_f08_contracts_match_strict_result_item_limits_and_deleted_source_projec
         assert schema["uncertainties"]["items"]["maxLength"] == 500
         assert schema["missing_data"]["items"]["maxLength"] == 120
     evidence = public_result["evidence"]["items"]
+    if "$ref" in evidence:
+        evidence = public["components"]["schemas"][evidence["$ref"].split("/")[-1]]
     assert evidence["properties"]["source_version"]["type"] == "integer"
     assert evidence["properties"]["source_version"]["minimum"] == 1
     assert "source_deleted" in evidence["required"]

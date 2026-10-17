@@ -21,6 +21,7 @@ import type { PrivacyExportDownloadAdapter } from './privacyExportDownload'
 import type { PrivacyDeletionService } from './privacyDeletionService'
 import type { HistoryApi } from './historyApi'
 import type { TrendApi } from './trendApi'
+import type { AnalysisApi } from './analysisApi'
 
 export const requestClientKey: InjectionKey<RequestClient> = Symbol('gutcare-request-client')
 export const sessionServiceKey: InjectionKey<SessionService> = Symbol('gutcare-session-service')
@@ -37,6 +38,7 @@ export const consentApiKey: InjectionKey<ConsentApi> = Symbol('gutcare-consent-a
 export const activityApiKey: InjectionKey<ActivityApi> = Symbol('gutcare-activity-api')
 export const historyApiKey: InjectionKey<HistoryApi> = Symbol('gutcare-history-api')
 export const trendApiKey: InjectionKey<TrendApi> = Symbol('gutcare-trend-api')
+export const analysisApiKey: InjectionKey<AnalysisApi> = Symbol('gutcare-analysis-api')
 export const medicationApiKey: InjectionKey<MedicationApi> = Symbol('gutcare-medication-api')
 export const riskApiKey: InjectionKey<RiskApi> = Symbol('gutcare-risk-api')
 export const notificationApiKey: InjectionKey<NotificationApi> = Symbol('gutcare-notification-api')

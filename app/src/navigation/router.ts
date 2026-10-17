@@ -13,6 +13,7 @@ export interface Navigator {
 export class MemoryReturnToStore {
   private value: ReturnToTarget | null = null
   private notificationTarget: { type: 'analysis_task' | 'advice'; id: string } | null = null
+  private analysisTaskTarget: { id: string; owner: AppTabName; fromHistory: boolean } | null = null
 
   save(value: unknown): void {
     this.value = parseReturnTo(value)
@@ -27,6 +28,7 @@ export class MemoryReturnToStore {
   clear(): void {
     this.value = null
     this.notificationTarget = null
+    this.analysisTaskTarget = null
   }
 
   saveNotificationTarget(type: 'analysis_task' | 'advice', id: string): void {
@@ -36,6 +38,15 @@ export class MemoryReturnToStore {
   takeNotificationTarget(): { type: 'analysis_task' | 'advice'; id: string } | null {
     const value = this.notificationTarget
     this.notificationTarget = null
+    return value
+  }
+
+  saveAnalysisTaskTarget(id: string, owner: AppTabName = 'analysis', fromHistory = false): void {
+    this.analysisTaskTarget = isUuid(id) ? { id, owner: owner === 'me' ? 'me' : 'analysis', fromHistory } : null
+  }
+  takeAnalysisTaskTarget(): { id: string; owner: AppTabName; fromHistory: boolean } | null {
+    const value = this.analysisTaskTarget
+    this.analysisTaskTarget = null
     return value
   }
 }
@@ -62,6 +73,26 @@ export class AppRouter {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return false
     this.navigator.navigateTo(`${APP_ROUTES.riskAlertDetail.path}?alert_id=${encodeURIComponent(id)}`)
     return true
+  }
+
+  navigateAnalysisTaskDetail(id: string, owner: AppTabName = 'analysis', fromHistory = false): boolean {
+    if (!isUuid(id)) return false
+    if (!this.authorize('analysisTaskDetail')) {
+      this.returnToStore.saveAnalysisTaskTarget(id, owner, fromHistory)
+      return false
+    }
+    const historyQuery = fromHistory ? '&from=history' : ''
+    this.navigator.navigateTo(`${APP_ROUTES.analysisTaskDetail.path}?task_id=${encodeURIComponent(id)}&owner=${owner === 'me' ? 'me' : 'analysis'}${historyQuery}`)
+    return true
+  }
+
+  returnFromAnalysisTask(owner: AppTabName, fromHistory: boolean): boolean {
+    if (fromHistory) {
+      const url = `${APP_ROUTES.analysisHistory.path}?owner=${owner === 'me' ? 'me' : 'analysis'}`
+      this.navigator.redirectTo(url)
+      return true
+    }
+    return this.switchTab(owner)
   }
 
   navigateNotificationDetail(id: string): boolean {
@@ -139,6 +170,14 @@ export class AppRouter {
 
   afterAuthentication(): void {
     this.loginRedirectPending = false
+    const analysisTaskTarget = this.returnToStore.takeAnalysisTaskTarget()
+    if (analysisTaskTarget) {
+      const historyQuery = analysisTaskTarget.fromHistory ? '&from=history' : ''
+      this.navigator.reLaunch(`${APP_ROUTES.analysisTaskDetail.path}?task_id=${encodeURIComponent(analysisTaskTarget.id)}&owner=${analysisTaskTarget.owner}${historyQuery}`)
+      this.returnToStore.take()
+      this.returnToStore.takeNotificationTarget()
+      return
+    }
     const notificationTarget = this.returnToStore.takeNotificationTarget()
     const target = this.returnToStore.take() ?? { name: 'today' as const }
     if (notificationTarget) {
@@ -187,6 +226,11 @@ export class AppRouter {
       if ((type === 'analysis_task' || type === 'advice') && isUuid(id)) {
         this.returnToStore.saveNotificationTarget(type, id)
       }
+    }
+    if (name === 'analysisTaskDetail' && this.getAuthState() !== 'authenticated') {
+      const query = new URLSearchParams(url.split('?')[1]?.split('#')[0] ?? '')
+      const taskId = query.get('task_id')
+      if (isUuid(taskId)) this.returnToStore.saveAnalysisTaskTarget(taskId, query.get('owner') === 'me' ? 'me' : 'analysis', query.get('from') === 'history')
     }
     this.clearDraftIfLeavingFlow(name)
     const decision = decideRouteAccess(name, this.getAuthState())

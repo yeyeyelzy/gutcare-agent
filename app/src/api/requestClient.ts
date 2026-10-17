@@ -37,10 +37,16 @@ export class RequestClient {
   }
 
   async request<T>(options: RequestOptions): Promise<T> {
+    return (await this.requestWithMetadata<T>(options)).data
+  }
+
+  /** Preserve response headers for operations whose frozen contract uses Location. */
+  async requestWithMetadata<T>(options: RequestOptions): Promise<HttpResponse<T>> {
     const tokenUsed = this.config.getAccessToken()
     const initial = await this.send<T>(options)
     if (initial.status !== 401 || options.retryOnUnauthorized === false || options.path === '/auth/refresh') {
-      return this.unwrap<T>(initial)
+      this.unwrap<T>(initial)
+      return initial
     }
 
     const currentToken = this.config.getAccessToken()
@@ -79,7 +85,8 @@ export class RequestClient {
       this.config.onAuthenticationRequired()
       throw mapProblemDetails(retried.status, retried.data)
     }
-    return this.unwrap<T>(retried)
+    this.unwrap<T>(retried)
+    return retried
   }
 
   /** Rotate a saved refresh token during cold start without exposing it to UI state. */

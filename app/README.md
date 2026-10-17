@@ -5,7 +5,7 @@ uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端。患者�
 ## 命令
 
 - `pnpm typecheck`：Vue / TypeScript 静态检查
-- `pnpm openapi:generate`：从冻结 OpenAPI 的 auth/profile、privacy deletion/export、consent 与 F03–F07/F10–F12/F14 operations 生成 TypeScript 类型
+- `pnpm openapi:generate`：从冻结 OpenAPI 的 auth/profile、privacy deletion/export、consent 与 F03–F08/F10–F12/F14 operations 生成 TypeScript 类型
 - `pnpm openapi:check`：重新过滤并生成后与受检入库类型逐字节比对；`pnpm check` 和仓库 lint 门禁执行此检查
 - `pnpm test`：API、记录/活动/心情/风险/通知组件契约、偏好与状态 helper、会话、注册草稿、邮箱验证、导航与启动状态单元测试
 - `pnpm build:android`：生成 Android 平台的 HBuilderX 导入工程
@@ -31,7 +31,7 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 
 ## B01-1 认证和导航基础
 
-- `openapi-typescript@7.13.0` 与 `yaml@2.9.1` 均精确锁定。生成器只从权威 OpenAPI `operationId` 过滤 auth/profile、consent、F03–F07/F10/F12/F14 records、F13 deletion operation，并断言必需 operationId 集合各出现一次；schema/DTO 不手写。`AuthApi` 登录/注销委托 B00b `SessionService`，不会重复实现 refresh。
+- `openapi-typescript@7.13.0` 与 `yaml@2.9.1` 均精确锁定。生成器只从权威 OpenAPI `operationId` 过滤 auth/profile、consent、F03–F08/F10/F12/F14 records、F13 deletion operation，并断言必需 operationId 集合各出现一次；schema/DTO 不手写。`AuthApi` 登录/注销委托 B00b `SessionService`，不会重复实现 refresh。
 - `AuthApi`、`ProfileApi` 使用生成的请求/响应类型。注册请求在运行时也拒绝额外键。
 - 第 22 页仅以内存 Pinia store 保存邮箱、密码、确认密码和隐私选择；第 17 页进入后只有明确同意健康数据处理才会开放出生年份字段；单独切换撤销同意只清出生年份，顶部/系统返回回第 22 页并保留草稿以供编辑。选择“暂不同意并退出注册”会清除整个草稿并回到登录；离开注册流程时路由层也清除草稿。提交请求显式构造 OpenAPI 六字段，成功受理后清除密码并进入邮箱验证页。验证令牌只由用户输入、只保存在页面内存、不放 URL/持久化；验证 204 后清草稿并回到登录。测试告知来自唯一 JSON 制品；当前开发/测试制品在 production mode 下 fail closed。
 - 路由注册表有 public/authenticated 元数据；仅允许白名单中标记的受保护命名路由作为进程内 `returnTo`。导航拦截器与根页条件渲染双重阻止认证/资料尚未完成时显示受保护页面。启动/登录恢复固定执行 session restore → `GET /patients/me`：200 才进入今日；401 清会话返回登录；404 清会话进入不可继续的资料一致性错误态并展示 `request_id`；不会伪造资料或进入 `/onboarding/profile`。
@@ -104,3 +104,9 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 `/pages/trends/index` 是受保护趋势二级页；分析与我的入口共用页面并固定各自 ownerTab。`TrendApi` 复用共享 `RequestClient`，GET `/trends` 的所有 DTO 均由 OpenAPI 生成。页面通过账户 IANA 时区构造 UTC 半开区间，支持快速/自定义日期和日/周切换；切换会重新查询且用 generation 丢弃离页或过期响应。
 
 页面分别呈现服务端 activity、stool、symptom、diet-confirmed-category、medication-checkin 和 mood 聚合，不在客户端计算/合并指标。Mood 仅依据服务端 `availability` 判别：available 空 buckets 是已授权无记录；consent_required 只展示缺失的 health_data_processing/mood_data_processing 及隐私中心入口，绝不变成零数据。界面只显示本人自评与记录统计，不含 mood note/emotion_tags、诊断、因果或饮食/运动建议。T125 覆盖 OpenAPI 运行时/契约 schema 与 examples、DST/UTC 半开边界、授权分流、空/错误/离线、bucket/ownerTab 路由、请求竞争与 note/tag 排除；Android/iOS CLI build 和自动化不替代设备视觉/无障碍验收。
+
+## B08a F08 分析任务基础切片
+
+受保护 `/analysis/new`、`/analysis/history` 与 `/analysis/task/:id` 分别提供预览/创建、稳定游标历史和任务状态详情。请求与响应 DTO 由 `contracts/openapi/gutcare-v1.yaml` 生成；创建为单飞并带 `Idempotency-Key`，仅接受 `202` 且校验 `Location` 指向同一任务 ID。预览仅为当时统计，不承诺创建快照完全一致；任务快照和 mood 纳入/排除由服务端授权 fence 决定。
+
+综合分析时间范围允许两端都省略或两端都提供，periodic 必须提供两端；显式时间按 UTC 半开区间 `[from,to)`。历史分页 cursor 是不透明值，服务端以 HMAC `patient_scope` 绑定患者且不在载荷中放原始 patient UUID；cursor 仅进入请求参数，不写日志。详情只显示后端状态、attempt/retry_of、输入摘要、错误码和结果存在性，不显示报告正文、prompt、原始模型输出或 evidence。基础页面不提供 cancel/retry UI，不调用 Agent，也不传 `patient_id`。APP T126 覆盖客户端 API、表单、分页、生命周期和深链；后端 T66–T71、T111–T112 仍是独立证据。Android/iOS CLI build 不替代真机视觉/无障碍签收。

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -3996,6 +3997,76 @@ def test_f13_receipt_export_wrapped_dek_and_versioned_delete_replay(
         worker_engine.dispose()
 
 
+def test_f08_postgres18_analysis_cursor_is_stable_opaque_and_patient_bound(database: Any) -> None:
+    """T126 backend integration: stable pages and opaque, patient-bound cursors."""
+    app_engine, _migrator_engine = database
+    user_a, patient_a = _seed_patient(app_engine, nickname="analysis-page-a")
+    user_b, patient_b = _seed_patient(app_engine, nickname="analysis-page-b")
+    base = datetime(2026, 10, 1, tzinfo=UTC)
+    rows_a = [(uuid4(), base + timedelta(seconds=index // 2)) for index in range(7)]
+    rows_b = [(uuid4(), base + timedelta(seconds=index)) for index in range(3)]
+    with _sessions(app_engine).begin() as db:
+        for user_id, patient_id, rows in (
+            (user_a, patient_a, rows_a),
+            (user_b, patient_b, rows_b),
+        ):
+            db.execute(text("SELECT set_config('app.user_id', :u, true)"), {"u": str(user_id)})
+            db.execute(
+                text("SELECT set_config('app.patient_id', :p, true)"), {"p": str(patient_id)}
+            )
+            for task_id, created_at in rows:
+                db.add(
+                    AnalysisTask(
+                        id=task_id,
+                        patient_id=patient_id,
+                        analysis_type="comprehensive_health_analysis",
+                        status="pending",
+                        input_summary={"included_mood_record_count": 0},
+                        created_at=created_at,
+                        updated_at=created_at,
+                    )
+                )
+
+    service = AnalysisService(
+        _sessions(app_engine), cursor_secret="pg18-integration-analysis-cursor-signing-secret"
+    )
+    context_a = AuthContext(user_id=user_a, session_id=uuid4())
+    context_b = AuthContext(user_id=user_b, session_id=uuid4())
+    expected_a = [
+        str(task_id)
+        for task_id, _ in sorted(rows_a, key=lambda row: (row[1], row[0]), reverse=True)
+    ]
+    observed: list[str] = []
+    page = service.list(context_a, limit=2)
+    first_cursor = page["next_cursor"]
+    while True:
+        observed.extend(task["id"] for task in page["items"])
+        if page["next_cursor"] is None:
+            break
+        page = service.list(context_a, limit=2, cursor=page["next_cursor"])
+    assert observed == expected_a
+    assert len(observed) == len(set(observed)) == len(rows_a)
+    assert first_cursor
+
+    packed = base64.urlsafe_b64decode(first_cursor + "=" * (-len(first_cursor) % 4))
+    cursor_payload = json.loads(packed[:-32])
+    assert "patient_id" not in cursor_payload
+    assert "patient_scope" in cursor_payload
+    assert str(patient_a).encode() not in packed
+    with pytest.raises(Problem) as cross_patient:
+        service.list(context_b, limit=2, cursor=first_cursor)
+    assert cross_patient.value.status == 400 and cross_patient.value.code == "INVALID_CURSOR"
+    with pytest.raises(Problem) as wrong_limit:
+        service.list(context_a, limit=3, cursor=first_cursor)
+    assert wrong_limit.value.status == 400 and wrong_limit.value.code == "INVALID_CURSOR"
+    altered = first_cursor[:-1] + ("A" if first_cursor[-1] != "A" else "B")
+    with pytest.raises(Problem) as tampered:
+        service.list(context_a, limit=2, cursor=altered)
+    assert tampered.value.status == 400 and tampered.value.code == "INVALID_CURSOR"
+    page_b = service.list(context_b, limit=10)
+    assert {task["id"] for task in page_b["items"]} == {str(task_id) for task_id, _ in rows_b}
+
+
 def test_f07_f11_postgres18_activity_history_and_aggregates(database: Any) -> None:
     """T87-T90: real PG18 RLS, CRUD/version/delete, mixed cursor and SQL metrics."""
     app_engine, migrator_engine = database
@@ -6385,7 +6456,9 @@ def test_f08_t68_t71_worker_lifecycle_and_snapshot_boundaries(database: Any) -> 
     assert all(
         item["source_deleted"] is True and item["locator"] is None for item in projected_evidence
     )
-    listed_task = next(item for item in patient_service.list(context) if item["id"] == str(task_id))
+    listed_task = next(
+        item for item in patient_service.list(context)["items"] if item["id"] == str(task_id)
+    )
     assert all(
         item["source_deleted"] is True and item["locator"] is None
         for item in listed_task["result"]["evidence"]

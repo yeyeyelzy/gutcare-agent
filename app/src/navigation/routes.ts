@@ -32,8 +32,9 @@ export const APP_ROUTES = {
   notificationDetail: { path: '/pages/notifications/detail', access: 'authenticated', returnToAllowed: false },
   notificationPreferences: { path: '/pages/notifications/preferences', access: 'authenticated', returnToAllowed: true },
   notificationTarget: { path: '/pages/notifications/target', access: 'authenticated', returnToAllowed: true },
-  analysisNew: { path: '/pages/placeholder/index?screen=analysisNew', access: 'authenticated', returnToAllowed: true },
-  analysisHistory: { path: '/pages/placeholder/index?screen=analysisHistory', access: 'authenticated', returnToAllowed: true },
+  analysisNew: { path: '/pages/analysis/new', access: 'authenticated', returnToAllowed: true },
+  analysisHistory: { path: '/pages/analysis/history', access: 'authenticated', returnToAllowed: true },
+  analysisTaskDetail: { path: '/pages/analysis/detail', access: 'authenticated', returnToAllowed: true },
   analysisReports: { path: '/pages/placeholder/index?screen=analysisReports', access: 'authenticated', returnToAllowed: true },
   analysisAdvice: { path: '/pages/placeholder/index?screen=analysisAdvice', access: 'authenticated', returnToAllowed: true },
   advice: { path: '/pages/placeholder/index?screen=advice', access: 'authenticated', returnToAllowed: true },
@@ -67,7 +68,7 @@ export function mapNotificationTarget(target: { type: string; id: string } | nul
   }
   return { kind: 'unavailable' }
 }
-export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'accountDeletionProgress' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'privacyCenter' | 'privacyExports' | 'accountDeletionConfirm' | 'placeholder' | 'history' | 'trends' | 'analysisTrends' | RecordWorkspaceRouteName | MoodWorkspaceRouteName | ActivityWorkspaceRouteName | MedicationWorkspaceRouteName | RiskRouteName | NotificationRouteName>
+export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'accountDeletionProgress' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'privacyCenter' | 'privacyExports' | 'accountDeletionConfirm' | 'placeholder' | 'history' | 'trends' | 'analysisTrends' | 'analysisNew' | 'analysisHistory' | 'analysisTaskDetail' | RecordWorkspaceRouteName | MoodWorkspaceRouteName | ActivityWorkspaceRouteName | MedicationWorkspaceRouteName | RiskRouteName | NotificationRouteName>
 export type ProtectedRouteName = {
   [Name in AppRouteName]: typeof APP_ROUTES[Name]['access'] extends 'authenticated' ? Name : never
 }[AppRouteName]
@@ -112,8 +113,6 @@ export function routeNameFromUrl(url: string): AppRouteName | null {
 }
 
 export const PLACEHOLDER_META: Record<PlaceholderRouteName, { title: string; ownerTab: AppTabName }> = {
-  analysisNew: { title: '发起分析', ownerTab: 'analysis' },
-  analysisHistory: { title: '分析历史', ownerTab: 'analysis' },
   analysisReports: { title: '分析报告', ownerTab: 'analysis' },
   analysisAdvice: { title: '个性化建议', ownerTab: 'analysis' },
   advice: { title: '个性化建议', ownerTab: 'me' },

@@ -1233,10 +1233,14 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/AnalysisTask'}
-        '401': {$ref: '#/components/responses/Problem'}
-        '404': {$ref: '#/components/responses/Problem'}
-        '409': {$ref: '#/components/responses/Problem'}
-        '422': {$ref: '#/components/responses/Problem'}
+              examples:
+                accepted:
+                  value: {id: '019a0000-0000-7000-8000-000000000801', analysis_type: comprehensive_health_analysis, status: pending, input_summary: {included_mood_record_count: 0}, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z', attempt: 1, retry_of: null, result: null, error_code: null}
+        '401': {$ref: '#/components/responses/AnalysisTaskAuthProblem'}
+        '404': {$ref: '#/components/responses/AnalysisTaskNotFoundProblem'}
+        '409': {$ref: '#/components/responses/AnalysisTaskConflictProblem'}
+        '422': {$ref: '#/components/responses/AnalysisTaskValidationProblem'}
+        '500': {$ref: '#/components/responses/AnalysisTaskInternalProblem'}
     get:
       summary: 列出当前患者分析任务
       tags: [Analysis]
@@ -1244,19 +1248,21 @@ paths:
       security: [{BearerAuth: []}]
       parameters:
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
-        - {name: cursor, in: query, schema: {type: string}}
+        - {name: cursor, in: query, schema: {type: string, minLength: 1, maxLength: 512}, description: HMAC签名的稳定created_at/id降序游标；绑定当前患者与limit。}
       responses:
         '200':
           description: 患者任务分页
           content:
             application/json:
-              schema:
-                type: object
-                required: [items, next_cursor]
-                properties:
-                  items: {type: array, items: {$ref: '#/components/schemas/AnalysisTask'}}
-                  next_cursor: {type: [string, 'null']}
-        '401': {$ref: '#/components/responses/Problem'}
+              schema: {$ref: '#/components/schemas/AnalysisTaskPage'}
+              examples:
+                first_page:
+                  value: {items: [{id: '019a0000-0000-7000-8000-000000000801', analysis_type: comprehensive_health_analysis, status: pending, input_summary: {included_mood_record_count: 0}, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z', attempt: 1, retry_of: null, result: null, error_code: null}], next_cursor: null}
+        '400': {$ref: '#/components/responses/AnalysisTaskCursorProblem'}
+        '401': {$ref: '#/components/responses/AnalysisTaskAuthProblem'}
+        '404': {$ref: '#/components/responses/AnalysisTaskNotFoundProblem'}
+        '422': {$ref: '#/components/responses/AnalysisTaskValidationProblem'}
+        '500': {$ref: '#/components/responses/AnalysisTaskInternalProblem'}
   /analysis-tasks/preview:
     get:
       summary: 预览综合分析范围内的心情记录计数
@@ -1269,10 +1275,19 @@ paths:
         - {name: requested_from, in: query, schema: {type: string, format: date-time}, description: UTC inclusive start; provide with requested_to, or omit both only for comprehensive_health_analysis.}
         - {name: requested_to, in: query, schema: {type: string, format: date-time}, description: UTC exclusive end; provide with requested_from, or omit both only for comprehensive_health_analysis.}
       responses:
-        '200': {description: 当前范围的心情输入预览, content: {application/json: {schema: {$ref: '#/components/schemas/AnalysisTaskPreview'}}}}
-        '401': {$ref: '#/components/responses/Problem'}
-        '409': {$ref: '#/components/responses/Problem'}
-        '422': {$ref: '#/components/responses/Problem'}
+        '200':
+          description: 当前范围的心情输入预览；不构成最终冻结快照
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnalysisTaskPreview'}
+              examples:
+                mood_preview:
+                  value: {analysis_type: periodic_summary, requested_from: '2026-10-01T00:00:00Z', requested_to: '2026-10-08T00:00:00Z', timezone: Asia/Shanghai, mood_record_count_in_range: 3, mood_record_count_eligible: 2, mood_record_count_excluded_by_consent: 1, mood_exclusion_reasons: [mood_ai_sharing_missing]}
+        '401': {$ref: '#/components/responses/AnalysisTaskAuthProblem'}
+        '404': {$ref: '#/components/responses/AnalysisTaskNotFoundProblem'}
+        '409': {$ref: '#/components/responses/AnalysisTaskConflictProblem'}
+        '422': {$ref: '#/components/responses/AnalysisTaskValidationProblem'}
+        '500': {$ref: '#/components/responses/AnalysisTaskInternalProblem'}
   /analysis-tasks/{task_id}:
     get:
       summary: 获取分析任务及结果
@@ -1287,8 +1302,13 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/AnalysisTask'}
-        '404': {$ref: '#/components/responses/Problem'}
-        '401': {$ref: '#/components/responses/Problem'}
+              examples:
+                current_task:
+                  value: {id: '019a0000-0000-7000-8000-000000000801', analysis_type: comprehensive_health_analysis, status: pending, input_summary: {included_mood_record_count: 0}, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z', attempt: 1, retry_of: null, result: null, error_code: null}
+        '401': {$ref: '#/components/responses/AnalysisTaskAuthProblem'}
+        '404': {$ref: '#/components/responses/AnalysisTaskNotFoundProblem'}
+        '422': {$ref: '#/components/responses/AnalysisTaskValidationProblem'}
+        '500': {$ref: '#/components/responses/AnalysisTaskInternalProblem'}
   /analysis-tasks/{task_id}/cancel:
     post:
       summary: 取消 pending 或 processing 分析任务
@@ -1298,10 +1318,19 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: string, format: uuid}}
       responses:
-        '200': {description: 任务已取消, content: {application/json: {schema: {$ref: '#/components/schemas/AnalysisTask'}}}}
-        '401': {$ref: '#/components/responses/Problem'}
-        '404': {$ref: '#/components/responses/Problem'}
-        '409': {$ref: '#/components/responses/Problem'}
+        '200':
+          description: 已取消的分析任务
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnalysisTask'}
+              examples:
+                cancelled:
+                  value: {id: '019a0000-0000-7000-8000-000000000801', analysis_type: comprehensive_health_analysis, status: cancelled, input_summary: {included_mood_record_count: 0}, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z', attempt: 1, retry_of: null, result: null, error_code: null}
+        '401': {$ref: '#/components/responses/AnalysisTaskAuthProblem'}
+        '404': {$ref: '#/components/responses/AnalysisTaskNotFoundProblem'}
+        '409': {$ref: '#/components/responses/AnalysisTaskConflictProblem'}
+        '422': {$ref: '#/components/responses/AnalysisTaskValidationProblem'}
+        '500': {$ref: '#/components/responses/AnalysisTaskInternalProblem'}
   /analysis-tasks/{task_id}/retry:
     post:
       summary: 显式重试 failed 任务
@@ -1316,10 +1345,17 @@ paths:
           description: 从原不可变快照创建的新尝试
           headers:
             Location: {description: 新任务资源地址, schema: {type: string, format: uri-reference}}
-          content: {application/json: {schema: {$ref: '#/components/schemas/AnalysisTask'}}}
-        '401': {$ref: '#/components/responses/Problem'}
-        '404': {$ref: '#/components/responses/Problem'}
-        '409': {$ref: '#/components/responses/Problem'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnalysisTask'}
+              examples:
+                retried:
+                  value: {id: '019a0000-0000-7000-8000-000000000801', analysis_type: comprehensive_health_analysis, status: pending, input_summary: {included_mood_record_count: 0}, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z', attempt: 2, retry_of: '019a0000-0000-7000-8000-000000000802', result: null, error_code: null}
+        '401': {$ref: '#/components/responses/AnalysisTaskAuthProblem'}
+        '404': {$ref: '#/components/responses/AnalysisTaskNotFoundProblem'}
+        '409': {$ref: '#/components/responses/AnalysisTaskConflictProblem'}
+        '422': {$ref: '#/components/responses/AnalysisTaskValidationProblem'}
+        '500': {$ref: '#/components/responses/AnalysisTaskInternalProblem'}
   /advice:
     get:
       summary: 列出当前患者建议
@@ -1494,6 +1530,54 @@ components:
       content:
         application/problem+json:
           schema: {$ref: '#/components/schemas/Problem'}
+    AnalysisTaskCursorProblem:
+      description: 游标签名、患者作用域、limit 或排序版本无效。
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          examples:
+            invalid_cursor:
+              value: {type: 'https://gutcare.invalid/problems/invalid_cursor', title: Request failed, status: 400, detail: Analysis task cursor is invalid, instance: /api/v1/analysis-tasks, code: INVALID_CURSOR, request_id: '00000000-0000-4000-8000-000000000400'}
+    AnalysisTaskAuthProblem:
+      description: 需要有效的患者会话。
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          examples:
+            authentication_required:
+              value: {type: 'https://gutcare.invalid/problems/authentication_required', title: Request failed, status: 401, detail: Authentication required, instance: /api/v1/analysis-tasks, code: AUTHENTICATION_REQUIRED, request_id: '00000000-0000-4000-8000-000000000401'}
+    AnalysisTaskNotFoundProblem:
+      description: 资源不存在或当前不可用。
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          examples:
+            resource_not_found:
+              value: {type: 'https://gutcare.invalid/problems/resource_not_found', title: Request failed, status: 404, detail: Resource not found, instance: /api/v1/analysis-tasks, code: RESOURCE_NOT_FOUND, request_id: '00000000-0000-4000-8000-000000000404'}
+    AnalysisTaskConflictProblem:
+      description: 授权或任务状态不允许当前操作。
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          examples:
+            task_state_conflict:
+              value: {type: 'https://gutcare.invalid/problems/task_state_conflict', title: Request failed, status: 409, detail: Analysis task state or authorization conflict, instance: /api/v1/analysis-tasks, code: TASK_STATE_CONFLICT, request_id: '00000000-0000-4000-8000-000000000409'}
+    AnalysisTaskValidationProblem:
+      description: 请求字段或路径参数校验失败。
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          examples:
+            validation_error:
+              value: {type: 'https://gutcare.invalid/problems/validation_error', title: Request validation failed, status: 422, detail: Request validation failed, instance: /api/v1/analysis-tasks, code: VALIDATION_ERROR, request_id: '00000000-0000-4000-8000-000000000422'}
+    AnalysisTaskInternalProblem:
+      description: 服务暂不可用。
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          examples:
+            internal_error:
+              value: {type: 'https://gutcare.invalid/problems/internal_error', title: Request failed, status: 500, detail: Service temporarily unavailable, instance: /api/v1/analysis-tasks, code: INTERNAL_ERROR, request_id: '00000000-0000-4000-8000-000000000500'}
     HistoryInvalidCursor:
       description: RFC 9457 Problem Details - cursor tampering or filter mismatch
       content:
@@ -2042,6 +2126,23 @@ components:
           type: array
           uniqueItems: true
           items: {type: string, enum: [mood_data_processing_missing, mood_ai_sharing_missing]}
+    AnalysisTaskPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/AnalysisTask'}}
+        next_cursor: {type: [string, 'null'], maxLength: 512, description: HMAC签名且绑定当前患者与分页limit的opaque游标。}
+    AnalysisResultEvidence:
+      type: object
+      additionalProperties: false
+      required: [source_type, source_id, source_version, locator, source_deleted]
+      properties:
+        source_type: {type: string, enum: [confirmed_medical_fact, diet_record, stool_record, symptom_record, mood_record, medication_plan, medication_checkin, risk_alert]}
+        source_id: {type: string, format: uuid}
+        source_version: {type: integer, minimum: 1}
+        locator: {type: [string, 'null'], maxLength: 160}
+        source_deleted: {type: boolean}
     TrendResponse:
       type: object
       additionalProperties: false
@@ -2278,22 +2379,10 @@ components:
       additionalProperties: false
       required: [schema_version, summary, observations, evidence, uncertainties, missing_data]
       properties:
-        schema_version: {const: '1.0'}
+        schema_version: {type: string, const: '1.0'}
         summary: {type: string, maxLength: 1200}
         observations: {type: array, maxItems: 30, items: {type: string, maxLength: 500}}
-        evidence:
-          type: array
-          maxItems: 100
-          items:
-            type: object
-            additionalProperties: false
-            required: [source_type, source_id, source_version, locator, source_deleted]
-            properties:
-              source_type: {type: string, enum: [confirmed_medical_fact, diet_record, stool_record, symptom_record, mood_record, medication_plan, medication_checkin, risk_alert]}
-              source_id: {type: string, format: uuid}
-              source_version: {type: integer, minimum: 1}
-              locator: {type: [string, 'null'], maxLength: 160}
-              source_deleted: {type: boolean}
+        evidence: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/AnalysisResultEvidence'}}
         uncertainties: {type: array, maxItems: 30, items: {type: string, maxLength: 500}}
         missing_data: {type: array, maxItems: 30, items: {type: string, maxLength: 120}}
     AcceptedOperation:

@@ -28,6 +28,7 @@ import { PrivacyExportApi } from './privacyExportApi'
 import { createPrivacyExportDownloadAdapter } from './privacyExportDownload'
 import { PrivacyDeletionService } from './privacyDeletionService'
 import { NativeDeletionReceiptStore } from './deletionReceiptStore'
+import { AnalysisApi } from './analysisApi'
 
 const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, { allowLocalHttp: import.meta.env.DEV })
 
@@ -71,6 +72,7 @@ export function createAppServices(pinia: Pinia) {
   const activityApi = new ActivityApi(requestClient)
   const historyApi = new HistoryApi(requestClient)
   const trendApi = new TrendApi(requestClient)
+  const analysisApi = new AnalysisApi(requestClient)
   const medicationApi = new MedicationApi(requestClient)
   const riskApi = new RiskApi(requestClient)
   const notificationApi = new NotificationApi(requestClient)
@@ -94,6 +96,7 @@ export function createAppServices(pinia: Pinia) {
     activityApi,
     historyApi,
     trendApi,
+    analysisApi,
     medicationApi,
     riskApi,
     notificationApi,

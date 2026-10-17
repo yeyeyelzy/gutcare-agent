@@ -202,7 +202,9 @@ def create_app(
         sessions = sessionmaker(engine, expire_on_commit=False)
         application.state.record_service = RecordService(sessions)
         application.state.medication_service = MedicationService(sessions)
-        application.state.analysis_service = AnalysisService(sessions)
+        application.state.analysis_service = AnalysisService(
+            sessions, resolved_settings.jwt_signing_key
+        )
         application.state.advice_service = AdviceService(sessions)
         application.state.notification_service = NotificationService(sessions)
         application.state.activity_service = ActivityService(
@@ -245,7 +247,8 @@ def create_app(
                 )
             worker_engine = create_engine(worker_database_url, pool_pre_ping=True)
             application.state.analysis_worker_service = AnalysisService(
-                sessionmaker(worker_engine, expire_on_commit=False)
+                sessionmaker(worker_engine, expire_on_commit=False),
+                resolved_settings.jwt_signing_key,
             )
             application.state.advice_worker_service = AdviceService(
                 sessionmaker(worker_engine, expire_on_commit=False)

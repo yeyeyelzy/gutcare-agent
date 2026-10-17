@@ -83,6 +83,52 @@ describe('named route registry and protected navigation', () => {
     expect(navigator.navigateTo).toHaveBeenCalledWith('/pages/risk-alerts/detail?alert_id=00000000-0000-4000-8000-000000000001')
   })
 
+  it('preserves only a UUID analysis task target through an anonymous deep-link login boundary', () => {
+    const navigator = makeNavigator()
+    let state: AuthState = 'anonymous'
+    const router = new AppRouter(navigator, () => state)
+    const id = '00000000-0000-4000-8000-000000000017'
+    expect(routeNameFromUrl(`${APP_ROUTES.analysisTaskDetail.path}?task_id=${id}&owner=analysis`)).toBe('analysisTaskDetail')
+    expect(router.guardUrl(`${APP_ROUTES.analysisTaskDetail.path}?task_id=${id}&owner=analysis`)).toBe(false)
+    expect(router.returnToStore.take()).toEqual({ name: 'analysisTaskDetail' })
+    expect(router.navigateAnalysisTaskDetail('not-a-uuid')).toBe(false)
+    expect(navigator.reLaunch).toHaveBeenCalledWith(APP_ROUTES.login.path)
+    state = 'authenticated'
+    router.afterAuthentication()
+    expect(navigator.reLaunch).toHaveBeenLastCalledWith(`${APP_ROUTES.analysisTaskDetail.path}?task_id=${id}&owner=analysis`)
+    expect(router.returnFromAnalysisTask('analysis', false)).toBe(true)
+    expect(navigator.reLaunch).toHaveBeenLastCalledWith(APP_ROUTES.analysis.path)
+    expect(router.navigateAnalysisTaskDetail(id, 'me')).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenLastCalledWith(`${APP_ROUTES.analysisTaskDetail.path}?task_id=${id}&owner=me`)
+    state = 'anonymous'
+    expect(router.guardUrl(`${APP_ROUTES.analysisTaskDetail.path}?task_id=${id}&owner=me`)).toBe(false)
+    state = 'authenticated'
+    router.afterAuthentication()
+    expect(navigator.reLaunch).toHaveBeenLastCalledWith(`${APP_ROUTES.analysisTaskDetail.path}?task_id=${id}&owner=me`)
+    expect(router.returnFromAnalysisTask('me', false)).toBe(true)
+    expect(navigator.reLaunch).toHaveBeenLastCalledWith(APP_ROUTES.me.path)
+    expect(APP_ROUTES.analysisNew.path).toBe('/pages/analysis/new')
+    expect(APP_ROUTES.analysisHistory.path).toBe('/pages/analysis/history')
+    expect(APP_ROUTES.analysisTaskDetail.returnToAllowed).toBe(true)
+  })
+
+  it('returns history-origin task details to history without crossing owner tabs or stacking another page', () => {
+    const navigator = makeNavigator()
+    const router = new AppRouter(navigator, () => 'authenticated')
+    const id = '00000000-0000-4000-8000-000000000018'
+    expect(router.navigateAnalysisTaskDetail(id, 'analysis', true)).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenLastCalledWith(`${APP_ROUTES.analysisTaskDetail.path}?task_id=${id}&owner=analysis&from=history`)
+    expect(router.returnFromAnalysisTask('analysis', true)).toBe(true)
+    expect(navigator.redirectTo).toHaveBeenLastCalledWith(`${APP_ROUTES.analysisHistory.path}?owner=analysis`)
+    expect(navigator.reLaunch).not.toHaveBeenCalled()
+
+    expect(router.navigateAnalysisTaskDetail(id, 'me', true)).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenLastCalledWith(`${APP_ROUTES.analysisTaskDetail.path}?task_id=${id}&owner=me&from=history`)
+    expect(router.returnFromAnalysisTask('me', true)).toBe(true)
+    expect(navigator.redirectTo).toHaveBeenLastCalledWith(`${APP_ROUTES.analysisHistory.path}?owner=me`)
+    expect(navigator.reLaunch).not.toHaveBeenCalled()
+  })
+
   it('allows only the protected profile route as a safe profile return target and drops it after auth invalidation', () => {
     const navigator = makeNavigator()
     const router = new AppRouter(navigator, () => 'anonymous')

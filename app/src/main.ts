@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import './styles/global.scss'
 import { createAppServices } from './api/client'
-import { activityApiKey, appRouterKey, authApiKey, consentApiKey, emailVerificationServiceKey, historyApiKey, medicationApiKey, moodApiKey, notificationApiKey, passwordResetServiceKey, privacyApiKey, privacyDeletionServiceKey, privacyExportApiKey, privacyExportDownloadKey, profileApiKey, recordsApiKey, registrationServiceKey, requestClientKey, riskApiKey, sessionServiceKey, startupCoordinatorKey, trendApiKey } from './api/context'
+import { activityApiKey, analysisApiKey, appRouterKey, authApiKey, consentApiKey, emailVerificationServiceKey, historyApiKey, medicationApiKey, moodApiKey, notificationApiKey, passwordResetServiceKey, privacyApiKey, privacyDeletionServiceKey, privacyExportApiKey, privacyExportDownloadKey, profileApiKey, recordsApiKey, registrationServiceKey, requestClientKey, riskApiKey, sessionServiceKey, startupCoordinatorKey, trendApiKey } from './api/context'
 
 export function createApp() {
   const app = createSSRApp(App)
@@ -20,6 +20,7 @@ export function createApp() {
   app.provide(activityApiKey, services.activityApi)
   app.provide(historyApiKey, services.historyApi)
   app.provide(trendApiKey, services.trendApi)
+  app.provide(analysisApiKey, services.analysisApi)
   app.provide(medicationApiKey, services.medicationApi)
   app.provide(riskApiKey, services.riskApi)
   app.provide(notificationApiKey, services.notificationApi)

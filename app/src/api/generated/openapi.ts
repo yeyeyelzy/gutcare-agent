@@ -644,6 +644,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analysis-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出当前患者分析任务 */
+        get: operations["listAnalysisTasks"];
+        put?: never;
+        /**
+         * 创建异步分析任务
+         * @description 分析范围统一使用 UTC 半开区间 [requested_from, requested_to)。periodic_summary 必须同时提供两端；comprehensive_health_analysis 可同时省略两端表示不限定时间，或同时提供两端。任一类型只提供单端均返回 RFC 9457 422，不存在隐含默认边界。与预览采用相同范围校验。同一患者同幂等键及同请求摘要重放原始响应；输入仅由当前授权的已确认数据冻结生成，不含报告正文或对象 URL。
+         */
+        post: operations["createAnalysisTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analysis-tasks/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 预览综合分析范围内的心情记录计数
+         * @description 返回当前患者指定分析类型/时间范围内的 mood 计数，仅为创建前预览建议。requested_from/to 表示 UTC 时间戳的半开区间 [from,to)。periodic_summary 必须同时提供两端；comprehensive_health_analysis 可同时省略两端（表示不限定时间）或同时提供两端。只提供一端均返回 RFC 9457 422，不存在隐含默认边界。响应回显规范化后的范围。范围内计数统计本人未删除记录；计入预览 eligible 的 mood 还需 health_data_processing、mood_data_processing、mood_ai_sharing、third_party_ai 四项授权全部有效。缺失 mood 专项授权只排除 mood，不改变其他符合条件输入。health_data_processing 或 third_party_ai 是现行 F08 整体任务的基础授权；缺少任一项时按既有 F08 授权错误拒绝预览。预览与创建之间记录/授权可能变化，POST /analysis-tasks 必须在同一创建事务和患者 consent fence 内重新计算并冻结实际输入；本响应不保证与后续任务快照计数相同。
+         */
+        get: operations["previewAnalysisTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analysis-tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取分析任务及结果 */
+        get: operations["getAnalysisTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analysis-tasks/{task_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 取消 pending 或 processing 分析任务 */
+        post: operations["cancelAnalysisTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analysis-tasks/{task_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 显式重试 failed 任务 */
+        post: operations["retryAnalysisTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/medication-plans": {
         parameters: {
             query?: never;
@@ -1287,6 +1379,20 @@ export interface components {
             mood_record_count_excluded_by_consent: number;
             mood_exclusion_reasons: ("mood_data_processing_missing" | "mood_ai_sharing_missing")[];
         };
+        AnalysisTaskPage: {
+            items: components["schemas"]["AnalysisTask"][];
+            /** @description HMAC签名且绑定当前患者与分页limit的opaque游标。 */
+            next_cursor: string | null;
+        };
+        AnalysisResultEvidence: {
+            /** @enum {string} */
+            source_type: "confirmed_medical_fact" | "diet_record" | "stool_record" | "symptom_record" | "mood_record" | "medication_plan" | "medication_checkin" | "risk_alert";
+            /** Format: uuid */
+            source_id: string;
+            source_version: number;
+            locator: string | null;
+            source_deleted: boolean;
+        };
         TrendResponse: {
             timezone: string;
             /** Format: date-time */
@@ -1509,15 +1615,7 @@ export interface components {
             schema_version: "1.0";
             summary: string;
             observations: string[];
-            evidence: {
-                /** @enum {string} */
-                source_type: "confirmed_medical_fact" | "diet_record" | "stool_record" | "symptom_record" | "mood_record" | "medication_plan" | "medication_checkin" | "risk_alert";
-                /** Format: uuid */
-                source_id: string;
-                source_version: number;
-                locator: string | null;
-                source_deleted: boolean;
-            }[];
+            evidence: components["schemas"]["AnalysisResultEvidence"][];
             uncertainties: string[];
             missing_data: string[];
         };
@@ -1712,6 +1810,60 @@ export interface components {
     responses: {
         /** @description RFC 9457 Problem Details */
         Problem: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description 游标签名、患者作用域、limit 或排序版本无效。 */
+        AnalysisTaskCursorProblem: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description 需要有效的患者会话。 */
+        AnalysisTaskAuthProblem: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description 资源不存在或当前不可用。 */
+        AnalysisTaskNotFoundProblem: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description 授权或任务状态不允许当前操作。 */
+        AnalysisTaskConflictProblem: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description 请求字段或路径参数校验失败。 */
+        AnalysisTaskValidationProblem: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description 服务暂不可用。 */
+        AnalysisTaskInternalProblem: {
             headers: {
                 [name: string]: unknown;
             };
@@ -3366,6 +3518,183 @@ export interface operations {
             };
             401: components["responses"]["Problem"];
             404: components["responses"]["Problem"];
+        };
+    };
+    listAnalysisTasks: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description HMAC签名的稳定created_at/id降序游标；绑定当前患者与limit。 */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 患者任务分页 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisTaskPage"];
+                };
+            };
+            400: components["responses"]["AnalysisTaskCursorProblem"];
+            401: components["responses"]["AnalysisTaskAuthProblem"];
+            404: components["responses"]["AnalysisTaskNotFoundProblem"];
+            422: components["responses"]["AnalysisTaskValidationProblem"];
+            500: components["responses"]["AnalysisTaskInternalProblem"];
+        };
+    };
+    createAnalysisTask: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalysisTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description 异步任务及不可变输入快照已创建 */
+            202: {
+                headers: {
+                    /** @description 新建任务资源地址 */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisTask"];
+                };
+            };
+            401: components["responses"]["AnalysisTaskAuthProblem"];
+            404: components["responses"]["AnalysisTaskNotFoundProblem"];
+            409: components["responses"]["AnalysisTaskConflictProblem"];
+            422: components["responses"]["AnalysisTaskValidationProblem"];
+            500: components["responses"]["AnalysisTaskInternalProblem"];
+        };
+    };
+    previewAnalysisTask: {
+        parameters: {
+            query: {
+                analysis_type: "comprehensive_health_analysis" | "periodic_summary";
+                /** @description UTC inclusive start; provide with requested_to */
+                requested_from?: string;
+                /** @description UTC exclusive end; provide with requested_from */
+                requested_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 当前范围的心情输入预览；不构成最终冻结快照 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisTaskPreview"];
+                };
+            };
+            401: components["responses"]["AnalysisTaskAuthProblem"];
+            404: components["responses"]["AnalysisTaskNotFoundProblem"];
+            409: components["responses"]["AnalysisTaskConflictProblem"];
+            422: components["responses"]["AnalysisTaskValidationProblem"];
+            500: components["responses"]["AnalysisTaskInternalProblem"];
+        };
+    };
+    getAnalysisTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 任务状态及可用结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisTask"];
+                };
+            };
+            401: components["responses"]["AnalysisTaskAuthProblem"];
+            404: components["responses"]["AnalysisTaskNotFoundProblem"];
+            422: components["responses"]["AnalysisTaskValidationProblem"];
+            500: components["responses"]["AnalysisTaskInternalProblem"];
+        };
+    };
+    cancelAnalysisTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 已取消的分析任务 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisTask"];
+                };
+            };
+            401: components["responses"]["AnalysisTaskAuthProblem"];
+            404: components["responses"]["AnalysisTaskNotFoundProblem"];
+            409: components["responses"]["AnalysisTaskConflictProblem"];
+            422: components["responses"]["AnalysisTaskValidationProblem"];
+            500: components["responses"]["AnalysisTaskInternalProblem"];
+        };
+    };
+    retryAnalysisTask: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 从原不可变快照创建的新尝试 */
+            202: {
+                headers: {
+                    /** @description 新任务资源地址 */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisTask"];
+                };
+            };
+            401: components["responses"]["AnalysisTaskAuthProblem"];
+            404: components["responses"]["AnalysisTaskNotFoundProblem"];
+            409: components["responses"]["AnalysisTaskConflictProblem"];
+            422: components["responses"]["AnalysisTaskValidationProblem"];
+            500: components["responses"]["AnalysisTaskInternalProblem"];
         };
     };
     listMedicationPlans: {
