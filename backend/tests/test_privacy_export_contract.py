@@ -62,9 +62,9 @@ def test_f13_export_runtime_operations_match_the_frozen_six_operation_contract()
         ("/privacy/exports/{export_id}", "post"),
         ("/privacy/exports/{export_id}/cancel", "post"),
     ):
-        runtime_example = runtime["paths"][f"/api/v1{path}"][method]["responses"]["422"][
-            "content"
-        ]["application/problem+json"]["examples"]["problem"]["value"]
+        runtime_example = runtime["paths"][f"/api/v1{path}"][method]["responses"]["422"]["content"][
+            "application/problem+json"
+        ]["examples"]["problem"]["value"]
         assert {key: runtime_example[key] for key in example_fields} == {
             key: yaml_example[key] for key in example_fields
         }
