@@ -1,5 +1,6 @@
 import { AppError, mapProblemDetails } from './errors'
 import { RefreshCoordinator } from './refreshCoordinator'
+import { isDeviceLockedError, mapSecureTokenStoreError, SecureTokenStoreError } from './secureTokenStore'
 import type { SecureTokenStore } from './secureTokenStore'
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -47,14 +48,25 @@ export class RequestClient {
           try {
             return await this.refreshSession()
           } catch (error) {
+            if (isDeviceLockedError(error)) {
+              await this.config.clearSession()
+              throw new AppError('unavailable', '设备锁定期间无法恢复会话，请解锁后重试。', { code: 'DEVICE_LOCKED' })
+            }
+            if (isTransientSessionError(error)) {
+              await this.config.clearSession()
+              throw error
+            }
             await this.clearSession()
             this.config.onAuthenticationRequired()
-            throw error
+            throw error instanceof AppError ? error : mapSecureTokenStoreError(error)
           }
         })
         this.config.setTokens(tokens)
       } catch (error) {
         if (error instanceof AppError) throw error
+        if (error instanceof SecureTokenStoreError) {
+          throw new AppError('unavailable', '安全会话无法继续，请重新登录。', { code: error.code })
+        }
         throw new AppError('http', '登录状态已失效，请重新登录。', { status: 401 })
       }
     }
@@ -83,7 +95,13 @@ export class RequestClient {
 
   /** Persist refresh credentials before publishing the short-lived access token in memory. */
   async acceptSession(tokens: SessionTokens): Promise<void> {
-    await this.config.tokenStore.set(tokens.refresh_token)
+    try {
+      await this.config.tokenStore.set(tokens.refresh_token)
+    } catch (error) {
+      if (isDeviceLockedError(error)) await this.config.clearSession()
+      else await this.clearSession()
+      throw mapSecureTokenStoreError(error)
+    }
     this.config.setTokens(tokens)
   }
 
@@ -138,6 +156,11 @@ export class RequestClient {
 
 function isSafeToRetry(options: RequestOptions): boolean {
   return options.method === 'GET' || options.method === 'PUT' || Boolean(options.idempotencyKey)
+}
+
+function isTransientSessionError(error: unknown): error is AppError {
+  return error instanceof AppError
+    && (error.kind === 'network' || error.kind === 'timeout' || error.kind === 'offline' || error.kind === 'unavailable')
 }
 
 function createRequestId(): string {

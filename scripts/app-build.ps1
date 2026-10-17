@@ -18,10 +18,42 @@ Push-Location $appPath
 try {
     $version = & $node $corepack pnpm --version
     if ($LASTEXITCODE -ne 0 -or $version -ne '10.28.0') { throw "pnpm 10.28.0 is required; resolver reports '$version'." }
-    & $node $corepack pnpm run build:android
-    if ($LASTEXITCODE -ne 0) { throw 'APP Android build failed.' }
-    & $node $corepack pnpm run build:ios
-    if ($LASTEXITCODE -ne 0) { throw 'APP iOS build failed.' }
+    foreach ($target in @(
+        @{ Name = 'Android'; Script = 'build:android'; Artifact = 'dist\build\hx\app\app-android\uni_modules\gutcare-secure-store\manifest.json'; CompilerArtifact = 'dist\build\.tsc\uni_modules\gutcare-secure-store\utssdk\app-android\index.uts.ts' },
+        @{ Name = 'iOS'; Script = 'build:ios'; Artifact = 'dist\build\hx\app\app-ios\uni_modules\gutcare-secure-store\manifest.json'; CompilerArtifact = 'dist\build\.tsc\uni_modules\gutcare-secure-store\utssdk\app-ios\index.uts.ts' }
+    )) {
+        $buildStartedAt = Get-Date
+        $output = & $node $corepack pnpm run $target.Script 2>&1
+        $exitCode = $LASTEXITCODE
+        $output | ForEach-Object { Write-Output $_ }
+        $text = ($output | ForEach-Object { [string]$_ }) -join "`n"
+
+        $diagnostics = @(
+            '(?im)^\s*x\s+',
+            '(?i)Cannot find module:',
+            '(?i)Module not found',
+            '(?i)UTS.{0,40}(error|failed|exception)',
+            '(?i)(Syntax|Compile|Compilation) Error',
+            '(?i)Build failed',
+            '(?i)error TS\d+',
+            '(?i)Error:'
+        )
+        $diagnostic = $diagnostics | Where-Object { $text -match $_ } | Select-Object -First 1
+        if ($exitCode -ne 0 -or $diagnostic) {
+            throw "APP $($target.Name) build failed (exit=$exitCode; diagnostic=$diagnostic)."
+        }
+
+        foreach ($relativeArtifact in @($target.Artifact, $target.CompilerArtifact, 'dist\build\app\app-service.js')) {
+            $artifactPath = Join-Path $appPath $relativeArtifact
+            if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf) -or
+                (Get-Item -LiteralPath $artifactPath).Length -eq 0) {
+                throw "APP $($target.Name) build reported success but expected CLI output is missing: $artifactPath"
+            }
+            if ((Get-Item -LiteralPath $artifactPath).LastWriteTime -lt $buildStartedAt) {
+                throw "APP $($target.Name) build reported success but expected CLI output was not refreshed: $artifactPath"
+            }
+        }
+    }
 } finally {
     Pop-Location
 }

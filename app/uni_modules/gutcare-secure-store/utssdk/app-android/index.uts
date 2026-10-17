@@ -1,0 +1,214 @@
+import Base64 from 'android.util.Base64'
+import Context from 'android.content.Context'
+import File from 'java.io.File'
+import FileOutputStream from 'java.io.FileOutputStream'
+import Os from 'android.system.Os'
+import KeyGenParameterSpec from 'android.security.keystore.KeyGenParameterSpec'
+import KeyProperties from 'android.security.keystore.KeyProperties'
+import KeyStore from 'java.security.KeyStore'
+import SecretKey from 'javax.crypto.SecretKey'
+import KeyGenerator from 'javax.crypto.KeyGenerator'
+import Cipher from 'javax.crypto.Cipher'
+import GCMParameterSpec from 'javax.crypto.spec.GCMParameterSpec'
+import SecureRandom from 'java.security.SecureRandom'
+import AEADBadTagException from 'javax.crypto.AEADBadTagException'
+import BadPaddingException from 'javax.crypto.BadPaddingException'
+import KeyPermanentlyInvalidatedException from 'android.security.keystore.KeyPermanentlyInvalidatedException'
+import UserNotAuthenticatedException from 'android.security.keystore.UserNotAuthenticatedException'
+import UnrecoverableKeyException from 'java.security.UnrecoverableKeyException'
+import InvalidKeyException from 'java.security.InvalidKeyException'
+import { UTSAndroid } from 'io.dcloud.uts'
+import { SecureStoreNativeError } from '../interface.uts'
+
+const KEY_ALIAS = 'gutcare.refresh-token.aes.v1'
+const FILE_NAME = 'gutcare-refresh-token-v1.json'
+const TEMP_NAME = 'gutcare-refresh-token-v1.tmp'
+const ENVELOPE_VERSION = 1
+const AAD = 'gutcare.refresh-token.v1'
+
+interface Envelope {
+  v: number
+  iv: string
+  ciphertext: string
+}
+
+function appContext(): Context {
+  return UTSAndroid.getAppContext() as Context
+}
+
+function tokenFile(): File {
+  return new File(appContext().getNoBackupFilesDir(), FILE_NAME)
+}
+
+function tempFile(): File {
+  return new File(appContext().getNoBackupFilesDir(), TEMP_NAME)
+}
+
+function keyStore(): KeyStore {
+  const store = KeyStore.getInstance('AndroidKeyStore')
+  store.load(null)
+  return store
+}
+
+function existingKey(): SecretKey | null {
+  const store = keyStore()
+  if (!store.containsAlias(KEY_ALIAS)) return null
+  const key = store.getKey(KEY_ALIAS, null)
+  if (key == null) return null
+  return key as SecretKey
+}
+
+function createKey(): SecretKey {
+  const generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, 'AndroidKeyStore')
+  const spec = new KeyGenParameterSpec.Builder(
+    KEY_ALIAS,
+    KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT,
+  )
+    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+    .setKeySize(256)
+    .setRandomizedEncryptionRequired(true)
+    .build()
+  generator.init(spec)
+  return generator.generateKey()
+}
+
+function getOrCreateKey(): SecretKey {
+  return existingKey() ?? createKey()
+}
+
+function deleteKey(): void {
+  const store = keyStore()
+  if (store.containsAlias(KEY_ALIAS)) store.deleteEntry(KEY_ALIAS)
+}
+
+function deleteTokenFile(): void {
+  const file = tokenFile()
+  if (file.exists() && !file.delete()) throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
+  const temporary = tempFile()
+  if (temporary.exists() && !temporary.delete()) throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
+}
+
+function purgeInvalidData(): void {
+  deleteTokenFile()
+  deleteKey()
+}
+
+function codeFor(error: any): string {
+  if (error instanceof UserNotAuthenticatedException) return 'DEVICE_LOCKED'
+  if (error instanceof KeyPermanentlyInvalidatedException || error instanceof UnrecoverableKeyException || error instanceof InvalidKeyException) return 'KEY_INVALIDATED'
+  if (error instanceof AEADBadTagException || error instanceof BadPaddingException) return 'CORRUPT_DATA'
+  return 'SECURE_STORAGE_FAILED'
+}
+
+function throwMapped(error: any): never {
+  if (error instanceof SecureStoreNativeError) throw error
+  const code = codeFor(error)
+  if (code == 'DEVICE_LOCKED') throw new SecureStoreNativeError('DEVICE_LOCKED')
+  if (code == 'KEY_INVALIDATED') throw new SecureStoreNativeError('KEY_INVALIDATED')
+  if (code == 'CORRUPT_DATA') throw new SecureStoreNativeError('CORRUPT_DATA')
+  throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
+}
+
+function writeAtomically(contents: string): void {
+  const destination = tokenFile()
+  const temporary = tempFile()
+  let output: FileOutputStream | null = null
+  try {
+    output = new FileOutputStream(temporary, false)
+    output.write(contents.getBytes('UTF-8'))
+    output.flush()
+    output.getFD().sync()
+    output.close()
+    output = null
+    Os.rename(temporary.getAbsolutePath(), destination.getAbsolutePath())
+  } catch (error) {
+    if (output != null) output.close()
+    if (temporary.exists()) temporary.delete()
+    throwMapped(error)
+  }
+}
+
+function readEnvelope(): Envelope {
+  let source: string
+  try {
+    source = tokenFile().readText('UTF-8')
+  } catch (_error) {
+    throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
+  }
+  try {
+    const parsed = JSON.parse(source) as Envelope
+    if (parsed.v != ENVELOPE_VERSION || typeof parsed.iv != 'string' || typeof parsed.ciphertext != 'string') {
+      throw new SecureStoreNativeError('CORRUPT_DATA')
+    }
+    const iv = Base64.decode(parsed.iv, Base64.NO_WRAP)
+    const ciphertext = Base64.decode(parsed.ciphertext, Base64.NO_WRAP)
+    if (iv.length != 12 || ciphertext.length < 16) throw new SecureStoreNativeError('CORRUPT_DATA')
+    return parsed
+  } catch (error) {
+    if (error instanceof SecureStoreNativeError) throw error
+    throw new SecureStoreNativeError('CORRUPT_DATA')
+  }
+}
+
+function decrypt(envelope: Envelope): string {
+  const store = keyStore()
+  if (!store.containsAlias(KEY_ALIAS)) throw new SecureStoreNativeError('KEY_INVALIDATED')
+  const key = existingKey()
+  if (key == null) throw new SecureStoreNativeError('KEY_INVALIDATED')
+  const iv = Base64.decode(envelope.iv, Base64.NO_WRAP)
+  const encrypted = Base64.decode(envelope.ciphertext, Base64.NO_WRAP)
+  const cipher = Cipher.getInstance('AES/GCM/NoPadding')
+  cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, iv))
+  cipher.updateAAD(AAD.getBytes('UTF-8'))
+  return String(cipher.doFinal(encrypted), 'UTF-8')
+}
+
+export function set(value: string): void {
+  if (value.length == 0) throw new SecureStoreNativeError('INVALID_VALUE')
+  try {
+    const cipher = Cipher.getInstance('AES/GCM/NoPadding')
+    cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(), new SecureRandom())
+    cipher.updateAAD(AAD.getBytes('UTF-8'))
+    const ciphertext = cipher.doFinal(value.getBytes('UTF-8'))
+    if (cipher.iv.length != 12) throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
+    const envelope: Envelope = {
+      v: ENVELOPE_VERSION,
+      iv: Base64.encodeToString(cipher.iv, Base64.NO_WRAP),
+      ciphertext: Base64.encodeToString(ciphertext, Base64.NO_WRAP),
+    }
+    writeAtomically(JSON.stringify(envelope))
+  } catch (error) {
+    throwMapped(error)
+  }
+}
+
+export function get(): string | null {
+  if (!tokenFile().exists()) return null
+  try {
+    return decrypt(readEnvelope())
+  } catch (error) {
+    const code = error instanceof SecureStoreNativeError ? error.code : codeFor(error)
+    if (code == 'DEVICE_LOCKED') throw new SecureStoreNativeError('DEVICE_LOCKED')
+    if (code == 'CORRUPT_DATA' || code == 'KEY_INVALIDATED') {
+      try { purgeInvalidData() } catch (_cleanupError) {
+        throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
+      }
+      throw new SecureStoreNativeError(code as 'CORRUPT_DATA' | 'KEY_INVALIDATED')
+    }
+    throwMapped(error)
+  }
+}
+
+export function has(): boolean {
+  return get() != null
+}
+
+export function remove(): void {
+  try {
+    deleteKey()
+    deleteTokenFile()
+  } catch (error) {
+    throwMapped(error)
+  }
+}

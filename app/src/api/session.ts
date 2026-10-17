@@ -1,4 +1,5 @@
 import type { RequestClient, SessionTokens } from './requestClient'
+import { isDeviceLockedError, mapSecureTokenStoreError } from './secureTokenStore'
 import type { SecureTokenStore } from './secureTokenStore'
 import type { useAuthStore } from '@/stores/auth'
 
@@ -30,20 +31,46 @@ export class SessionService {
       }
       this.auth.acceptAccessToken(tokens.access_token)
       return true
-    } catch {
+    } catch (error) {
+      if (isDeviceLockedError(error)) {
+        this.auth.clear()
+        throw mapSecureTokenStoreError(error)
+      }
+      if (isTransientRestoreError(error)) {
+        this.auth.clear()
+        throw error
+      }
       await this.tokenStore.remove().catch(() => undefined)
       this.auth.clear()
+      this.onAuthenticationRequired()
       return false
     }
   }
 
   async logout(): Promise<void> {
+    let storageError: unknown
+    try {
+      await this.tokenStore.remove()
+    } catch (error) {
+      storageError = error
+    }
+
+    let requestError: unknown
     try {
       await this.client.request<void>({ method: 'POST', path: '/auth/logout', retryOnUnauthorized: false })
+    } catch (error) {
+      requestError = error
     } finally {
-      await this.tokenStore.remove().catch(() => undefined)
       this.auth.clear()
       this.onAuthenticationRequired()
     }
+
+    if (storageError !== undefined) throw mapSecureTokenStoreError(storageError)
+    if (requestError !== undefined) throw requestError
   }
+}
+
+function isTransientRestoreError(error: unknown): boolean {
+  return error instanceof Error && 'kind' in error
+    && ['network', 'timeout', 'offline', 'unavailable'].includes(String((error as { kind: unknown }).kind))
 }

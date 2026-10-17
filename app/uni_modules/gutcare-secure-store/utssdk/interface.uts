@@ -1,0 +1,16 @@
+export type SecureStoreErrorCode = 'DEVICE_LOCKED' | 'CORRUPT_DATA' | 'KEY_INVALIDATED' | 'UNSUPPORTED_PLATFORM' | 'INVALID_VALUE' | 'SECURE_STORAGE_FAILED'
+
+export class SecureStoreNativeError extends Error {
+  readonly code: SecureStoreErrorCode
+
+  constructor(code: SecureStoreErrorCode) {
+    super('SECURE_STORE_' + code)
+    this.name = 'SecureStoreNativeError'
+    this.code = code
+  }
+}
+
+export function set(value: string): void
+export function get(): string | null
+export function remove(): void
+export function has(): boolean

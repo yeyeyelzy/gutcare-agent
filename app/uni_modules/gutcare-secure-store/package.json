@@ -1,0 +1,6 @@
+{
+  "id": "gutcare-secure-store",
+  "displayName": "GutCare Secure Token Store",
+  "version": "1.0.0",
+  "description": "Native-only Keychain and Android Keystore protected refresh token storage."
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AppError } from '../src/api/errors'
 import { RequestClient } from '../src/api/requestClient'
-import { MemorySecureTokenStore } from '../src/api/secureTokenStore'
+import { MemorySecureTokenStore, SecureTokenStoreError } from '../src/api/secureTokenStore'
 import type { HttpResponse, HttpTransport, RequestOptions, SessionTokens } from '../src/api/requestClient'
 
 const tokens: SessionTokens = {
@@ -96,6 +96,59 @@ describe('RequestClient', () => {
     const send: HttpTransport['send'] = async <T>() => ({ status: 401, data: { title: 'Invalid credentials', status: 401 } as T })
     const { client, onAuthenticationRequired } = makeClient(send)
     await expect(client.request({ method: 'POST', path: '/auth/login', retryOnUnauthorized: false })).rejects.toBeInstanceOf(AppError)
+    expect(onAuthenticationRequired).not.toHaveBeenCalled()
+  })
+
+  it('does not publish access credentials when refresh rotation cannot be persisted', async () => {
+    const store = new MemorySecureTokenStore()
+    await store.set('fixture-old-refresh')
+    const set = vi.spyOn(store, 'set').mockRejectedValue(new SecureTokenStoreError('SECURE_STORAGE_FAILED'))
+    let calls = 0
+    const send: HttpTransport['send'] = async <T>(_url: string, options: RequestOptions & { headers: Record<string, string> }): Promise<HttpResponse<T>> => {
+      calls += 1
+      if (options.path === '/auth/refresh') return { status: 200, data: tokens as T }
+      return { status: 401, data: { title: 'Unauthorized', status: 401, code: 'TOKEN_EXPIRED' } as T }
+    }
+    const access = { value: null as string | null }
+    const onAuthenticationRequired = vi.fn()
+    const failingClient = new RequestClient({
+      baseUrl: 'https://api.example.invalid/api/v1', appVersion: 'test', transport: { send }, tokenStore: store,
+      getAccessToken: () => access.value,
+      setTokens: (value) => { access.value = value.access_token },
+      clearSession: async () => { access.value = null },
+      onAuthenticationRequired,
+      createRequestId: () => 'request-test',
+    })
+    await expect(failingClient.request({ method: 'GET', path: '/patients/me' })).rejects.toMatchObject({ code: 'SECURE_STORAGE_FAILED' })
+    expect(set).toHaveBeenCalledTimes(1)
+    expect(access.value).toBeNull()
+    expect(await store.has()).toBe(false)
+    expect(onAuthenticationRequired).toHaveBeenCalledTimes(1)
+    expect(calls).toBe(2)
+  })
+
+  it('preserves a stored refresh token when the device is locked during rotation', async () => {
+    const store = new MemorySecureTokenStore()
+    await store.set('fixture-locked-refresh')
+    const lockedStore = {
+      get: () => { throw new SecureTokenStoreError('DEVICE_LOCKED') },
+      set: (value: string) => store.set(value),
+      remove: () => store.remove(),
+      has: () => store.has(),
+    }
+    const send: HttpTransport['send'] = async <T>() => ({ status: 401, data: { title: 'Unauthorized', status: 401, code: 'TOKEN_EXPIRED' } as T })
+    const access = { value: 'expired-access' as string | null }
+    const onAuthenticationRequired = vi.fn()
+    const client = new RequestClient({
+      baseUrl: 'https://api.example.invalid/api/v1', appVersion: 'test', transport: { send }, tokenStore: lockedStore,
+      getAccessToken: () => access.value,
+      setTokens: (value) => { access.value = value.access_token },
+      clearSession: async () => { access.value = null },
+      onAuthenticationRequired,
+    })
+    await expect(client.request({ method: 'GET', path: '/patients/me' })).rejects.toMatchObject({ code: 'DEVICE_LOCKED' })
+    expect(await store.get()).toBe('fixture-locked-refresh')
+    expect(access.value).toBeNull()
     expect(onAuthenticationRequired).not.toHaveBeenCalled()
   })
 })

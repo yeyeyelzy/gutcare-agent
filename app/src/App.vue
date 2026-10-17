@@ -1,3 +1,3 @@
 <script setup lang="ts">
-// Application lifecycle remains intentionally UI-independent until native secure storage is integrated.
+// Session restoration and protected-route selection remain for the authentication-flow slice.
 </script>

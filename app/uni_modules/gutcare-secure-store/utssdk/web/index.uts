@@ -1,0 +1,17 @@
+import { SecureStoreNativeError } from '../interface.uts'
+
+export function set(_value: string): void {
+  throw new SecureStoreNativeError('UNSUPPORTED_PLATFORM')
+}
+
+export function get(): string | null {
+  throw new SecureStoreNativeError('UNSUPPORTED_PLATFORM')
+}
+
+export function remove(): void {
+  throw new SecureStoreNativeError('UNSUPPORTED_PLATFORM')
+}
+
+export function has(): boolean {
+  throw new SecureStoreNativeError('UNSUPPORTED_PLATFORM')
+}

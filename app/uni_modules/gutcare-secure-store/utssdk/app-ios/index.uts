@@ -1,0 +1,178 @@
+import { Data, FileManager, NSError, URL, URLResourceValues } from 'Foundation'
+import {
+  errSecDuplicateItem,
+  errSecInteractionNotAllowed,
+  errSecItemNotFound,
+  errSecSuccess,
+  kSecAttrAccessible,
+  kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+  kSecAttrAccount,
+  kSecAttrService,
+  kSecAttrSynchronizable,
+  kSecClass,
+  kSecClassGenericPassword,
+  kSecMatchLimit,
+  kSecMatchLimitOne,
+  kSecReturnData,
+  kSecValueData,
+  SecItemAdd,
+  SecItemCopyMatching,
+  SecItemDelete,
+  SecItemUpdate,
+} from 'Security'
+import { UTSiOS } from 'DCloudUTSFoundation'
+import { SecureStoreNativeError } from '../interface.uts'
+
+const SERVICE = 'com.gutcare.mobile.secure-token-store'
+const ACCOUNT = 'refresh-token-v1'
+const INSTALL_MARKER = 'gutcare-secure-store-install-v1'
+
+function baseQuery(): Map<string, any> {
+  const query = new Map<string, any>()
+  query.set(kSecClass as string, kSecClassGenericPassword)
+  query.set(kSecAttrService as string, SERVICE)
+  query.set(kSecAttrAccount as string, ACCOUNT)
+  query.set(kSecAttrSynchronizable as string, false)
+  return query
+}
+
+function markerURL(): URL {
+  const support = FileManager.default.urls(
+    for = FileManager.SearchPathDirectory.applicationSupportDirectory,
+    in = FileManager.SearchPathDomainMask.userDomainMask,
+  ).first!
+  return support.appendingPathComponent(INSTALL_MARKER, isDirectory = false)
+}
+
+function markerExists(url: URL): boolean {
+  try {
+    FileManager.default.attributesOfItem(atPath = url.path)
+    return true
+  } catch (error) {
+    const failure = error as NSError
+    if (failure.code == NSFileNoSuchFileError) return false
+    throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
+  }
+}
+
+function mapStatus(status: OSStatus, allowNotFound = false): void {
+  if (status == errSecSuccess || (allowNotFound && status == errSecItemNotFound)) return
+  if (status == errSecInteractionNotAllowed) throw new SecureStoreNativeError('DEVICE_LOCKED')
+  throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
+}
+
+function excludeMarkerFromBackup(url: URL): void {
+  try {
+    var values = URLResourceValues()
+    values.isExcludedFromBackup = true
+    url.setResourceValues(values)
+  } catch (_error) {
+    throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
+  }
+}
+
+function deleteKeychainItem(): void {
+  // Keychain deletion is idempotent: an already-absent item is a successful outcome here only.
+  mapStatus(SecItemDelete(baseQuery() as CFDictionary), true)
+}
+
+function ensureInstallMarker(): void {
+  const manager = FileManager.default
+  const support = manager.urls(
+    for = FileManager.SearchPathDirectory.applicationSupportDirectory,
+    in = FileManager.SearchPathDomainMask.userDomainMask,
+  ).first!
+  try {
+    manager.createDirectory(at = support, withIntermediateDirectories = true, attributes = nil)
+  } catch (_error) {
+    throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
+  }
+
+  const marker = markerURL()
+  if (markerExists(marker)) {
+    excludeMarkerFromBackup(marker)
+    return
+  }
+
+  // Keychain items can survive app removal. An app-container marker does not; purge stale credentials
+  // on first launch after install. The marker itself is excluded from backups.
+  deleteKeychainItem()
+  try {
+    Data('v1'.utf8).write(to = marker, options = Data.WritingOptions.atomic)
+    excludeMarkerFromBackup(marker)
+  } catch (_error) {
+    try {
+      manager.removeItem(at = marker)
+    } catch (_cleanupError) {}
+    throw new SecureStoreNativeError('SECURE_STORAGE_FAILED')
+  }
+}
+
+export function set(value: string): void {
+  if (value.length == 0) throw new SecureStoreNativeError('INVALID_VALUE')
+  ensureInstallMarker()
+  const data = Data(value.utf8)
+  const attributes = baseQuery()
+  attributes.set(kSecAttrAccessible as string, kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
+  attributes.set(kSecValueData as string, data)
+
+  const addStatus = SecItemAdd(attributes as CFDictionary, nil)
+  if (addStatus == errSecSuccess) return
+  if (addStatus != errSecDuplicateItem) mapStatus(addStatus)
+
+  const updateAttributes = new Map<string, any>()
+  updateAttributes.set(kSecValueData as string, data)
+  updateAttributes.set(kSecAttrAccessible as string, kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
+  updateAttributes.set(kSecAttrSynchronizable as string, false)
+
+  const updateStatus = SecItemUpdate(baseQuery() as CFDictionary, updateAttributes as CFDictionary)
+  if (updateStatus == errSecSuccess) return
+  if (updateStatus != errSecItemNotFound) mapStatus(updateStatus)
+
+  // The item may have disappeared between duplicate Add and Update. Retry Add once;
+  // if another writer wins that race too, retry Update once and fail on every other status.
+  const retryAddStatus = SecItemAdd(attributes as CFDictionary, nil)
+  if (retryAddStatus == errSecSuccess) return
+  if (retryAddStatus != errSecDuplicateItem) mapStatus(retryAddStatus)
+
+  const retryUpdateStatus = SecItemUpdate(baseQuery() as CFDictionary, updateAttributes as CFDictionary)
+  mapStatus(retryUpdateStatus)
+}
+
+export function get(): string | null {
+  ensureInstallMarker()
+  const query = baseQuery()
+  query.set(kSecReturnData as string, true)
+  query.set(kSecMatchLimit as string, kSecMatchLimitOne)
+  var result: CFTypeRef | null = null
+  const status = SecItemCopyMatching(query as CFDictionary, UTSiOS.getPointer(result))
+  if (status == errSecItemNotFound) return null
+  mapStatus(status)
+  const data = result as Data
+  if (data == null) {
+    deleteKeychainItem()
+    throw new SecureStoreNativeError('CORRUPT_DATA')
+  }
+  const value = String(data = data!, encoding = String.Encoding.utf8)
+  if (value == null || value!.length == 0) {
+    deleteKeychainItem()
+    throw new SecureStoreNativeError('CORRUPT_DATA')
+  }
+  return value!
+}
+
+export function remove(): void {
+  ensureInstallMarker()
+  mapStatus(SecItemDelete(baseQuery() as CFDictionary), true)
+}
+
+export function has(): boolean {
+  ensureInstallMarker()
+  const query = baseQuery()
+  query.set(kSecReturnData as string, false)
+  query.set(kSecMatchLimit as string, kSecMatchLimitOne)
+  const status = SecItemCopyMatching(query as CFDictionary, nil)
+  if (status == errSecItemNotFound) return false
+  mapStatus(status)
+  return true
+}

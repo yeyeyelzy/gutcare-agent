@@ -1,5 +1,5 @@
 import { RequestClient } from './requestClient'
-import { NativeSecureTokenStoreUnavailable } from './secureTokenStore'
+import { nativeSecureTokenStore } from './secureStoreNative'
 import type { SecureTokenStore } from './secureTokenStore'
 import { SessionService } from './session'
 import { UniRequestTransport } from './uniTransport'
@@ -11,7 +11,7 @@ const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, { allowL
 
 /** Build the single app-wide transport after Pinia is installed. */
 export function createAppRequestClient(pinia: Pinia): RequestClient {
-  return createRequestClient(pinia, new NativeSecureTokenStoreUnavailable())
+  return createRequestClient(pinia, nativeSecureTokenStore)
 }
 
 function createRequestClient(pinia: Pinia, tokenStore: SecureTokenStore): RequestClient {
@@ -20,7 +20,7 @@ function createRequestClient(pinia: Pinia, tokenStore: SecureTokenStore): Reques
     baseUrl: apiBaseUrl,
     appVersion: import.meta.env.VITE_APP_VERSION || '0.1.0',
     transport: new UniRequestTransport(),
-    // Deliberately fail closed until the audited Keychain/Keystore UTS adapter exists.
+    // Native-only adapter; unsupported targets fail closed without web storage fallback.
     tokenStore,
     getAccessToken: () => auth.accessToken,
     setTokens: (tokens) => auth.acceptAccessToken(tokens.access_token),
@@ -36,7 +36,7 @@ function createRequestClient(pinia: Pinia, tokenStore: SecureTokenStore): Reques
 
 export function createAppServices(pinia: Pinia) {
   const auth = useAuthStore(pinia)
-  const tokenStore = new NativeSecureTokenStoreUnavailable()
+  const tokenStore = nativeSecureTokenStore
   const requestClient = createRequestClient(pinia, tokenStore)
   return {
     requestClient,
