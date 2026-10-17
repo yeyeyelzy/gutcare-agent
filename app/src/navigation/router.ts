@@ -1,5 +1,5 @@
-import { APP_ROUTES, decideRouteAccess, isRegistrationFlowRoute, parseReturnTo, routeNameFromUrl } from './routes'
-import type { AppRouteName, ReturnToTarget } from './routes'
+import { APP_ROUTES, APP_TABS, decideRouteAccess, isRegistrationFlowRoute, parseReturnTo, routeNameFromUrl } from './routes'
+import type { AppRouteName, AppTabName, ReturnToTarget } from './routes'
 import type { AuthState } from '../stores/auth'
 
 export interface Navigator {
@@ -7,6 +7,7 @@ export interface Navigator {
   redirectTo(url: string): void
   reLaunch(url: string): void
   navigateBack(): void
+  switchTab?(url: string): void
 }
 
 export class MemoryReturnToStore {
@@ -28,6 +29,8 @@ export class MemoryReturnToStore {
 }
 
 export class AppRouter {
+  private loginRedirectPending = false
+
   constructor(
     private readonly navigator: Navigator,
     private readonly getAuthState: () => AuthState,
@@ -39,6 +42,15 @@ export class AppRouter {
     if (!this.authorize(name)) return false
     this.clearDraftIfLeavingFlow(name)
     this.navigator.navigateTo(APP_ROUTES[name].path)
+    return true
+  }
+
+  switchTab(name: AppTabName): boolean {
+    if (!this.authorize(name)) return false
+    this.clearDraftIfLeavingFlow(name)
+    const url = APP_ROUTES[name].path
+    if (this.navigator.switchTab) this.navigator.switchTab(url)
+    else this.navigator.reLaunch(url)
     return true
   }
 
@@ -63,14 +75,15 @@ export class AppRouter {
   requireAuthentication(name: AppRouteName): void {
     const decision = decideRouteAccess(name, this.getAuthState())
     if (decision.action === 'redirect_to_login') this.returnToStore.save(decision.returnTo)
-    this.navigator.reLaunch(APP_ROUTES.login.path)
+    this.redirectToLoginOnce()
   }
 
   showLoginForAuthentication(): void {
-    this.navigator.reLaunch(APP_ROUTES.login.path)
+    this.redirectToLoginOnce()
   }
 
   afterAuthentication(): void {
+    this.loginRedirectPending = false
     const target = this.returnToStore.take() ?? { name: 'today' as const }
     this.navigator.reLaunch(APP_ROUTES[target.name].path)
   }
@@ -78,15 +91,16 @@ export class AppRouter {
   onAuthenticationRequired(): void {
     // A rejected refresh can mean expiry or account deactivation; both start with a clean public stack.
     this.returnToStore.clear()
-    this.navigator.reLaunch(APP_ROUTES.login.path)
+    this.redirectToLoginOnce()
   }
 
   onLogoutCompleted(): void {
     this.returnToStore.clear()
-    this.navigator.reLaunch(APP_ROUTES.login.path)
+    this.redirectToLoginOnce()
   }
 
   showProfileIntegrityError(): void {
+    this.loginRedirectPending = false
     this.returnToStore.clear()
     this.navigator.reLaunch(APP_ROUTES.profileError.path)
   }
@@ -113,6 +127,12 @@ export class AppRouter {
     return false
   }
 
+  private redirectToLoginOnce(): void {
+    if (this.loginRedirectPending) return
+    this.loginRedirectPending = true
+    this.navigator.reLaunch(APP_ROUTES.login.path)
+  }
+
   private clearDraftIfLeavingFlow(name: AppRouteName): void {
     if (!isRegistrationFlowRoute(name)) this.clearRegistrationDraft()
   }
@@ -137,4 +157,8 @@ export function installGlobalRouteGuards(router: AppRouter): void {
   for (const method of ['navigateTo', 'redirectTo', 'reLaunch', 'switchTab']) {
     uni.addInterceptor(method, interceptor)
   }
+}
+
+export function tabNameForRoute(name: AppRouteName | null): AppTabName | null {
+  return name && APP_TABS.includes(name as AppTabName) ? name as AppTabName : null
 }

@@ -70,11 +70,11 @@ describe('authentication component and page contracts', () => {
     expect(page).toContain('此入口不会自动发送任何资料')
   })
 
-  it('protects本人 profile editing and confirms logout while exposing no patient-id control', () => {
+  it('protects本人 profile editing and logout while exposing no patient-id control', () => {
     const routes = read('src/navigation/routes.ts')
     const pageRegistry = read('src/pages.json')
     const profilePage = read('src/pages/profile/index.vue')
-    const homePage = read('src/pages/home/index.vue')
+    const homePage = read('src/pages/tabs/today/index.vue')
     expect(routes).toContain("profile: { path: '/pages/profile/index', access: 'authenticated', returnToAllowed: true }")
     expect(pageRegistry).toContain('"path": "pages/profile/index"')
     expect(profilePage).toContain('profileApi.getMyProfile()')
@@ -83,9 +83,45 @@ describe('authentication component and page contracts', () => {
     expect(profilePage).toContain('conflictReview')
     expect(profilePage).toContain('clearStoredSession()')
     expect(profilePage).not.toMatch(/v-model="[^\"]*patient_id|id="profile-patient-id"/)
-    expect(homePage).toContain('uni.showModal')
-    expect(homePage).toContain('logoutBusy')
-    expect(homePage).toContain('logoutPromptOpen')
+    expect(homePage).toContain("router?.navigate('recordDiet')")
     expect(profilePage).toContain('logoutPromptOpen')
+  })
+
+  it('registers four protected named roots, one accessible custom bottom navigation, and safe route placeholders', () => {
+    const routes = read('src/navigation/routes.ts')
+    const pages = read('src/pages.json')
+    const nav = read('src/components/GcBottomNav.vue')
+    const placeholder = read('src/pages/placeholder/index.vue')
+    for (const name of ['today', 'records', 'analysis', 'me']) {
+      expect(routes).toContain(`${name}: { path: '/pages/tabs/${name}/index', logicalPath: '/tabs/${name}', access: 'authenticated', returnToAllowed: true, tab: true }`)
+      expect(pages).toContain(`"path": "pages/tabs/${name}/index"`)
+      expect(nav).toContain(`name: '${name}'`)
+    }
+    expect(nav).toContain('role="navigation" aria-label="主导航"')
+    expect(nav).toContain(':aria-current="active === item.name ? \'page\' : undefined"')
+    expect(nav).toContain('min-height: 48px')
+    expect(nav).toContain('env(safe-area-inset-bottom')
+    expect(placeholder).toContain('功能建设中')
+    expect(placeholder).toContain('不会展示模拟记录')
+    expect(placeholder).toContain('router?.switchTab(owner.value)')
+    expect(routes).not.toContain("assistant: {")
+    expect(read('src/pages/tabs/analysis/index.vue')).not.toContain('AI 助手')
+    expect(read('src/pages/tabs/me/index.vue')).toContain('<GcAvatar size="profile" />')
+  })
+
+  it('renders dashboard source states without claiming unavailable records are empty and routes all quick actions', () => {
+    const status = read('src/components/DashboardDataStatus.vue')
+    const today = read('src/pages/tabs/today/index.vue')
+    const records = read('src/pages/tabs/records/index.vue')
+    expect(status).toContain("'loading' | 'empty' | 'error' | 'unavailable'")
+    expect(today).toContain('summary-status')
+    expect(today).toContain('medication-status')
+    expect(today).toContain('diet-status')
+    expect(today).toContain('trend-status')
+    for (const route of ['recordDiet', 'recordBowel', 'recordSymptoms', 'recordMood', 'recordActivity']) {
+      expect(today).toContain(`route: '${route}'`)
+      expect(records).toContain(`route: '${route}'`)
+    }
+    expect(records).toContain('record-categories')
   })
 })

@@ -8,8 +8,12 @@
     { "path": "pages/auth/forgot-password", "style": { "navigationStyle": "custom" } },
     { "path": "pages/auth/reset-password", "style": { "navigationStyle": "custom" } },
     { "path": "pages/auth/profile-error", "style": { "navigationStyle": "custom" } },
-    { "path": "pages/home/index", "style": { "navigationBarTitleText": "GutCare" } },
-    { "path": "pages/profile/index", "style": { "navigationStyle": "custom" } }
+    { "path": "pages/tabs/today/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/tabs/records/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/tabs/analysis/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/tabs/me/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/profile/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/placeholder/index", "style": { "navigationStyle": "custom" } }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "black",

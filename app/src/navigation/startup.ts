@@ -11,6 +11,7 @@ export type StartupState = 'idle' | 'restoring' | 'loading_profile' | 'ready' | 
 
 export class StartupCoordinator {
   private readonly currentState = ref<StartupState>('idle')
+  private startOperation: Promise<StartupState> | null = null
 
   get state(): StartupState { return this.currentState.value }
   private set state(value: StartupState) { this.currentState.value = value }
@@ -23,9 +24,19 @@ export class StartupCoordinator {
     private readonly router: AppRouter,
   ) {}
 
-  async start(): Promise<StartupState> {
-    if (this.state !== 'idle') return this.state
+  start(): Promise<StartupState> {
+    if (this.startOperation) return this.startOperation
+    if (this.state !== 'idle') return Promise.resolve(this.state)
     this.state = 'restoring'
+    const operation = this.performStart()
+    this.startOperation = operation
+    void operation.finally(() => {
+      if (this.startOperation === operation) this.startOperation = null
+    })
+    return operation
+  }
+
+  private async performStart(): Promise<StartupState> {
     try {
       const restored = await this.session.restore()
       if (!restored) {

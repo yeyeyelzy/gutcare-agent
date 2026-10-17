@@ -1,8 +1,13 @@
 <template>
-  <scroll-view class="profile-scroll" scroll-y :show-scrollbar="false">
+  <view v-if="pageGate !== 'authorized'" class="profile-gate" role="status" aria-live="polite" data-testid="profile-auth-gate">
+    <view v-if="pageGate === 'checking'" class="gate-loading"><view class="loading-dot" /><text>正在安全检查账户…</text></view>
+    <text v-else-if="pageGate === 'redirecting_login'">正在返回登录…</text>
+    <text v-else>正在打开安全提示…</text>
+  </view>
+  <scroll-view v-else class="profile-scroll" scroll-y :show-scrollbar="false">
     <view class="profile-page" data-testid="profile-page">
       <view class="topbar">
-        <button class="back" aria-label="返回今日" data-testid="profile-back" @click="router?.reLaunch('today')">‹</button>
+        <button class="back" aria-label="返回我的页面" data-testid="profile-back" @click="router?.switchTab('me')">‹</button>
         <text class="topbar-title">个人资料</text>
         <view class="topbar-spacer" />
       </view>
@@ -74,7 +79,7 @@ import { onBackPress, onLoad } from '@dcloudio/uni-app'
 import { AppError } from '../../api/errors'
 import { buildProfilePatch, profileDraftFrom, validateProfileDraft } from '../../api/profileForm'
 import type { ProfileDraft } from '../../api/profileForm'
-import { appRouterKey, profileApiKey, requestClientKey } from '../../api/context'
+import { appRouterKey, profileApiKey, requestClientKey, startupCoordinatorKey } from '../../api/context'
 import { presentAuthProblem } from '../../api/authUiState'
 import { sessionServiceKey } from '../../api/context'
 import GcButton from '../../components/GcButton.vue'
@@ -82,12 +87,15 @@ import GcField from '../../components/GcField.vue'
 import InlineProblem from '../../components/InlineProblem.vue'
 import { useAuthStore } from '../../stores/auth'
 import type { PatientProfile } from '../../api/openapiTypes'
+import { enterProtectedProfilePage } from '../../navigation/profilePageAccess'
 
 const auth = useAuthStore()
 const router = inject(appRouterKey)
 const profileApi = inject(profileApiKey)
 const requestClient = inject(requestClientKey)
 const session = inject(sessionServiceKey)
+const startup = inject(startupCoordinatorKey)
+const pageGate = ref<'checking' | 'authorized' | 'redirecting_login' | 'redirecting_profile_error'>('checking')
 const ready = ref(false)
 const loadingProfile = ref(true)
 const saving = ref(false)
@@ -118,8 +126,23 @@ const conflictReviewItems = computed(() => {
 const displayName = computed(() => draft.nickname.trim() || 'GutCare 用户')
 const displayInitial = computed(() => displayName.value.slice(0, 1))
 
-onLoad(() => { void loadProfile() })
-onBackPress(() => { router?.reLaunch('today'); return true })
+onLoad(() => { void enterProfilePage() })
+onBackPress(() => { router?.switchTab('me'); return true })
+
+async function enterProfilePage() {
+  const result = await enterProtectedProfilePage(startup, auth, router, async (profileLoadedDuringStartup) => {
+    pageGate.value = 'authorized'
+    if (profileLoadedDuringStartup && auth.profile) {
+      setConfirmedProfile(auth.profile)
+      ready.value = true
+      loadingProfile.value = false
+      return
+    }
+    await loadProfile()
+  })
+  if (result === 'login_redirected') pageGate.value = 'redirecting_login'
+  else if (result === 'profile_error_redirected') pageGate.value = 'redirecting_profile_error'
+}
 
 async function loadProfile() {
   if (!profileApi) return
@@ -268,6 +291,8 @@ async function logout() {
 
 <style lang="scss" scoped>
 .profile-scroll { height: 100vh; }
+.profile-gate { display: flex; width: 100%; min-height: 100vh; max-width: 430px; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 24px) 20px calc(env(safe-area-inset-bottom, 0px) + 24px); align-items: center; justify-content: center; gap: 10px; background: var(--gc-color-canvas); color: var(--gc-color-muted); font-size: var(--gc-font-size-sm); }
+.gate-loading { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .profile-page { min-height: 100vh; max-width: 430px; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 10px) 20px calc(env(safe-area-inset-bottom, 0px) + 28px); background: var(--gc-color-canvas); }
 .topbar { height: 48px; display: flex; align-items: center; justify-content: space-between; }
 .back { width: 44px; height: 44px; border-radius: 22px; background: var(--gc-color-surface); color: var(--gc-color-brand-strong); font-size: 28px; line-height: 1; }

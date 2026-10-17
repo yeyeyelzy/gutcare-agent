@@ -46,8 +46,28 @@ describe('startup session and patient profile state machine', () => {
     expect(harness.profileApi.getMyProfile).toHaveBeenCalledOnce()
     expect(harness.auth.profile).toEqual(profile)
     expect(harness.auth.state).toBe('authenticated')
-    expect(harness.navigator.reLaunch).toHaveBeenCalledWith('/pages/home/index')
+    expect(harness.navigator.reLaunch).toHaveBeenCalledWith('/pages/tabs/today/index')
     expect(harness.clearStoredSession).not.toHaveBeenCalled()
+  })
+
+  it('shares one in-flight restore/profile load when a cold protected page joins app startup', async () => {
+    const harness = makeStartup(async () => profile)
+    let finishRestore!: () => void
+    vi.mocked(harness.session.restore).mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { finishRestore = resolve })
+      harness.auth.acceptAccessToken('fixture-access-value')
+      return true
+    })
+
+    const appLaunch = harness.coordinator.start()
+    const profilePageLoad = harness.coordinator.start()
+    expect(profilePageLoad).toBe(appLaunch)
+    expect(harness.session.restore).toHaveBeenCalledOnce()
+    expect(harness.profileApi.getMyProfile).not.toHaveBeenCalled()
+
+    finishRestore()
+    await expect(Promise.all([appLaunch, profilePageLoad])).resolves.toEqual(['ready', 'ready'])
+    expect(harness.profileApi.getMyProfile).toHaveBeenCalledOnce()
   })
 
   it('leaves an account with no saved session on the welcome route', async () => {
@@ -76,7 +96,7 @@ describe('startup session and patient profile state machine', () => {
     expect(harness.auth.profileErrorRequestId).toBe('fixture-request-id')
     expect(harness.auth.state).toBe('anonymous')
     expect(harness.navigator.reLaunch).toHaveBeenCalledWith('/pages/auth/profile-error')
-    expect(harness.navigator.reLaunch).not.toHaveBeenCalledWith('/pages/home/index')
+    expect(harness.navigator.reLaunch).not.toHaveBeenCalledWith('/pages/tabs/today/index')
   })
 
   it('keeps a valid in-memory session for transient profile loading errors without entering protected routes', async () => {
@@ -85,7 +105,7 @@ describe('startup session and patient profile state machine', () => {
     expect(harness.clearStoredSession).not.toHaveBeenCalled()
     expect(harness.auth.accessToken).toBe('fixture-access-value')
     expect(harness.auth.state).toBe('session_ready')
-    expect(harness.navigator.reLaunch).not.toHaveBeenCalledWith('/pages/home/index')
+    expect(harness.navigator.reLaunch).not.toHaveBeenCalledWith('/pages/tabs/today/index')
     expect(harness.auth.startupError).toEqual({ kind: 'network', requestId: 'fixture-network-request-id' })
   })
 

@@ -1,13 +1,13 @@
 # GutCare 移动端
 
-uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端基础工程。患者端交付目标是原生 APP；不提供 H5 发布脚本。页面内容目前是路由占位，不能作为最终 UI 验收。
+uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端。患者端交付目标是原生 APP；不提供 H5 发布脚本。认证、本人资料与四个 Tab 根页已有实现；尚未接入的记录/分析等模块明确显示受保护占位，不代表业务页面已验收。
 
 ## 命令
 
 - `pnpm typecheck`：Vue / TypeScript 静态检查
 - `pnpm openapi:generate`：从冻结 OpenAPI auth/profile operation 生成 TypeScript 类型
 - `pnpm openapi:check`：重新过滤并生成后与受检入库类型逐字节比对；`pnpm check` 和仓库 lint 门禁执行此检查
-- `pnpm test`：API、会话、注册草稿、邮箱验证、导航与启动状态单元测试
+- `pnpm test`：API、会话、注册草稿、邮箱验证、四 Tab 导航与启动状态单元测试
 - `pnpm build:android`：生成 Android 平台的 HBuilderX 导入工程
 - `pnpm build:ios`：生成 iOS 平台的 HBuilderX 导入工程
 - `pnpm dev:app`：使用 uni-app App 运行目标启动调试
@@ -34,10 +34,10 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 - `openapi-typescript@7.13.0` 与 `yaml@2.9.1` 均精确锁定。生成器只从权威 OpenAPI `operationId` 过滤 `register`、`verifyEmail`、`login`、`refreshSession`、`logout`、密码重置及 `getMyProfile`/`updateMyProfile`，并断言必需 operationId 集合各出现一次；schema/DTO 不手写。`AuthApi` 登录/注销委托 B00b `SessionService`，不会重复实现 refresh。
 - `AuthApi`、`ProfileApi` 使用生成的请求/响应类型。注册请求在运行时也拒绝额外键。
 - 第 22 页仅以内存 Pinia store 保存邮箱、密码、确认密码和隐私选择；第 17 页进入后只有明确同意健康数据处理才会开放出生年份字段；单独切换撤销同意只清出生年份，顶部/系统返回回第 22 页并保留草稿以供编辑。选择“暂不同意并退出注册”会清除整个草稿并回到登录；离开注册流程时路由层也清除草稿。提交请求显式构造 OpenAPI 六字段，成功受理后清除密码并进入邮箱验证页。验证令牌只由用户输入、只保存在页面内存、不放 URL/持久化；验证 204 后清草稿并回到登录。测试告知来自唯一 JSON 制品；当前开发/测试制品在 production mode 下 fail closed。
-- 路由注册表有 public/authenticated 元数据；仅允许白名单的命名路由 `today` 作为进程内 `returnTo`。导航拦截器与首页 `v-if` 双重阻止认证/资料尚未完成时显示受保护页面。启动/登录恢复固定执行 session restore → `GET /patients/me`：200 才进入今日；401 清会话返回登录；404 清会话进入不可继续的资料一致性错误态并展示 `request_id`；不会伪造资料或进入 `/onboarding/profile`。
+- 路由注册表有 public/authenticated 元数据；仅允许白名单中标记的受保护命名路由作为进程内 `returnTo`。导航拦截器与根页条件渲染双重阻止认证/资料尚未完成时显示受保护页面。启动/登录恢复固定执行 session restore → `GET /patients/me`：200 才进入今日；401 清会话返回登录；404 清会话进入不可继续的资料一致性错误态并展示 `request_id`；不会伪造资料或进入 `/onboarding/profile`。
 - Access Token 和患者资料仅保存在 Pinia 内存；原生 Refresh Token 继续由 B00b SecureTokenStore 管理。登出调用 `POST /auth/logout` 后清除 returnTo，并用 `reLaunch(login)` 清空页面栈。
 - RFC 9457 `ProblemDetails` 从生成的 OpenAPI `components.schemas.Problem` 派生；客户端稳定错误类型只封装 kind/status/code/requestId，不另行复制契约字段。
-- 单元测试覆盖 API operation 路径与请求体、注册隐私/健康同意与六字段边界、返回保留草稿、取消/离开流程时清理、邮箱验证成功/失败、未认证深链阻断、状态机 200/401/404/暂时网络失败和注销清栈语义。此处为基础流程而非最终高保真注册/认证 UI 或业务首页。
+- 单元测试覆盖 API operation 路径与请求体、注册隐私/健康同意与六字段边界、返回保留草稿、取消/离开流程时清理、邮箱验证成功/失败、未认证深链阻断、状态机 200/401/404/暂时网络失败和注销清栈语义。B02 已提供四个根 Tab 的 UI 壳；业务数据仍未接入，最终视觉与系统安全区需在 Android/iOS 真机验收。
 
 生成器按当前 B01-1 要求筛选 auth/profile operation；完整 OpenAPI 另有 `GET /symptom-records/{record_id}/status-history` 的 200 `application/json: null`，会使全量 openapi-typescript 生成失败。该非本切片契约技术债登记在前端联调计划中；本任务不修改冻结契约。
 
@@ -45,7 +45,7 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 
 已实现的公开认证入口：欢迎页、邮箱登录、注册账户（22）、健康处理同意/出生年份（17）、邮箱验证、找回密码、密码重置和资料一致性错误页。共用 `AuthScaffold`、`GcButton`、`GcField`、`NoticeCard` 与 `InlineProblem`；表单字段有关联标签、错误描述、稳定 `data-testid`，交互控件满足至少 44px 触控尺寸。认证失败文案按状态安全呈现，401 不区分账户/密码/验证，429/5xx/离线错误可见 request_id。
 
-注册仍按第 22 页到第 17 页执行：前者只保存内存草稿且不发请求；隐私政策与健康处理告知分别显示，只有后者明确同意时才显示出生年份输入，并最终调用单次注册 API。找回密码 request 提示不透露账户是否存在；reset token 只能手动输入，不接受 URL/query 参数，不写入持久化；成功后清除敏感表单并返回登录。未实现手机号/SMS、姓名/性别/报告字段或业务/AI页面。欢迎和邮件图形由 CSS/code-native 图形绘制，没有使用来源/授权未确认的原型图片。
+注册仍按第 22 页到第 17 页执行：前者只保存内存草稿且不发请求；隐私政策与健康处理告知分别显示，只有后者明确同意时才显示出生年份输入，并最终调用单次注册 API。找回密码 request 提示不透露账户是否存在；reset token 只能手动输入，不接受 URL/query 参数，不写入持久化；成功后清除敏感表单并返回登录。未实现手机号/SMS、姓名/性别/报告字段或自由 AI 对话。欢迎和邮件图形由 CSS/code-native 图形绘制，没有使用来源/授权未确认的原型图片。
 
 公开认证页面采用 430px 原型宽度基准、安全区可滚动布局、48px/16px 圆角主按钮、邮箱/密码图标输入行与无外层大表单卡片；欢迎页以内联 SVG 和三条 feature 文案替代隔离原型图像，并以横排注册/登录作为入口。启动/资料加载安全错误保留 transport kind、status、code 与 request_id；一致性错误支持说明入口只指导用户经官方渠道手动联系，不自动发送数据。router 对任何路径上的 token/access_token/refresh_token/password/new_password query 先清空注册草稿再返回登录。
 
@@ -54,5 +54,11 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 `/pages/profile/index` 是认证路由，资料读取和编辑只使用 `/patients/me`；PATCH 以当前 `profile_version` 为准，仅提交患者改动过的 `nickname`、`birth_year`、`timezone` 字段，清空昵称发送 `null`。409 不自动覆盖，先重新 GET 并向患者展示最新值/拟改值，由患者确认后再重试。资料 404 会清会话、保留 request_id 并跳转资料一致性错误页。
 
 退出有二次确认和防重复调用。刷新令牌删除和服务端 logout 都会尝试；Access Token 与 profile 内存态始终清除，受保护页面栈及 `returnTo` 被清空后 reLaunch 到登录页。若本机安全存储拒绝删除，登录页显示原生安全存储错误码，不把 token 放入 UI 状态或日志。无效 refresh 对过期/冻结账户统一按认证失败处理，不恢复旧 returnTo。双患者资料隔离和 profile 乐观锁由后端 T49/PG18 集成证据覆盖；客户端不提交 patient id。
+
+## B02 四根 Tab 导航壳
+
+路由注册名 `today`、`records`、`analysis`、`me` 映射逻辑路径 `/tabs/today`、`/tabs/records`、`/tabs/analysis`、`/tabs/me`；uni-app 页面物理路径位于 `pages/tabs/*/index`。共享 `GcBottomNav` 位于四个根页，底栏切换调用命名路由并以根页 `reLaunch` 避免压入重复页面。二级占位均隐藏底栏，显式绑定 `ownerTab`，系统返回与页面返回都回所属根页。所有根和占位路由受登录守卫保护，returnTo 只保存白名单中的命名路由。
+
+今日页包含摘要、快捷记录、用药、饮食和趋势卡片；未接入服务时只显示“未接入”而非假数据。“我的”使用无图片 GcAvatar 占位。底栏和页面图形均由组件/CSS/code-native SVG 构成，不引用隔离的原型素材。数据状态组件支持 loading/empty/error/unavailable；需由真实 API 驱动状态后才能显示数据态。Android/iOS CLI 构建不等于真机视觉/可访问性签收。
 
 当前组件状态映射、表单/服务流程和页面约束测试、类型检查与 Android/iOS CLI 导出可自动验证；这不构成真机视觉签收。当前未生成或签收 430×880 像素基线；Android/iOS 真机截图、键盘/安全区/动态字号检查、逐页像素对比 SSIM ≥0.95，以及经法律批准的生产注册告知，仍是发布门禁。无患者 Web/H5 发布目标。
