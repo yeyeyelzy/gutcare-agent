@@ -10,7 +10,7 @@ uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端基础工�
 - `pnpm build:ios`：uni-app iOS 原生构建
 - `pnpm dev:app`：使用 uni-app App 运行目标启动调试
 
-构建环境基线为 Node.js 22 LTS 和 pnpm 10。先复制 `.env.example` 为 `.env` 并配置 HTTPS `VITE_API_BASE_URL`（包含 `/api/v1`）；无配置时使用无效域名占位值，不会连接真实服务。依赖版本以 `package.json` 为准，提交前需在基线运行时生成并提交 `pnpm-lock.yaml`。
+构建环境基线为 Node.js 22 LTS 和 pnpm 10.28.0。先复制 `.env.example` 为 `.env` 并设置 `VITE_API_BASE_URL`。配置必须是 HTTPS 地址，路径可以省略或为 `/api/v1`，最终会规范化为 `/api/v1`；仅开发服务器允许 `http://localhost`、`127.0.0.1` 或 `[::1]`。空值、`example.invalid`、凭据、查询参数和其他路径会在启动/构建时被拒绝，错误不会回显配置内容。依赖以根目录 workspace `pnpm-lock.yaml` 锁定。
 
 ## 安全存储状态
 

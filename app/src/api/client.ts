@@ -3,10 +3,11 @@ import { NativeSecureTokenStoreUnavailable } from './secureTokenStore'
 import type { SecureTokenStore } from './secureTokenStore'
 import { SessionService } from './session'
 import { UniRequestTransport } from './uniTransport'
+import { resolveApiBaseUrl } from '@/config/apiBaseUrl'
 import { useAuthStore } from '@/stores/auth'
 import type { Pinia } from 'pinia'
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://api.example.invalid/api/v1'
+const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, { allowLocalHttp: import.meta.env.DEV })
 
 /** Build the single app-wide transport after Pinia is installed. */
 export function createAppRequestClient(pinia: Pinia): RequestClient {

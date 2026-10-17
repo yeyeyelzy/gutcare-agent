@@ -51,6 +51,8 @@ jobs:
           ./scripts/install-app.ps1
       - name: Unified local and CI checks
         shell: pwsh
+        env:
+          VITE_API_BASE_URL: https://api.ci.invalid/api/v1
         run: |
           $env:GUTCARE_PYTHON = (Get-Command python).Source
           $env:GUTCARE_UV = (Get-Command uv).Source
@@ -59,6 +61,8 @@ jobs:
           if (-not $?) { throw 'Lint checks failed.' }
           ./scripts/test.ps1 -Suite unit
           if (-not $?) { throw 'Unit checks failed.' }
+          ./scripts/app-build.ps1
+          if (-not $?) { throw 'APP Android/iOS builds failed.' }
       - name: Parse PowerShell scripts
         shell: pwsh
         run: |

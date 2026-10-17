@@ -14,5 +14,6 @@ htmlcov/
 __pycache__/
 **/node_modules/
 **/.venv/
+/app/dist/
 .runtime/
 /.downloads/
