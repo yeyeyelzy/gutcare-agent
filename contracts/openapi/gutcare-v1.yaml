@@ -272,9 +272,38 @@ paths:
         - {name: bucket, in: query, schema: {type: string, enum: [day, week], default: day}}
       description: Mood 趋势属于派生处理，不等同于原始记录的数据主体读取。仅在 health_data_processing 与 mood_data_processing 均有效时，对患者本人未删除记录的结构化 mood_level 做确定性聚合；不要求 mood_ai_sharing 或 third_party_ai，且不将数据发送给 Agent。缺少/撤回任一处理授权时，仅 mood 子结构返回 consent_required 与 missing_consents；其余趋势继续正常返回，不能将 mood 伪装成零数据。原始列表、详情和删除仍遵循数据主体访问边界。note 与 emotion_tags 不参与趋势。结果不表示诊断、病因或因果关系，时段按患者 IANA 时区切分。
       responses:
-        '200': {description: 请求范围内其他趋势正常返回；mood 子结构可用或因授权不可用, content: {application/json: {schema: {$ref: '#/components/schemas/TrendResponse'}}}}
+        '200':
+          description: 请求范围内的本人趋势聚合；mood 可用或因授权不可用
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TrendResponse'}
+              examples:
+                available:
+                  value:
+                    timezone: Asia/Shanghai
+                    from: '2026-10-01T00:00:00+08:00'
+                    to: '2026-10-08T00:00:00+08:00'
+                    bucket: day
+                    activity: {has_data: true, items: [{bucket: '2026-10-01T00:00:00', count: 1, duration_minutes: 30}]}
+                    stool: {has_data: true, items: [{bucket: '2026-10-01T00:00:00', has_data: true, count: 2, bristol_confirmed_count: 1, bristol_unknown_count: 1}]}
+                    symptom: {has_data: true, items: [{bucket: '2026-10-01T00:00:00', has_data: true, count: 1, mean_severity: 2.5, status: ongoing}]}
+                    diet_confirmed_categories: {has_data: true, items: [{bucket: '2026-10-01T00:00:00', category: vegetable, count: 1}]}
+                    medication_checkins: {has_data: true, items: [{bucket: '2026-10-01T00:00:00', status: taken, count: 1}]}
+                    mood: {availability: available, buckets: [{period_start: '2026-10-01', period_end: '2026-10-02', has_data: true, record_count: 1, mood_level_counts: {'1': 0, '2': 0, '3': 1, '4': 0, '5': 0}}]}
+                mood_consent_required:
+                  value:
+                    timezone: Asia/Shanghai
+                    from: '2026-10-01T00:00:00+08:00'
+                    to: '2026-10-08T00:00:00+08:00'
+                    bucket: day
+                    activity: {has_data: false, items: []}
+                    stool: {has_data: false, items: []}
+                    symptom: {has_data: false, items: []}
+                    diet_confirmed_categories: {has_data: false, items: []}
+                    medication_checkins: {has_data: false, items: []}
+                    mood: {availability: consent_required, reason_code: CONSENT_REQUIRED, missing_consents: [mood_data_processing]}
         '401': {$ref: '#/components/responses/Problem'}
-        '422': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/TrendValidationProblem'}
   /auth/register:
     post:
       summary: 注册邮箱账户
@@ -1477,6 +1506,12 @@ components:
         application/problem+json:
           schema: {$ref: '#/components/schemas/Problem'}
           example: {type: 'https://gutcare.invalid/problems/validation_error', title: 'Request validation failed', status: 422, detail: 'History time range must be timezone-aware and non-empty', instance: '/api/v1/history/timeline', code: VALIDATION_ERROR, request_id: '00000000-0000-4000-8000-000000000002', errors: []}
+    TrendValidationProblem:
+      description: 趋势时间范围或 bucket 参数无效
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          example: {type: 'https://gutcare.invalid/problems/validation_error', title: 'Request validation failed', status: 422, detail: 'Trend bounds must include timezone and define a non-empty range', instance: '/api/v1/trends', code: VALIDATION_ERROR, request_id: '00000000-0000-4000-8000-000000000002', errors: []}
     PrivacyExportProblem404:
       description: RFC 9457 Problem Details - export not found or capability expired/used
       content:
@@ -2016,11 +2051,11 @@ components:
         from: {type: string, format: date-time}
         to: {type: string, format: date-time}
         bucket: {type: string, enum: [day, week]}
-        activity: {type: object}
-        stool: {type: object}
-        symptom: {type: object}
-        diet_confirmed_categories: {type: object}
-        medication_checkins: {type: object}
+        activity: {$ref: '#/components/schemas/TrendActivity'}
+        stool: {$ref: '#/components/schemas/TrendStool'}
+        symptom: {$ref: '#/components/schemas/TrendSymptom'}
+        diet_confirmed_categories: {$ref: '#/components/schemas/TrendDiet'}
+        medication_checkins: {$ref: '#/components/schemas/TrendMedication'}
         mood:
           oneOf:
             - {$ref: '#/components/schemas/MoodTrendAvailable'}
@@ -2030,6 +2065,85 @@ components:
             mapping:
               available: '#/components/schemas/MoodTrendAvailable'
               consent_required: '#/components/schemas/MoodTrendUnavailable'
+    TrendActivity:
+      type: object
+      additionalProperties: false
+      required: [has_data, items]
+      properties:
+        has_data: {type: boolean}
+        items: {type: array, items: {$ref: '#/components/schemas/TrendActivityItem'}}
+    TrendActivityItem:
+      type: object
+      additionalProperties: false
+      required: [bucket, count, duration_minutes]
+      properties:
+        bucket: {type: string, description: Patient-timezone SQL bucket label.}
+        count: {type: integer, minimum: 0}
+        duration_minutes: {type: integer, minimum: 0}
+    TrendStool:
+      type: object
+      additionalProperties: false
+      required: [has_data, items]
+      properties:
+        has_data: {type: boolean}
+        items: {type: array, items: {$ref: '#/components/schemas/TrendStoolItem'}}
+    TrendStoolItem:
+      type: object
+      additionalProperties: false
+      required: [bucket, has_data, count, bristol_confirmed_count, bristol_unknown_count]
+      properties:
+        bucket: {type: string}
+        has_data: {type: boolean}
+        count: {type: integer, minimum: 0}
+        bristol_confirmed_count: {type: integer, minimum: 0}
+        bristol_unknown_count: {type: integer, minimum: 0}
+    TrendSymptom:
+      type: object
+      additionalProperties: false
+      required: [has_data, items]
+      properties:
+        has_data: {type: boolean}
+        items: {type: array, items: {$ref: '#/components/schemas/TrendSymptomItem'}}
+    TrendSymptomItem:
+      type: object
+      additionalProperties: false
+      required: [bucket, has_data, count, mean_severity, status]
+      properties:
+        bucket: {type: string}
+        has_data: {type: boolean}
+        count: {type: integer, minimum: 0}
+        mean_severity: {type: [number, 'null'], minimum: 0, maximum: 10}
+        status: {type: string, enum: [ongoing, relieved]}
+    TrendDiet:
+      type: object
+      additionalProperties: false
+      required: [has_data, items]
+      properties:
+        has_data: {type: boolean}
+        items: {type: array, items: {$ref: '#/components/schemas/TrendDietItem'}}
+    TrendDietItem:
+      type: object
+      additionalProperties: false
+      required: [bucket, category, count]
+      properties:
+        bucket: {type: string}
+        category: {type: string}
+        count: {type: integer, minimum: 0}
+    TrendMedication:
+      type: object
+      additionalProperties: false
+      required: [has_data, items]
+      properties:
+        has_data: {type: boolean}
+        items: {type: array, items: {$ref: '#/components/schemas/TrendMedicationItem'}}
+    TrendMedicationItem:
+      type: object
+      additionalProperties: false
+      required: [bucket, status, count]
+      properties:
+        bucket: {type: string}
+        status: {type: string, enum: [pending, taken, not_taken, skipped]}
+        count: {type: integer, minimum: 0}
     MoodTrendAvailable:
       type: object
       additionalProperties: false
@@ -2060,16 +2174,17 @@ components:
         period_end: {type: string, format: date, description: Exclusive end date in the patient's timezone.}
         has_data: {type: boolean}
         record_count: {type: integer, minimum: 0}
-        mood_level_counts:
-          type: object
-          additionalProperties: false
-          required: ['1', '2', '3', '4', '5']
-          properties:
-            '1': {type: integer, minimum: 0}
-            '2': {type: integer, minimum: 0}
-            '3': {type: integer, minimum: 0}
-            '4': {type: integer, minimum: 0}
-            '5': {type: integer, minimum: 0}
+        mood_level_counts: {$ref: '#/components/schemas/MoodLevelCounts'}
+    MoodLevelCounts:
+      type: object
+      additionalProperties: false
+      required: ['1', '2', '3', '4', '5']
+      properties:
+        '1': {type: integer, minimum: 0}
+        '2': {type: integer, minimum: 0}
+        '3': {type: integer, minimum: 0}
+        '4': {type: integer, minimum: 0}
+        '5': {type: integer, minimum: 0}
     AnalysisTask:
       type: object
       additionalProperties: false

@@ -19,6 +19,7 @@ import { MoodApi } from './moodApi'
 import { ConsentApi } from './consentApi'
 import { ActivityApi } from './activityApi'
 import { HistoryApi } from './historyApi'
+import { TrendApi } from './trendApi'
 import { MedicationApi } from './medicationApi'
 import { RiskApi } from './riskApi'
 import { NotificationApi } from './notificationApi'
@@ -69,6 +70,7 @@ export function createAppServices(pinia: Pinia) {
   const consentApi = new ConsentApi(requestClient)
   const activityApi = new ActivityApi(requestClient)
   const historyApi = new HistoryApi(requestClient)
+  const trendApi = new TrendApi(requestClient)
   const medicationApi = new MedicationApi(requestClient)
   const riskApi = new RiskApi(requestClient)
   const notificationApi = new NotificationApi(requestClient)
@@ -91,6 +93,7 @@ export function createAppServices(pinia: Pinia) {
     consentApi,
     activityApi,
     historyApi,
+    trendApi,
     medicationApi,
     riskApi,
     notificationApi,

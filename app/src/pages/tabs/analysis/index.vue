@@ -29,7 +29,7 @@
 import { computed, inject } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { appRouterKey } from '../../../api/context'
-import type { PlaceholderRouteName } from '../../../navigation/routes'
+import type { AppRouteName } from '../../../navigation/routes'
 import { canRenderRoute } from '../../../navigation/routes'
 import { useAuthStore } from '../../../stores/auth'
 import TabRoot from '../../../components/TabRoot.vue'
@@ -37,7 +37,7 @@ import TabRoot from '../../../components/TabRoot.vue'
 const auth = useAuthStore()
 const router = inject(appRouterKey)
 const authorized = computed(() => canRenderRoute('analysis', auth.state))
-const entries: ReadonlyArray<{ route: PlaceholderRouteName; title: string; description: string; icon: string; tint: string }> = [
+const entries: ReadonlyArray<{ route: AppRouteName; title: string; description: string; icon: string; tint: string }> = [
   { route: 'analysisHistory', title: '分析历史', description: '查看本人既有分析任务', icon: '◷', tint: 'sage' },
   { route: 'analysisReports', title: '报告与结果', description: '打开已完成任务的报告与依据', icon: '▤', tint: 'peach' },
   { route: 'analysisAdvice', title: '个性化建议', description: '查看建议、适用范围与证据', icon: '✧', tint: 'lilac' },

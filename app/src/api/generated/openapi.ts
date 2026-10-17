@@ -220,6 +220,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/trends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查询患者确定性历史统计
+         * @description Mood 趋势属于派生处理，不等同于原始记录的数据主体读取。仅在 health_data_processing 与 mood_data_processing 均有效时，对患者本人未删除记录的结构化 mood_level 做确定性聚合；不要求 mood_ai_sharing 或 third_party_ai，且不将数据发送给 Agent。缺少/撤回任一处理授权时，仅 mood 子结构返回 consent_required 与 missing_consents；其余趋势继续正常返回，不能将 mood 伪装成零数据。原始列表、详情和删除仍遵循数据主体访问边界。note 与 emotion_tags 不参与趋势。结果不表示诊断、病因或因果关系，时段按患者 IANA 时区切分。
+         */
+        get: operations["getTrends"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/register": {
         parameters: {
             query?: never;
@@ -1275,12 +1295,64 @@ export interface components {
             to: string;
             /** @enum {string} */
             bucket: "day" | "week";
-            activity: Record<string, never>;
-            stool: Record<string, never>;
-            symptom: Record<string, never>;
-            diet_confirmed_categories: Record<string, never>;
-            medication_checkins: Record<string, never>;
+            activity: components["schemas"]["TrendActivity"];
+            stool: components["schemas"]["TrendStool"];
+            symptom: components["schemas"]["TrendSymptom"];
+            diet_confirmed_categories: components["schemas"]["TrendDiet"];
+            medication_checkins: components["schemas"]["TrendMedication"];
             mood: components["schemas"]["MoodTrendAvailable"] | components["schemas"]["MoodTrendUnavailable"];
+        };
+        TrendActivity: {
+            has_data: boolean;
+            items: components["schemas"]["TrendActivityItem"][];
+        };
+        TrendActivityItem: {
+            /** @description Patient-timezone SQL bucket label. */
+            bucket: string;
+            count: number;
+            duration_minutes: number;
+        };
+        TrendStool: {
+            has_data: boolean;
+            items: components["schemas"]["TrendStoolItem"][];
+        };
+        TrendStoolItem: {
+            bucket: string;
+            has_data: boolean;
+            count: number;
+            bristol_confirmed_count: number;
+            bristol_unknown_count: number;
+        };
+        TrendSymptom: {
+            has_data: boolean;
+            items: components["schemas"]["TrendSymptomItem"][];
+        };
+        TrendSymptomItem: {
+            bucket: string;
+            has_data: boolean;
+            count: number;
+            mean_severity: number | null;
+            /** @enum {string} */
+            status: "ongoing" | "relieved";
+        };
+        TrendDiet: {
+            has_data: boolean;
+            items: components["schemas"]["TrendDietItem"][];
+        };
+        TrendDietItem: {
+            bucket: string;
+            category: string;
+            count: number;
+        };
+        TrendMedication: {
+            has_data: boolean;
+            items: components["schemas"]["TrendMedicationItem"][];
+        };
+        TrendMedicationItem: {
+            bucket: string;
+            /** @enum {string} */
+            status: "pending" | "taken" | "not_taken" | "skipped";
+            count: number;
         };
         MoodTrendAvailable: {
             /**
@@ -1312,13 +1384,14 @@ export interface components {
             period_end: string;
             has_data: boolean;
             record_count: number;
-            mood_level_counts: {
-                1: number;
-                2: number;
-                3: number;
-                4: number;
-                5: number;
-            };
+            mood_level_counts: components["schemas"]["MoodLevelCounts"];
+        };
+        MoodLevelCounts: {
+            1: number;
+            2: number;
+            3: number;
+            4: number;
+            5: number;
         };
         AnalysisTask: {
             /** Format: uuid */
@@ -1679,6 +1752,27 @@ export interface components {
                  *       "status": 422,
                  *       "detail": "History time range must be timezone-aware and non-empty",
                  *       "instance": "/api/v1/history/timeline",
+                 *       "code": "VALIDATION_ERROR",
+                 *       "request_id": "00000000-0000-4000-8000-000000000002",
+                 *       "errors": []
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description 趋势时间范围或 bucket 参数无效 */
+        TrendValidationProblem: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "https://gutcare.invalid/problems/validation_error",
+                 *       "title": "Request validation failed",
+                 *       "status": 422,
+                 *       "detail": "Trend bounds must include timezone and define a non-empty range",
+                 *       "instance": "/api/v1/trends",
                  *       "code": "VALIDATION_ERROR",
                  *       "request_id": "00000000-0000-4000-8000-000000000002",
                  *       "errors": []
@@ -2314,6 +2408,32 @@ export interface operations {
             400: components["responses"]["HistoryInvalidCursor"];
             401: components["responses"]["Problem"];
             422: components["responses"]["HistoryValidationProblem"];
+        };
+    };
+    getTrends: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                bucket?: "day" | "week";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 请求范围内的本人趋势聚合；mood 可用或因授权不可用 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrendResponse"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            422: components["responses"]["TrendValidationProblem"];
         };
     };
     register: {

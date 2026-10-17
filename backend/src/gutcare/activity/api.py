@@ -3,8 +3,8 @@
 # FastAPI dependency injection uses callable defaults by design.
 # ruff: noqa: B008
 
-from datetime import datetime
-from typing import Any, Literal, Protocol
+from datetime import date, datetime
+from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -128,6 +128,113 @@ class Version(Strict):
     record_version: int = Field(ge=1)
 
 
+class TrendActivityItem(Strict):
+    bucket: str
+    count: int = Field(ge=0)
+    duration_minutes: int = Field(ge=0)
+
+
+class TrendStoolItem(Strict):
+    bucket: str
+    has_data: bool
+    count: int = Field(ge=0)
+    bristol_confirmed_count: int = Field(ge=0)
+    bristol_unknown_count: int = Field(ge=0)
+
+
+class TrendSymptomItem(Strict):
+    bucket: str
+    has_data: bool
+    count: int = Field(ge=0)
+    mean_severity: float | None = Field(ge=0, le=10)
+    status: Literal["ongoing", "relieved"]
+
+
+class TrendDietItem(Strict):
+    bucket: str
+    category: str
+    count: int = Field(ge=0)
+
+
+class TrendMedicationItem(Strict):
+    bucket: str
+    status: Literal["pending", "taken", "not_taken", "skipped"]
+    count: int = Field(ge=0)
+
+
+class TrendActivity(Strict):
+    has_data: bool
+    items: list[TrendActivityItem]
+
+
+class TrendStool(Strict):
+    has_data: bool
+    items: list[TrendStoolItem]
+
+
+class TrendSymptom(Strict):
+    has_data: bool
+    items: list[TrendSymptomItem]
+
+
+class TrendDiet(Strict):
+    has_data: bool
+    items: list[TrendDietItem]
+
+
+class TrendMedication(Strict):
+    has_data: bool
+    items: list[TrendMedicationItem]
+
+
+class MoodLevelCounts(Strict):
+    level_1: int = Field(alias="1", ge=0)
+    level_2: int = Field(alias="2", ge=0)
+    level_3: int = Field(alias="3", ge=0)
+    level_4: int = Field(alias="4", ge=0)
+    level_5: int = Field(alias="5", ge=0)
+
+
+class MoodTrendBucketResponse(Strict):
+    period_start: date
+    period_end: date
+    has_data: bool
+    record_count: int = Field(ge=0)
+    mood_level_counts: MoodLevelCounts
+
+
+class MoodTrendAvailableResponse(Strict):
+    availability: Literal["available"]
+    buckets: list[MoodTrendBucketResponse]
+
+
+class MoodTrendUnavailableResponse(Strict):
+    availability: Literal["consent_required"]
+    reason_code: Literal["CONSENT_REQUIRED"]
+    missing_consents: list[Literal["health_data_processing", "mood_data_processing"]] = Field(
+        min_length=1, max_length=2
+    )
+
+
+TrendMood = Annotated[
+    MoodTrendAvailableResponse | MoodTrendUnavailableResponse,
+    Field(discriminator="availability"),
+]
+
+
+class TrendResponse(Strict):
+    timezone: str
+    from_: datetime = Field(alias="from")
+    to: datetime
+    bucket: Literal["day", "week"]
+    activity: TrendActivity
+    stool: TrendStool
+    symptom: TrendSymptom
+    diet_confirmed_categories: TrendDiet
+    medication_checkins: TrendMedication
+    mood: TrendMood
+
+
 @router.post("/activity-records", status_code=201)
 def create_activity(
     payload: ActivityWrite,
@@ -236,7 +343,145 @@ def timeline(
     return svc.timeline(context, limit, cursor, category, since, until)
 
 
-@router.get("/trends")
+@router.get(
+    "/trends",
+    operation_id="getTrends",
+    response_model=TrendResponse,
+    responses={
+        200: {
+            "description": "请求范围内的本人趋势聚合；mood 可用或因授权不可用",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "available": {
+                            "value": {
+                                "timezone": "Asia/Shanghai",
+                                "from": "2026-10-01T00:00:00+08:00",
+                                "to": "2026-10-08T00:00:00+08:00",
+                                "bucket": "day",
+                                "activity": {
+                                    "has_data": True,
+                                    "items": [
+                                        {
+                                            "bucket": "2026-10-01T00:00:00",
+                                            "count": 1,
+                                            "duration_minutes": 30,
+                                        }
+                                    ],
+                                },
+                                "stool": {
+                                    "has_data": True,
+                                    "items": [
+                                        {
+                                            "bucket": "2026-10-01T00:00:00",
+                                            "has_data": True,
+                                            "count": 2,
+                                            "bristol_confirmed_count": 1,
+                                            "bristol_unknown_count": 1,
+                                        }
+                                    ],
+                                },
+                                "symptom": {
+                                    "has_data": True,
+                                    "items": [
+                                        {
+                                            "bucket": "2026-10-01T00:00:00",
+                                            "has_data": True,
+                                            "count": 1,
+                                            "mean_severity": 2.5,
+                                            "status": "ongoing",
+                                        }
+                                    ],
+                                },
+                                "diet_confirmed_categories": {
+                                    "has_data": True,
+                                    "items": [
+                                        {
+                                            "bucket": "2026-10-01T00:00:00",
+                                            "category": "vegetable",
+                                            "count": 1,
+                                        }
+                                    ],
+                                },
+                                "medication_checkins": {
+                                    "has_data": True,
+                                    "items": [
+                                        {
+                                            "bucket": "2026-10-01T00:00:00",
+                                            "status": "taken",
+                                            "count": 1,
+                                        }
+                                    ],
+                                },
+                                "mood": {
+                                    "availability": "available",
+                                    "buckets": [
+                                        {
+                                            "period_start": "2026-10-01",
+                                            "period_end": "2026-10-02",
+                                            "has_data": True,
+                                            "record_count": 1,
+                                            "mood_level_counts": {
+                                                "1": 0,
+                                                "2": 0,
+                                                "3": 1,
+                                                "4": 0,
+                                                "5": 0,
+                                            },
+                                        }
+                                    ],
+                                },
+                            }
+                        },
+                        "mood_consent_required": {
+                            "value": {
+                                "timezone": "Asia/Shanghai",
+                                "from": "2026-10-01T00:00:00+08:00",
+                                "to": "2026-10-08T00:00:00+08:00",
+                                "bucket": "day",
+                                "activity": {"has_data": False, "items": []},
+                                "stool": {"has_data": False, "items": []},
+                                "symptom": {"has_data": False, "items": []},
+                                "diet_confirmed_categories": {"has_data": False, "items": []},
+                                "medication_checkins": {"has_data": False, "items": []},
+                                "mood": {
+                                    "availability": "consent_required",
+                                    "reason_code": "CONSENT_REQUIRED",
+                                    "missing_consents": ["mood_data_processing"],
+                                },
+                            }
+                        },
+                    }
+                }
+            },
+        },
+        401: problem_response(
+            "需要有效患者会话",
+            {
+                "type": "https://gutcare.invalid/problems/authentication_required",
+                "title": "Authentication required",
+                "status": 401,
+                "detail": "Authentication required",
+                "instance": "/api/v1/trends",
+                "code": "AUTHENTICATION_REQUIRED",
+                "request_id": "00000000-0000-4000-8000-000000000003",
+            },
+        ),
+        422: problem_response(
+            "趋势时间范围或 bucket 参数无效",
+            {
+                "type": "https://gutcare.invalid/problems/validation_error",
+                "title": "Request validation failed",
+                "status": 422,
+                "detail": "Trend bounds must include timezone and define a non-empty range",
+                "instance": "/api/v1/trends",
+                "code": "VALIDATION_ERROR",
+                "request_id": "00000000-0000-4000-8000-000000000002",
+                "errors": [],
+            },
+        ),
+    },
+)
 def trends(
     from_: datetime = Query(alias="from"),
     to: datetime = Query(alias="to"),

@@ -1,11 +1,11 @@
 # GutCare 移动端
 
-uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端。患者端交付目标是原生 APP；不提供 H5 发布脚本。认证、本人资料、四个 Tab 根页，以及 F03 饮食、F04 排便、F05 症状、F07 活动、F10 风险提示、F12 站内通知、F13 注销/数据导出、F14 心情记录页面已有实现；其他尚未接入模块仍显示受保护占位。隐私设置页使用服务端当前授权状态与告知，不在客户端伪造授权版本。
+uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端。患者端交付目标是原生 APP；不提供 H5 发布脚本。认证、本人资料、四个 Tab 根页，以及 F03 饮食、F04 排便、F05 症状、F07 活动、F10 风险提示、F11 历史/趋势、F12 站内通知、F13 注销/数据导出、F14 心情记录页面已有实现；其他尚未接入模块仍显示受保护占位。隐私设置页使用服务端当前授权状态与告知，不在客户端伪造授权版本。
 
 ## 命令
 
 - `pnpm typecheck`：Vue / TypeScript 静态检查
-- `pnpm openapi:generate`：从冻结 OpenAPI 的 auth/profile、privacy deletion/export、consent 与 F03–F07/F10/F12/F14 operations 生成 TypeScript 类型
+- `pnpm openapi:generate`：从冻结 OpenAPI 的 auth/profile、privacy deletion/export、consent 与 F03–F07/F10–F12/F14 operations 生成 TypeScript 类型
 - `pnpm openapi:check`：重新过滤并生成后与受检入库类型逐字节比对；`pnpm check` 和仓库 lint 门禁执行此检查
 - `pnpm test`：API、记录/活动/心情/风险/通知组件契约、偏好与状态 helper、会话、注册草稿、邮箱验证、导航与启动状态单元测试
 - `pnpm build:android`：生成 Android 平台的 HBuilderX 导入工程
@@ -98,3 +98,9 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 受保护 `/pages/history/index` 从记录 Tab 进入，返回所属根 Tab。`HistoryApi` 复用共享 `RequestClient`，DTO 来自 `getHistoryTimeline` 的生成 OpenAPI 类型。多类别筛选仅使用冻结的七类枚举；本地日历筛选转换为带时区的 UTC `[since, until)`，按时区日历边界计算以正确处理 DST。追加分页采用后端签名 cursor；失败保留当前项目和 cursor，支持重试。
 
 页面只显示记录类别、时间和固定 target。目标通过 allowlist 映射到记录详情、用药页或建议安全占位；未知/null/无效 ID 不跳转。不会复制记录正文、mood note、emotion_tags、敏感摘要，也不调用 Agent 或发送 patient_id。T124 覆盖类别/时间序列化、DST、目标 allowlist、筛选重置、首次 onShow 去重、详情返回刷新、离页响应失效及追加失败保留；双端 CLI/自动化不替代 Android/iOS 真机视觉与无障碍验收。
+
+## B07b F11 确定性趋势
+
+`/pages/trends/index` 是受保护趋势二级页；分析与我的入口共用页面并固定各自 ownerTab。`TrendApi` 复用共享 `RequestClient`，GET `/trends` 的所有 DTO 均由 OpenAPI 生成。页面通过账户 IANA 时区构造 UTC 半开区间，支持快速/自定义日期和日/周切换；切换会重新查询且用 generation 丢弃离页或过期响应。
+
+页面分别呈现服务端 activity、stool、symptom、diet-confirmed-category、medication-checkin 和 mood 聚合，不在客户端计算/合并指标。Mood 仅依据服务端 `availability` 判别：available 空 buckets 是已授权无记录；consent_required 只展示缺失的 health_data_processing/mood_data_processing 及隐私中心入口，绝不变成零数据。界面只显示本人自评与记录统计，不含 mood note/emotion_tags、诊断、因果或饮食/运动建议。T125 覆盖 OpenAPI 运行时/契约 schema 与 examples、DST/UTC 半开边界、授权分流、空/错误/离线、bucket/ownerTab 路由、请求竞争与 note/tag 排除；Android/iOS CLI build 和自动化不替代设备视觉/无障碍验收。

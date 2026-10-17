@@ -37,6 +37,7 @@ const requiredOperationIds = new Set([
   'patchActivityRecord',
   'deleteActivityRecord',
   'getHistoryTimeline',
+  'getTrends',
   'getSymptomStatusHistory',
   'listMoodRecords',
   'createMoodRecord',

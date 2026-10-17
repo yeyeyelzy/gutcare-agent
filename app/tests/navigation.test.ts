@@ -143,8 +143,10 @@ describe('named route registry and protected navigation', () => {
     expect(placeholderRouteFromScreen('assistant')).toBeNull()
     expect(PLACEHOLDER_META.analysisAdvice.ownerTab).toBe('analysis')
     expect(PLACEHOLDER_META.advice.ownerTab).toBe('me')
-    expect(PLACEHOLDER_META.analysisTrends.ownerTab).toBe('analysis')
-    expect(PLACEHOLDER_META.trends.ownerTab).toBe('me')
+    expect(routeNameFromUrl(APP_ROUTES.analysisTrends.path)).toBe('analysisTrends')
+    expect(routeNameFromUrl(APP_ROUTES.trends.path)).toBe('trends')
+    expect(APP_ROUTES.analysisTrends.path).toContain('owner=analysis')
+    expect(APP_ROUTES.trends.path).toContain('owner=me')
   })
 
   it('uses dedicated protected record workspaces and recognizes ID-bearing deep links', () => {
