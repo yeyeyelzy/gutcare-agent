@@ -24,9 +24,14 @@ if (
 ):
     fileConfig(config.config_file_name)
 
-repository_env = Path(__file__).resolve().parents[2] / ".env"
-configured_url = Settings(_env_file=repository_env).database_url
-repository_values = dotenv_values(repository_env)
+if os.environ.get("GUTCARE_AUTH_E2E_NO_DOTENV") == "1":
+    # The isolated auth E2E passes explicit URLs and must never inherit local .env credentials.
+    configured_url = None
+    repository_values = {}
+else:
+    repository_env = Path(__file__).resolve().parents[2] / ".env"
+    configured_url = Settings(_env_file=repository_env).database_url
+    repository_values = dotenv_values(repository_env)
 database_url = (
     os.environ.get("MIGRATOR_DATABASE_URL")
     or repository_values.get("MIGRATOR_DATABASE_URL")

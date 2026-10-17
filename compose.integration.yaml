@@ -24,6 +24,34 @@ services:
       retries: 30
       start_period: 5s
 
+  redis-auth-e2e:
+    profiles: ["auth-e2e"]
+    image: redis:8.0.2-bookworm
+    command: ["sh", "-ec", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${GUTCARE_E2E_REDIS_PASSWORD:-unused-auth-e2e-only}
+    ports:
+      - "127.0.0.1:${GUTCARE_E2E_REDIS_HOST_PORT:-56379}:6379"
+    tmpfs:
+      - /data:rw,noexec,nosuid,size=128m
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mailpit-auth-e2e:
+    profiles: ["auth-e2e"]
+    image: axllent/mailpit:v1.27.8
+    ports:
+      - "127.0.0.1:${GUTCARE_E2E_MAILPIT_SMTP_HOST_PORT:-51025}:1025"
+      - "127.0.0.1:${GUTCARE_E2E_MAILPIT_API_HOST_PORT:-58025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
   minio-integration:
     image: gutcare-minio-integration:RELEASE.2025-09-07T16-13-09Z
     build:

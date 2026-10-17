@@ -179,7 +179,10 @@ def create_app(
         engine = create_engine(database_url, pool_pre_ping=True)
         application.state.database_engine = engine
         if database_probe is None:
-            config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+            alembic_config = Path(__file__).resolve().parents[2] / "alembic.ini"
+            config = Config(str(alembic_config))
+            migration_path = str(alembic_config.parent / "migrations").replace("%", "%%")
+            config.set_main_option("script_location", migration_path)
             expected_heads = frozenset(ScriptDirectory.from_config(config).get_heads())
 
             def production_database_probe() -> DatabaseReadiness:
