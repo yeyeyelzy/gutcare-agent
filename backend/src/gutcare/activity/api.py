@@ -10,7 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from gutcare.auth.api import current_auth_context
+from gutcare.auth.api import current_auth_context, problem_response
 from gutcare.auth.service import AuthContext
 from gutcare.shared.errors import Problem
 
@@ -181,7 +181,49 @@ def delete_activity(
     return Response(status_code=204)
 
 
-@router.get("/history/timeline")
+@router.get(
+    "/history/timeline",
+    operation_id="getHistoryTimeline",
+    responses={
+        401: problem_response(
+            "需要有效患者会话",
+            {
+                "type": "https://gutcare.invalid/problems/authentication_required",
+                "title": "Authentication required",
+                "status": 401,
+                "detail": "Authentication required",
+                "instance": "/api/v1/history/timeline",
+                "code": "AUTHENTICATION_REQUIRED",
+                "request_id": "00000000-0000-4000-8000-000000000003",
+            },
+        ),
+        400: problem_response(
+            "时间线游标无效或与当前筛选不匹配",
+            {
+                "type": "https://gutcare.invalid/problems/invalid_cursor",
+                "title": "时间线游标无效",
+                "status": 400,
+                "detail": "History cursor is invalid",
+                "instance": "/api/v1/history/timeline",
+                "code": "INVALID_CURSOR",
+                "request_id": "00000000-0000-4000-8000-000000000001",
+            },
+        ),
+        422: problem_response(
+            "时间范围、类别或分页参数无效",
+            {
+                "type": "https://gutcare.invalid/problems/validation_error",
+                "title": "Request validation failed",
+                "status": 422,
+                "detail": "History time range must be timezone-aware and non-empty",
+                "instance": "/api/v1/history/timeline",
+                "code": "VALIDATION_ERROR",
+                "request_id": "00000000-0000-4000-8000-000000000002",
+                "errors": [],
+            },
+        ),
+    },
+)
 def timeline(
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = Query(None, min_length=1, max_length=512),

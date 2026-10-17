@@ -9,6 +9,8 @@ from pydantic import ValidationError
 
 from gutcare.activity.api import ActivityPatch, ActivityWrite
 from gutcare.activity.service import ActivityService
+from gutcare.config import Settings
+from gutcare.main import create_app
 from gutcare.shared.errors import Problem
 
 
@@ -133,3 +135,31 @@ def test_activity_and_history_openapi_are_present_and_strict() -> None:
         "activity_record",
         "advice",
     ]
+    assert schema["paths"]["/history/timeline"]["get"]["operationId"] == "getHistoryTimeline"
+    assert {"200", "400", "401", "422"} <= set(
+        schema["paths"]["/history/timeline"]["get"]["responses"]
+    )
+
+
+def test_history_timeline_runtime_errors_match_contract_examples() -> None:
+    contract = yaml.safe_load(
+        (Path(__file__).parents[2] / "contracts" / "openapi" / "gutcare-v1.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    runtime = create_app(Settings(env="test")).openapi()["paths"]["/api/v1/history/timeline"]["get"]
+    frozen = contract["paths"]["/history/timeline"]["get"]
+    assert set(runtime["responses"]) == set(frozen["responses"])
+    for status in ("400", "422"):
+        runtime_example = runtime["responses"][status]["content"]["application/problem+json"][
+            "examples"
+        ]["problem"]["value"]
+        contract_response = contract["components"]["responses"][
+            "HistoryInvalidCursor" if status == "400" else "HistoryValidationProblem"
+        ]
+        contract_example = contract_response["content"]["application/problem+json"]["example"]
+        assert {"type", "title", "status", "detail", "instance", "code", "request_id"} <= set(
+            runtime_example
+        )
+        for field in ("type", "title", "status", "detail", "instance", "code"):
+            assert runtime_example[field] == contract_example[field]

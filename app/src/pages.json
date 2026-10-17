@@ -24,6 +24,7 @@
     { "path": "pages/records/activity/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/medications/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/risk-alerts/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/history/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/risk-alerts/detail", "style": { "navigationStyle": "custom" } },
     { "path": "pages/notifications/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/notifications/detail", "style": { "navigationStyle": "custom" } },

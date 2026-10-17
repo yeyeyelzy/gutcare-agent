@@ -24,6 +24,7 @@ export const APP_ROUTES = {
   recordActivity: { path: '/pages/records/activity/index', access: 'authenticated', returnToAllowed: true },
   medications: { path: '/pages/medications/index', access: 'authenticated', returnToAllowed: true },
   riskAlerts: { path: '/pages/risk-alerts/index', access: 'authenticated', returnToAllowed: true },
+  history: { path: '/pages/history/index', access: 'authenticated', returnToAllowed: true },
   riskAlertDetail: { path: '/pages/risk-alerts/detail', access: 'authenticated', returnToAllowed: false },
   notifications: { path: '/pages/notifications/index', access: 'authenticated', returnToAllowed: true },
   notificationDetail: { path: '/pages/notifications/detail', access: 'authenticated', returnToAllowed: false },
@@ -66,7 +67,7 @@ export function mapNotificationTarget(target: { type: string; id: string } | nul
   }
   return { kind: 'unavailable' }
 }
-export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'accountDeletionProgress' | 'privacyCenter' | 'privacyExports' | 'accountDeletionConfirm' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'placeholder' | RecordWorkspaceRouteName | MoodWorkspaceRouteName | ActivityWorkspaceRouteName | MedicationWorkspaceRouteName | RiskRouteName | NotificationRouteName>
+export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'accountDeletionProgress' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'privacyCenter' | 'privacyExports' | 'accountDeletionConfirm' | 'placeholder' | 'history' | RecordWorkspaceRouteName | MoodWorkspaceRouteName | ActivityWorkspaceRouteName | MedicationWorkspaceRouteName | RiskRouteName | NotificationRouteName>
 export type ProtectedRouteName = {
   [Name in AppRouteName]: typeof APP_ROUTES[Name]['access'] extends 'authenticated' ? Name : never
 }[AppRouteName]

@@ -200,6 +200,26 @@ export interface paths {
         patch: operations["patchMoodRecord"];
         trace?: never;
     };
+    "/history/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 患者混合健康历史时间线
+         * @description 返回本人饮食、排便、症状、心情、用药打卡、活动和建议的受控类型、时间及 target；不返回记录正文、心情备注或标签。 since/until 必须带时区并按 UTC 半开区间 [since, until) 解释。游标绑定规范化筛选且按 (occurred_at DESC, type ASC, id ASC) 稳定排序。
+         */
+        get: operations["getHistoryTimeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/register": {
         parameters: {
             query?: never;
@@ -1626,6 +1646,47 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description RFC 9457 Problem Details - cursor tampering or filter mismatch */
+        HistoryInvalidCursor: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "https://gutcare.invalid/problems/invalid_cursor",
+                 *       "title": "时间线游标无效",
+                 *       "status": 400,
+                 *       "detail": "History cursor is invalid",
+                 *       "instance": "/api/v1/history/timeline",
+                 *       "code": "INVALID_CURSOR",
+                 *       "request_id": "00000000-0000-4000-8000-000000000001"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description RFC 9457 Problem Details - invalid time range, category or pagination parameters */
+        HistoryValidationProblem: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "https://gutcare.invalid/problems/validation_error",
+                 *       "title": "Request validation failed",
+                 *       "status": 422,
+                 *       "detail": "History time range must be timezone-aware and non-empty",
+                 *       "instance": "/api/v1/history/timeline",
+                 *       "code": "VALIDATION_ERROR",
+                 *       "request_id": "00000000-0000-4000-8000-000000000002",
+                 *       "errors": []
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description RFC 9457 Problem Details - export not found or capability expired/used */
         PrivacyExportProblem404: {
             headers: {
@@ -2208,6 +2269,51 @@ export interface operations {
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+        };
+    };
+    getHistoryTimeline: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                category?: ("diet" | "stool" | "symptom" | "mood" | "medication_checkin" | "activity" | "advice")[];
+                since?: string;
+                until?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 时间线页 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "00000000-0000-4000-8000-000000000001",
+                     *           "type": "diet",
+                     *           "occurred_at": "2026-10-16T08:00:00+08:00",
+                     *           "target": {
+                     *             "type": "diet_record",
+                     *             "id": "00000000-0000-4000-8000-000000000001"
+                     *           }
+                     *         }
+                     *       ],
+                     *       "next_cursor": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["HistoryPage"];
+                };
+            };
+            400: components["responses"]["HistoryInvalidCursor"];
+            401: components["responses"]["Problem"];
+            422: components["responses"]["HistoryValidationProblem"];
         };
     };
     register: {

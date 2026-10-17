@@ -80,6 +80,26 @@ export class AppRouter {
     return true
   }
 
+  navigateHistoryTarget(type: string, id: string): boolean {
+    const routes: Record<string, AppRouteName> = {
+      diet_record: 'recordDiet',
+      stool_record: 'recordBowel',
+      symptom_record: 'recordSymptoms',
+      mood_record: 'recordMood',
+      activity_record: 'recordActivity',
+      medication_checkin: 'medications',
+      advice: 'advice',
+    }
+    const name = routes[type]
+    if (!name || !isUuid(id) || !this.authorize(name)) return false
+    if (name === 'medications' || name === 'advice') {
+      this.navigator.navigateTo(APP_ROUTES[name].path)
+      return true
+    }
+    this.navigator.navigateTo(`${APP_ROUTES[name].path}?id=${encodeURIComponent(id)}`)
+    return true
+  }
+
   switchTab(name: AppTabName): boolean {
     if (!this.authorize(name)) return false
     this.clearDraftIfLeavingFlow(name)

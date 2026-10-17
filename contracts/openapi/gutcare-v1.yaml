@@ -247,6 +247,9 @@ paths:
       summary: 患者混合健康历史时间线
       tags: [Records]
       operationId: getHistoryTimeline
+      description: >-
+        返回本人饮食、排便、症状、心情、用药打卡、活动和建议的受控类型、时间及 target；不返回记录正文、心情备注或标签。
+        since/until 必须带时区并按 UTC 半开区间 [since, until) 解释。游标绑定规范化筛选且按 (occurred_at DESC, type ASC, id ASC) 稳定排序。
       parameters:
         - {name: cursor, in: query, schema: {type: string, maxLength: 512}}
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
@@ -254,9 +257,10 @@ paths:
         - {name: since, in: query, schema: {type: string, format: date-time}}
         - {name: until, in: query, schema: {type: string, format: date-time}}
       responses:
-        '200': {description: 时间线页, content: {application/json: {schema: {$ref: '#/components/schemas/HistoryPage'}}}}
+        '200': {description: 时间线页, content: {application/json: {schema: {$ref: '#/components/schemas/HistoryPage'}, example: {items: [{id: '00000000-0000-4000-8000-000000000001', type: diet, occurred_at: '2026-10-16T08:00:00+08:00', target: {type: diet_record, id: '00000000-0000-4000-8000-000000000001'}}], next_cursor: null}}}}
         '401': {$ref: '#/components/responses/Problem'}
-        '400': {$ref: '#/components/responses/Problem'}
+        '400': {$ref: '#/components/responses/HistoryInvalidCursor'}
+        '422': {$ref: '#/components/responses/HistoryValidationProblem'}
   /trends:
     get:
       summary: 查询患者确定性历史统计
@@ -1461,6 +1465,18 @@ components:
       content:
         application/problem+json:
           schema: {$ref: '#/components/schemas/Problem'}
+    HistoryInvalidCursor:
+      description: RFC 9457 Problem Details - cursor tampering or filter mismatch
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          example: {type: 'https://gutcare.invalid/problems/invalid_cursor', title: '时间线游标无效', status: 400, detail: 'History cursor is invalid', instance: '/api/v1/history/timeline', code: INVALID_CURSOR, request_id: '00000000-0000-4000-8000-000000000001'}
+    HistoryValidationProblem:
+      description: RFC 9457 Problem Details - invalid time range, category or pagination parameters
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          example: {type: 'https://gutcare.invalid/problems/validation_error', title: 'Request validation failed', status: 422, detail: 'History time range must be timezone-aware and non-empty', instance: '/api/v1/history/timeline', code: VALIDATION_ERROR, request_id: '00000000-0000-4000-8000-000000000002', errors: []}
     PrivacyExportProblem404:
       description: RFC 9457 Problem Details - export not found or capability expired/used
       content:

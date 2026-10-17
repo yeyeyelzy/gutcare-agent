@@ -18,6 +18,8 @@ describe('named route registry and protected navigation', () => {
       for (const route of ['records', 'analysis', 'me'] as const) expect(canRenderRoute(route, state)).toBe(false)
     }
     expect(canRenderRoute('today', 'authenticated')).toBe(true)
+    expect(canRenderRoute('history', 'authenticated')).toBe(true)
+    expect(canRenderRoute('history', 'anonymous')).toBe(false)
     expect(canRenderRoute('profile', 'authenticated')).toBe(true)
     expect(canRenderRoute('records', 'authenticated')).toBe(true)
     expect(canRenderRoute('analysis', 'authenticated')).toBe(true)
@@ -27,6 +29,23 @@ describe('named route registry and protected navigation', () => {
     expect(canRenderRoute('privacyCenter', 'anonymous')).toBe(false)
     expect(canRenderRoute('accountDeletionConfirm', 'anonymous')).toBe(false)
     expect(canRenderRoute('accountDeletionProgress', 'anonymous')).toBe(true)
+  })
+
+  it('routes history targets only through fixed registered destinations and validates resource IDs', () => {
+    const navigator = makeNavigator()
+    const router = new AppRouter(navigator, () => 'authenticated')
+    const id = '00000000-0000-4000-8000-000000000001'
+    expect(router.navigateHistoryTarget('diet_record', id)).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenCalledWith(`${APP_ROUTES.recordDiet.path}?id=${id}`)
+    expect(router.navigateHistoryTarget('medication_checkin', id)).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenCalledWith(APP_ROUTES.medications.path)
+    expect(router.navigateHistoryTarget('advice', id)).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenCalledWith(APP_ROUTES.advice.path)
+    expect(router.navigateHistoryTarget('https://example.invalid/route', id)).toBe(false)
+    expect(router.navigateHistoryTarget('diet_record', 'bad-id')).toBe(false)
+    expect(navigator.navigateTo).toHaveBeenCalledTimes(3)
+    expect(APP_ROUTES.history.path).toBe('/pages/history/index')
+    expect(routeNameFromUrl(APP_ROUTES.history.path)).toBe('history')
   })
 
   it('clears authenticated return targets and reLaunches a public deletion progress route after acceptance', () => {

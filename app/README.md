@@ -92,3 +92,9 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 隐私中心进入受保护导出页。用户从冻结的 14 类白名单中明确选择类别；空选择拒绝，包含心情记录时显示 S4 提醒。创建接口只产生 `preview`，必须再次确认才调用 confirm 入队。列表、详情与手动刷新只呈现服务端七状态；失败与空历史分开，刷新失败保留已显示内容；取消仅限 preview/pending/processing，409/503 不自动重提。
 
 下载能力只从 ready 的详情响应取得，保留在页面进程内存，固定同源 `/privacy/exports/download` 并仅放 `X-Export-Capability` 请求头；绝不放 query、普通存储、日志、analytics 或剪贴板。当前客户端没有可验证的系统 ZIP 保存/分享能力，因此保存/分享入口 fail-closed 且不会消费 capability；真机 ZIP 保存/分享与原生适配器仍是外部门禁。适配器只使用 uni 临时沙箱路径并提供清理，不直连对象存储/MinIO。T123 覆盖操作集合、类别、显式确认、状态与 capability 边界。
+
+## B07a F11 历史时间线
+
+受保护 `/pages/history/index` 从记录 Tab 进入，返回所属根 Tab。`HistoryApi` 复用共享 `RequestClient`，DTO 来自 `getHistoryTimeline` 的生成 OpenAPI 类型。多类别筛选仅使用冻结的七类枚举；本地日历筛选转换为带时区的 UTC `[since, until)`，按时区日历边界计算以正确处理 DST。追加分页采用后端签名 cursor；失败保留当前项目和 cursor，支持重试。
+
+页面只显示记录类别、时间和固定 target。目标通过 allowlist 映射到记录详情、用药页或建议安全占位；未知/null/无效 ID 不跳转。不会复制记录正文、mood note、emotion_tags、敏感摘要，也不调用 Agent 或发送 patient_id。T124 覆盖类别/时间序列化、DST、目标 allowlist、筛选重置、首次 onShow 去重、详情返回刷新、离页响应失效及追加失败保留；双端 CLI/自动化不替代 Android/iOS 真机视觉与无障碍验收。
