@@ -22,6 +22,8 @@ import { MedicationApi } from './medicationApi'
 import { RiskApi } from './riskApi'
 import { NotificationApi } from './notificationApi'
 import { PrivacyApi } from './privacyApi'
+import { PrivacyExportApi } from './privacyExportApi'
+import { createPrivacyExportDownloadAdapter } from './privacyExportDownload'
 import { PrivacyDeletionService } from './privacyDeletionService'
 import { NativeDeletionReceiptStore } from './deletionReceiptStore'
 
@@ -69,6 +71,8 @@ export function createAppServices(pinia: Pinia) {
   const riskApi = new RiskApi(requestClient)
   const notificationApi = new NotificationApi(requestClient)
   const privacyApi = new PrivacyApi(requestClient)
+  const privacyExportApi = new PrivacyExportApi(requestClient)
+  const privacyExportDownload = createPrivacyExportDownloadAdapter()
   const deletionReceiptStore = new NativeDeletionReceiptStore(nativeDeletionReceiptBridge)
   const privacyDeletion = new PrivacyDeletionService(privacyApi, deletionReceiptStore, session, router)
   const authApi = new AuthApi(requestClient, session)
@@ -88,6 +92,8 @@ export function createAppServices(pinia: Pinia) {
     riskApi,
     notificationApi,
     privacyApi,
+    privacyExportApi,
+    privacyExportDownload,
     privacyDeletion,
     registration,
     emailVerification,

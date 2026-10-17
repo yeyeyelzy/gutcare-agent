@@ -271,6 +271,10 @@ class PrivacyService:
             )
             if row is None:
                 raise Problem(404, "RESOURCE_NOT_FOUND", "Export not found")
+            if row.status not in {"preview", "pending", "processing"}:
+                raise Problem(
+                    409, "IDEMPOTENCY_CONFLICT", "Export cannot be cancelled in its current state"
+                )
             row.status = "cancelled"
             row.capability_hash = None
             row.capability_expires_at = None
@@ -306,6 +310,7 @@ class PrivacyService:
                 "export_id": row.id,
                 "status": row.status,
                 "categories": row.categories,
+                "created_at": row.created_at,
                 "expires_at": row.expires_at,
                 "download_capability": download_capability,
             }
@@ -324,8 +329,8 @@ class PrivacyService:
                     "export_id": row.id,
                     "status": row.status,
                     "categories": row.categories,
-                    "expires_at": row.expires_at,
                     "created_at": row.created_at,
+                    "expires_at": row.expires_at,
                 }
                 for row in rows
             ]

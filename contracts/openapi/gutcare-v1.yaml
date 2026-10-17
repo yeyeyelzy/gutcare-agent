@@ -649,19 +649,30 @@ paths:
         required: true
         content:
           application/json:
-            schema: {type: object, required: [categories], properties: {categories: {type: array, minItems: 1, items: {type: string, enum: [profile, consents, medical_documents, files, diet, stool, symptoms, mood, medication, activity, analysis, advice, alerts, notifications]}}}, additionalProperties: false}
+            schema: {$ref: '#/components/schemas/PrivacyExportRequest'}
       responses:
-        '201': {description: Export preview created}
+        '201':
+          description: 创建待确认预览；不会启动导出任务。
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PrivacyExportPreview'}
+              example: {export_id: '019a0000-0000-7000-8000-000000000201', status: preview, categories: [profile, consents]}
         '401': {$ref: '#/components/responses/Problem'}
-        '422': {$ref: '#/components/responses/Problem'}
-        '503': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/PrivacyExportProblem422'}
+        '503': {$ref: '#/components/responses/PrivacyExportProblem503'}
     get:
       summary: 列出本人导出
       tags: [Privacy]
       operationId: listPrivacyExports
       responses:
-        '200': {description: 本人导出列表}
+        '200':
+          description: 本人最近的导出记录；不返回下载能力。
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/PrivacyExportSummary'}}
+              example: [{export_id: '019a0000-0000-7000-8000-000000000201', status: pending, categories: [profile, consents], created_at: '2026-10-18T08:30:00Z', expires_at: null}]
         '401': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/PrivacyExportProblem503'}
   /privacy/exports/{export_id}:
     get:
       summary: 查询本人导出状态
@@ -670,9 +681,16 @@ paths:
       parameters:
         - {name: export_id, in: path, required: true, schema: {type: string, format: uuid}}
       responses:
-        '200': {description: 导出状态及短期下载能力}
+        '200':
+          description: 导出状态；仅 ready 状态可返回一次性、五分钟下载能力。能力仅存内存并通过下载 header 使用。
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PrivacyExportDetail'}
+              example: {export_id: '019a0000-0000-7000-8000-000000000201', status: ready, categories: [profile, consents], created_at: '2026-10-18T08:30:00Z', expires_at: '2026-10-19T08:30:00Z', download_capability: 'example-only-capability-not-valid-0000000000000000000000000000000000000000000000000000000000000000'}
         '401': {$ref: '#/components/responses/Problem'}
-        '404': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/PrivacyExportProblem404'}
+        '422': {$ref: '#/components/responses/PrivacyExportPathProblem422'}
+        '503': {$ref: '#/components/responses/PrivacyExportProblem503'}
     post:
       summary: 确认生成本人导出
       tags: [Privacy]
@@ -680,10 +698,12 @@ paths:
       parameters:
         - {name: export_id, in: path, required: true, schema: {type: string, format: uuid}}
       responses:
-        '202': {description: 导出进入异步队列}
+        '202': {description: 已确认并进入异步队列；无响应正文，重复确认不自动重试。}
         '401': {$ref: '#/components/responses/Problem'}
-        '404': {$ref: '#/components/responses/Problem'}
-        '503': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/PrivacyExportProblem404'}
+        '422': {$ref: '#/components/responses/PrivacyExportPathProblem422'}
+        '409': {$ref: '#/components/responses/PrivacyExportProblem409'}
+        '503': {$ref: '#/components/responses/PrivacyExportProblem503'}
   /privacy/exports/{export_id}/cancel:
     post:
       summary: 取消本人导出
@@ -692,9 +712,12 @@ paths:
       parameters:
         - {name: export_id, in: path, required: true, schema: {type: string, format: uuid}}
       responses:
-        '204': {description: 导出已取消}
+        '204': {description: 导出已取消；无响应正文。}
         '401': {$ref: '#/components/responses/Problem'}
-        '404': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/PrivacyExportProblem404'}
+        '422': {$ref: '#/components/responses/PrivacyExportPathProblem422'}
+        '409': {$ref: '#/components/responses/PrivacyExportProblem409'}
+        '503': {$ref: '#/components/responses/PrivacyExportProblem503'}
   /privacy/exports/download:
     get:
       security: []
@@ -704,8 +727,14 @@ paths:
       parameters:
         - {name: X-Export-Capability, in: header, required: true, schema: {type: string, minLength: 40, maxLength: 128}}
       responses:
-        '200': {description: ZIP流；能力五分钟单次使用}
-        '404': {$ref: '#/components/responses/Problem'}
+        '200':
+          description: ZIP 流；能力五分钟单次使用。不得将 header 能力记录到 URL、日志或持久存储。
+          content:
+            application/zip:
+              schema: {type: string, format: binary}
+        '404': {$ref: '#/components/responses/PrivacyExportProblem404'}
+        '422': {$ref: '#/components/responses/PrivacyExportProblem422'}
+        '503': {$ref: '#/components/responses/PrivacyExportProblem503'}
   /files/uploads:
     post:
       summary: 创建文件上传会话
@@ -1432,6 +1461,36 @@ components:
       content:
         application/problem+json:
           schema: {$ref: '#/components/schemas/Problem'}
+    PrivacyExportProblem404:
+      description: RFC 9457 Problem Details - export not found or capability expired/used
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          example: {type: 'https://gutcare.invalid/problems/resource_not_found', title: 'Resource not found', status: 404, detail: 'Export not found or capability unavailable.', instance: '/api/v1/privacy/exports/00000000-0000-4000-8000-000000000000', code: RESOURCE_NOT_FOUND, request_id: '00000000-0000-4000-8000-000000000404'}
+    PrivacyExportProblem409:
+      description: RFC 9457 Problem Details - invalid export state transition
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          example: {type: 'https://gutcare.invalid/problems/idempotency_conflict', title: 'Export state conflict', status: 409, detail: 'Export cannot be confirmed in its current state.', instance: '/api/v1/privacy/exports/019a0000-0000-7000-8000-000000000201', code: IDEMPOTENCY_CONFLICT, request_id: '00000000-0000-4000-8000-000000000409'}
+    PrivacyExportProblem422:
+      description: RFC 9457 Problem Details - invalid export request or capability
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          example: {type: 'https://gutcare.invalid/problems/validation_error', title: 'Request validation failed', status: 422, detail: 'Unsupported export category.', instance: '/api/v1/privacy/exports', code: VALIDATION_ERROR, request_id: '00000000-0000-4000-8000-000000000422'}
+    PrivacyExportPathProblem422:
+      description: RFC 9457 Problem Details - export_id path parameter must be a UUID
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          example: {type: 'https://gutcare.invalid/problems/validation_error', title: 'Request validation failed', status: 422, detail: '导出 ID 格式无效。', instance: '/api/v1/privacy/exports/not-a-uuid', code: VALIDATION_ERROR, request_id: '00000000-0000-4000-8000-000000000422'}
+    PrivacyExportProblem503:
+      description: RFC 9457 Problem Details - export service unavailable
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+          example: {type: 'https://gutcare.invalid/problems/service_unavailable', title: 'Service unavailable', status: 503, detail: 'Encrypted export is unavailable.', instance: '/api/v1/privacy/exports', code: SERVICE_UNAVAILABLE, request_id: '00000000-0000-4000-8000-000000000503'}
     RecordVersionConflict:
       description: 提交的 profile_version 已过期；重新 GET 后再应用 PATCH。
       content:
@@ -1622,6 +1681,48 @@ components:
         data_scope: {type: [string, 'null']}
         recipient: {type: [string, 'null']}
         withdrawal_effect: {type: [string, 'null']}
+    PrivacyExportCategory:
+      type: string
+      enum: [profile, consents, medical_documents, files, diet, stool, symptoms, mood, medication, activity, analysis, advice, alerts, notifications]
+    PrivacyExportStatus:
+      type: string
+      enum: [preview, pending, processing, ready, failed, cancelled, expired]
+    PrivacyExportRequest:
+      type: object
+      additionalProperties: false
+      required: [categories]
+      description: 至少选择一个服务端白名单类别；用户确认预览后才会进入异步队列。
+      properties:
+        categories: {type: array, minItems: 1, maxItems: 16, items: {$ref: '#/components/schemas/PrivacyExportCategory'}}
+    PrivacyExportPreview:
+      type: object
+      additionalProperties: false
+      required: [export_id, status, categories]
+      properties:
+        export_id: {type: string, format: uuid}
+        status: {type: string, const: preview}
+        categories: {type: array, items: {$ref: '#/components/schemas/PrivacyExportCategory'}}
+    PrivacyExportSummary:
+      type: object
+      additionalProperties: false
+      required: [export_id, status, categories, created_at, expires_at]
+      properties:
+        export_id: {type: string, format: uuid}
+        status: {$ref: '#/components/schemas/PrivacyExportStatus'}
+        categories: {type: array, items: {$ref: '#/components/schemas/PrivacyExportCategory'}}
+        created_at: {type: string, format: date-time}
+        expires_at: {type: [string, 'null'], format: date-time}
+    PrivacyExportDetail:
+      type: object
+      additionalProperties: false
+      required: [export_id, status, categories, created_at, expires_at, download_capability]
+      properties:
+        export_id: {type: string, format: uuid}
+        status: {$ref: '#/components/schemas/PrivacyExportStatus'}
+        categories: {type: array, items: {$ref: '#/components/schemas/PrivacyExportCategory'}}
+        created_at: {type: string, format: date-time}
+        expires_at: {type: [string, 'null'], format: date-time}
+        download_capability: {type: [string, 'null'], minLength: 40, maxLength: 128, description: 仅 ready 且未过期时由详情接口返回；仅可在当前页面内存中短暂保留，并放入下载请求 header。}
     UploadSession:
       type: object
       required: [upload_id, upload_url, expires_at]

@@ -3,6 +3,7 @@
     <view class="topbar"><button class="back" aria-label="返回我的页面" data-testid="privacy-back" @click="router?.switchTab('me')">‹</button><text class="topbar-title">设置与隐私</text><view class="spacer" /></view>
     <view class="intro"><text class="eyebrow">PRIVACY & CONTROL</text><text class="title">隐私中心</text><text class="subtitle">查看并管理账户数据权利。注销账号与退出登录不同，注销请求不可撤销。</text></view>
     <view class="info-card"><text class="card-title">账号注销会发生什么</text><text class="copy">提交后账户立即冻结、全部登录会话和授权撤销，并取消未完成任务。后台清理通常在 30 天内完成；备份按最长 35 天轮转清理。受理不代表数据已物理删除。</text><text class="copy">进度可用一次性凭证在退出登录后查询。凭证只在首次成功响应显示一次，请勿截图、转发或粘贴到其他应用。</text></view>
+    <view class="action-card export-card"><text class="card-title">个人数据导出</text><text class="copy">选择需要导出的数据类别。导出文件可能包含敏感健康信息；包含心情记录时请特别注意 S4 敏感级别。</text><GcButton label="管理数据导出" variant="secondary" test-id="privacy-export-open" @click="router?.navigate('privacyExports')" /></view>
     <view class="action-card"><text class="card-title">账号注销</text><text class="copy">如果你只是暂时离开，请使用个人资料中的“退出登录”。注销会永久删除账户相关业务数据，且不能取消或恢复。</text><GcButton label="继续了解注销影响" variant="danger" test-id="privacy-deletion-continue" @click="router?.navigate('accountDeletionConfirm')" /></view>
     <view class="footer-note">隐私授权的详细状态仍由各功能对应的服务端告知与设置流程管理。</view>
   </view>

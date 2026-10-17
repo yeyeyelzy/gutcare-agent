@@ -9,6 +9,7 @@
     { "path": "pages/auth/reset-password", "style": { "navigationStyle": "custom" } },
     { "path": "pages/auth/profile-error", "style": { "navigationStyle": "custom" } },
     { "path": "pages/privacy/center", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/privacy/exports", "style": { "navigationStyle": "custom" } },
     { "path": "pages/privacy/deletion-confirm", "style": { "navigationStyle": "custom" } },
     { "path": "pages/privacy/deletion-progress", "style": { "navigationStyle": "custom" } },
     { "path": "pages/tabs/today/index", "style": { "navigationStyle": "custom" } },

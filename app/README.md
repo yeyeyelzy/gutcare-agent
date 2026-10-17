@@ -1,11 +1,11 @@
 # GutCare 移动端
 
-uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端。患者端交付目标是原生 APP；不提供 H5 发布脚本。认证、本人资料、四个 Tab 根页，以及 F03 饮食、F04 排便、F05 症状、F07 活动、F10 风险提示、F12 站内通知和 F14 心情记录页面已有实现；其他尚未接入模块仍显示受保护占位。隐私设置页使用服务端当前授权状态与告知，不在客户端伪造授权版本。
+uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端。患者端交付目标是原生 APP；不提供 H5 发布脚本。认证、本人资料、四个 Tab 根页，以及 F03 饮食、F04 排便、F05 症状、F07 活动、F10 风险提示、F12 站内通知、F13 注销/数据导出、F14 心情记录页面已有实现；其他尚未接入模块仍显示受保护占位。隐私设置页使用服务端当前授权状态与告知，不在客户端伪造授权版本。
 
 ## 命令
 
 - `pnpm typecheck`：Vue / TypeScript 静态检查
-- `pnpm openapi:generate`：从冻结 OpenAPI 的 auth/profile、consent 与 F03–F07/F10/F12/F14 operations 生成 TypeScript 类型
+- `pnpm openapi:generate`：从冻结 OpenAPI 的 auth/profile、privacy deletion/export、consent 与 F03–F07/F10/F12/F14 operations 生成 TypeScript 类型
 - `pnpm openapi:check`：重新过滤并生成后与受检入库类型逐字节比对；`pnpm check` 和仓库 lint 门禁执行此检查
 - `pnpm test`：API、记录/活动/心情/风险/通知组件契约、偏好与状态 helper、会话、注册草稿、邮箱验证、导航与启动状态单元测试
 - `pnpm build:android`：生成 Android 平台的 HBuilderX 导入工程
@@ -86,3 +86,9 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 设置与隐私页进入高危确认，明确理解勾选后才允许单飞提交。202 受理后先把 `{operation_id, receipt}` 写入独立原生 Keychain/Keystore 命名空间，再撤销本地刷新凭据、清理 access/profile/returnTo 并 `reLaunch` 到无认证进度页；不调用 logout，不提供取消注销。安全存储写入失败时仅留进程内并明确要求手动记录首次响应凭证，绝不降级到普通 uni storage；receipt 为 `null` 时只关联相同 operation ID 的既存凭证，否则明确说明无法恢复，不覆盖、不声称已恢复。
 
 进度页不把凭证或操作 ID 放在 APP 路由/query；手工查询通过受控 POST body，输入凭证在发送前从页面状态清除。手工输入可恢复查询但只在未完成状态保存到原生安全存储；`completed` 删除对应安全凭证。`overdue/dead_letter` 显示联系支持且不触发重新注销。原生 secure-store 接口的 HBuilderX 编译、安装与 Android/iOS 真机证据仍需单独验收；CLI build 不等于系统安全能力真机通过。
+
+## B06b F13 个人数据导出
+
+隐私中心进入受保护导出页。用户从冻结的 14 类白名单中明确选择类别；空选择拒绝，包含心情记录时显示 S4 提醒。创建接口只产生 `preview`，必须再次确认才调用 confirm 入队。列表、详情与手动刷新只呈现服务端七状态；失败与空历史分开，刷新失败保留已显示内容；取消仅限 preview/pending/processing，409/503 不自动重提。
+
+下载能力只从 ready 的详情响应取得，保留在页面进程内存，固定同源 `/privacy/exports/download` 并仅放 `X-Export-Capability` 请求头；绝不放 query、普通存储、日志、analytics 或剪贴板。当前客户端没有可验证的系统 ZIP 保存/分享能力，因此保存/分享入口 fail-closed 且不会消费 capability；真机 ZIP 保存/分享与原生适配器仍是外部门禁。适配器只使用 uni 临时沙箱路径并提供清理，不直连对象存储/MinIO。T123 覆盖操作集合、类别、显式确认、状态与 capability 边界。

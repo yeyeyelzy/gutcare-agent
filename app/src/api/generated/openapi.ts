@@ -406,6 +406,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/privacy/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出本人导出 */
+        get: operations["listPrivacyExports"];
+        put?: never;
+        /** 预览并创建隐私导出 */
+        post: operations["createPrivacyExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/privacy/exports/{export_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 查询本人导出状态 */
+        get: operations["getPrivacyExport"];
+        put?: never;
+        /** 确认生成本人导出 */
+        post: operations["confirmPrivacyExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/privacy/exports/{export_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 取消本人导出 */
+        post: operations["cancelPrivacyExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/privacy/exports/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 使用单次短期能力同源下载导出ZIP */
+        get: operations["downloadPrivacyExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/symptom-records/{record_id}/status-history": {
         parameters: {
             query?: never;
@@ -858,6 +928,43 @@ export interface components {
             data_scope?: string | null;
             recipient?: string | null;
             withdrawal_effect?: string | null;
+        };
+        /** @enum {string} */
+        PrivacyExportCategory: "profile" | "consents" | "medical_documents" | "files" | "diet" | "stool" | "symptoms" | "mood" | "medication" | "activity" | "analysis" | "advice" | "alerts" | "notifications";
+        /** @enum {string} */
+        PrivacyExportStatus: "preview" | "pending" | "processing" | "ready" | "failed" | "cancelled" | "expired";
+        /** @description 至少选择一个服务端白名单类别；用户确认预览后才会进入异步队列。 */
+        PrivacyExportRequest: {
+            categories: components["schemas"]["PrivacyExportCategory"][];
+        };
+        PrivacyExportPreview: {
+            /** Format: uuid */
+            export_id: string;
+            /** @constant */
+            status: "preview";
+            categories: components["schemas"]["PrivacyExportCategory"][];
+        };
+        PrivacyExportSummary: {
+            /** Format: uuid */
+            export_id: string;
+            status: components["schemas"]["PrivacyExportStatus"];
+            categories: components["schemas"]["PrivacyExportCategory"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            expires_at: string | null;
+        };
+        PrivacyExportDetail: {
+            /** Format: uuid */
+            export_id: string;
+            status: components["schemas"]["PrivacyExportStatus"];
+            categories: components["schemas"]["PrivacyExportCategory"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            expires_at: string | null;
+            /** @description 仅 ready 且未过期时由详情接口返回；仅可在当前页面内存中短暂保留，并放入下载请求 header。 */
+            download_capability: string | null;
         };
         UploadSession: {
             /** Format: uuid */
@@ -1516,6 +1623,106 @@ export interface components {
                 [name: string]: unknown;
             };
             content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description RFC 9457 Problem Details - export not found or capability expired/used */
+        PrivacyExportProblem404: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "https://gutcare.invalid/problems/resource_not_found",
+                 *       "title": "Resource not found",
+                 *       "status": 404,
+                 *       "detail": "Export not found or capability unavailable.",
+                 *       "instance": "/api/v1/privacy/exports/00000000-0000-4000-8000-000000000000",
+                 *       "code": "RESOURCE_NOT_FOUND",
+                 *       "request_id": "00000000-0000-4000-8000-000000000404"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description RFC 9457 Problem Details - invalid export state transition */
+        PrivacyExportProblem409: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "https://gutcare.invalid/problems/idempotency_conflict",
+                 *       "title": "Export state conflict",
+                 *       "status": 409,
+                 *       "detail": "Export cannot be confirmed in its current state.",
+                 *       "instance": "/api/v1/privacy/exports/019a0000-0000-7000-8000-000000000201",
+                 *       "code": "IDEMPOTENCY_CONFLICT",
+                 *       "request_id": "00000000-0000-4000-8000-000000000409"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description RFC 9457 Problem Details - invalid export request or capability */
+        PrivacyExportProblem422: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "https://gutcare.invalid/problems/validation_error",
+                 *       "title": "Request validation failed",
+                 *       "status": 422,
+                 *       "detail": "Unsupported export category.",
+                 *       "instance": "/api/v1/privacy/exports",
+                 *       "code": "VALIDATION_ERROR",
+                 *       "request_id": "00000000-0000-4000-8000-000000000422"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description RFC 9457 Problem Details - export_id path parameter must be a UUID */
+        PrivacyExportPathProblem422: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "https://gutcare.invalid/problems/validation_error",
+                 *       "title": "Request validation failed",
+                 *       "status": 422,
+                 *       "detail": "导出 ID 格式无效。",
+                 *       "instance": "/api/v1/privacy/exports/not-a-uuid",
+                 *       "code": "VALIDATION_ERROR",
+                 *       "request_id": "00000000-0000-4000-8000-000000000422"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description RFC 9457 Problem Details - export service unavailable */
+        PrivacyExportProblem503: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "https://gutcare.invalid/problems/service_unavailable",
+                 *       "title": "Service unavailable",
+                 *       "status": 503,
+                 *       "detail": "Encrypted export is unavailable.",
+                 *       "instance": "/api/v1/privacy/exports",
+                 *       "code": "SERVICE_UNAVAILABLE",
+                 *       "request_id": "00000000-0000-4000-8000-000000000503"
+                 *     }
+                 */
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
@@ -2459,6 +2666,193 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    listPrivacyExports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 本人最近的导出记录；不返回下载能力。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "export_id": "019a0000-0000-7000-8000-000000000201",
+                     *         "status": "pending",
+                     *         "categories": [
+                     *           "profile",
+                     *           "consents"
+                     *         ],
+                     *         "created_at": "2026-10-18T08:30:00Z",
+                     *         "expires_at": null
+                     *       }
+                     *     ]
+                     */
+                    "application/json": components["schemas"]["PrivacyExportSummary"][];
+                };
+            };
+            401: components["responses"]["Problem"];
+            503: components["responses"]["PrivacyExportProblem503"];
+        };
+    };
+    createPrivacyExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrivacyExportRequest"];
+            };
+        };
+        responses: {
+            /** @description 创建待确认预览；不会启动导出任务。 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "export_id": "019a0000-0000-7000-8000-000000000201",
+                     *       "status": "preview",
+                     *       "categories": [
+                     *         "profile",
+                     *         "consents"
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PrivacyExportPreview"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            422: components["responses"]["PrivacyExportProblem422"];
+            503: components["responses"]["PrivacyExportProblem503"];
+        };
+    };
+    getPrivacyExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 导出状态；仅 ready 状态可返回一次性、五分钟下载能力。能力仅存内存并通过下载 header 使用。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "export_id": "019a0000-0000-7000-8000-000000000201",
+                     *       "status": "ready",
+                     *       "categories": [
+                     *         "profile",
+                     *         "consents"
+                     *       ],
+                     *       "created_at": "2026-10-18T08:30:00Z",
+                     *       "expires_at": "2026-10-19T08:30:00Z",
+                     *       "download_capability": "example-only-capability-not-valid-0000000000000000000000000000000000000000000000000000000000000000"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PrivacyExportDetail"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["PrivacyExportProblem404"];
+            422: components["responses"]["PrivacyExportPathProblem422"];
+            503: components["responses"]["PrivacyExportProblem503"];
+        };
+    };
+    confirmPrivacyExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 已确认并进入异步队列；无响应正文，重复确认不自动重试。 */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["PrivacyExportProblem404"];
+            409: components["responses"]["PrivacyExportProblem409"];
+            422: components["responses"]["PrivacyExportPathProblem422"];
+            503: components["responses"]["PrivacyExportProblem503"];
+        };
+    };
+    cancelPrivacyExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 导出已取消；无响应正文。 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["PrivacyExportProblem404"];
+            409: components["responses"]["PrivacyExportProblem409"];
+            422: components["responses"]["PrivacyExportPathProblem422"];
+            503: components["responses"]["PrivacyExportProblem503"];
+        };
+    };
+    downloadPrivacyExport: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Export-Capability": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ZIP 流；能力五分钟单次使用。不得将 header 能力记录到 URL、日志或持久存储。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            404: components["responses"]["PrivacyExportProblem404"];
+            422: components["responses"]["PrivacyExportProblem422"];
+            503: components["responses"]["PrivacyExportProblem503"];
         };
     };
     getSymptomStatusHistory: {

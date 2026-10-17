@@ -81,23 +81,118 @@ class ReceiptQuery(BaseModel):
     receipt: str = Field(min_length=40, max_length=128)
 
 
+ExportCategory = Literal[
+    "profile",
+    "consents",
+    "medical_documents",
+    "files",
+    "diet",
+    "stool",
+    "symptoms",
+    "mood",
+    "medication",
+    "activity",
+    "analysis",
+    "advice",
+    "alerts",
+    "notifications",
+]
+ExportStatus = Literal[
+    "preview", "pending", "processing", "ready", "failed", "cancelled", "expired"
+]
+
+
 class ExportRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    categories: list[str] = Field(min_length=1, max_length=16)
+    model_config = ConfigDict(
+        extra="forbid", json_schema_extra={"examples": [{"categories": ["profile", "consents"]}]}
+    )
+    categories: list[ExportCategory] = Field(min_length=1, max_length=16)
 
 
 class ExportResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "export_id": "019a0000-0000-7000-8000-000000000201",
+                    "categories": ["profile", "consents"],
+                    "status": "preview",
+                }
+            ]
+        },
+    )
+
     export_id: UUID
-    categories: list[str]
-    status: str
+    categories: list[ExportCategory]
+    status: Literal["preview"]
 
 
-class ExportStatusResponse(BaseModel):
+class ExportSummaryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "export_id": "019a0000-0000-7000-8000-000000000201",
+                    "status": "pending",
+                    "categories": ["profile", "consents"],
+                    "created_at": "2026-10-18T08:30:00Z",
+                    "expires_at": None,
+                }
+            ]
+        },
+    )
+
     export_id: UUID
-    status: str
-    categories: list[str]
-    expires_at: str | None
+    status: ExportStatus
+    categories: list[ExportCategory]
+    created_at: datetime
+    expires_at: datetime | None
+
+
+class ExportStatusResponse(ExportSummaryResponse):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "export_id": "019a0000-0000-7000-8000-000000000201",
+                    "status": "ready",
+                    "categories": ["profile", "consents"],
+                    "created_at": "2026-10-18T08:30:00Z",
+                    "expires_at": "2026-10-19T08:30:00Z",
+                    "download_capability": (
+                        "example-only-capability-not-valid-"
+                        "0000000000000000000000000000000000000000000000000000000000000000"
+                    ),
+                }
+            ]
+        },
+    )
     download_capability: str | None = None
+
+
+def _export_problem(
+    status_code: int,
+    code: str,
+    title: str,
+    description: str,
+    *,
+    instance: str = "/api/v1/privacy/exports",
+) -> dict[str, object]:
+    return problem_response(
+        description,
+        {
+            "type": f"https://gutcare.invalid/problems/{code.lower()}",
+            "title": title,
+            "status": status_code,
+            "detail": description,
+            "instance": instance,
+            "code": code,
+            "request_id": f"00000000-0000-4000-8000-000000000{status_code}",
+        },
+    )
 
 
 @router.post(
@@ -296,9 +391,20 @@ def deletion_status(
 
 @router.post(
     "/privacy/exports",
+    operation_id="createPrivacyExport",
     status_code=status.HTTP_201_CREATED,
     response_model=ExportResponse,
-    responses={401: {"description": "需要有效会话"}, 422: {"description": "导出类别无效"}},
+    responses={
+        401: _export_problem(
+            401, "AUTHENTICATION_REQUIRED", "Authentication required", "需要有效会话"
+        ),
+        422: _export_problem(
+            422, "VALIDATION_ERROR", "Request validation failed", "导出类别为空或不受支持。"
+        ),
+        503: _export_problem(
+            503, "SERVICE_UNAVAILABLE", "Service unavailable", "加密导出暂不可用。"
+        ),
+    },
     tags=["Privacy"],
 )
 def create_export(
@@ -306,22 +412,38 @@ def create_export(
     context: Annotated[AuthContext, Depends(current_auth_context)],
     service: Annotated[PrivacyServicePort, Depends(get_privacy_service)],
 ) -> ExportResponse:
-    export_id, categories = service.create_export_preview(context, body.categories)
-    return ExportResponse(export_id=export_id, categories=categories, status="preview")
+    export_id, categories = service.create_export_preview(context, cast(list[str], body.categories))
+    return ExportResponse(
+        export_id=export_id, categories=cast(list[ExportCategory], categories), status="preview"
+    )
 
 
-@router.get("/privacy/exports", response_model=list[ExportStatusResponse], tags=["Privacy"])
+@router.get(
+    "/privacy/exports",
+    operation_id="listPrivacyExports",
+    response_model=list[ExportSummaryResponse],
+    responses={
+        401: _export_problem(
+            401, "AUTHENTICATION_REQUIRED", "Authentication required", "需要有效会话"
+        ),
+        503: _export_problem(
+            503, "SERVICE_UNAVAILABLE", "Service unavailable", "隐私服务暂不可用。"
+        ),
+    },
+    tags=["Privacy"],
+)
 def list_exports(
     context: Annotated[AuthContext, Depends(current_auth_context)],
     service: Annotated[PrivacyServicePort, Depends(get_privacy_service)],
-) -> list[ExportStatusResponse]:
+) -> list[ExportSummaryResponse]:
     rows = service.list_exports(context)
     return [
-        ExportStatusResponse(
+        ExportSummaryResponse(
             export_id=cast(UUID, row["export_id"]),
-            status=str(row["status"]),
-            categories=list(cast(list[str], row["categories"])),
-            expires_at=_iso_date(row["expires_at"]),
+            status=cast(ExportStatus, str(row["status"])),
+            categories=list(cast(list[ExportCategory], row["categories"])),
+            created_at=cast(datetime, row["created_at"]),
+            expires_at=cast(datetime | None, row["expires_at"]),
         )
         for row in rows
     ]
@@ -329,7 +451,24 @@ def list_exports(
 
 @router.get(
     "/privacy/exports/{export_id}",
+    operation_id="getPrivacyExport",
     response_model=ExportStatusResponse,
+    responses={
+        401: _export_problem(
+            401, "AUTHENTICATION_REQUIRED", "Authentication required", "需要有效会话"
+        ),
+        404: _export_problem(404, "RESOURCE_NOT_FOUND", "Not found", "本人导出不存在。"),
+        422: _export_problem(
+            422,
+            "VALIDATION_ERROR",
+            "Request validation failed",
+            "导出 ID 格式无效。",
+            instance="/api/v1/privacy/exports/not-a-uuid",
+        ),
+        503: _export_problem(
+            503, "SERVICE_UNAVAILABLE", "Service unavailable", "隐私服务暂不可用。"
+        ),
+    },
     tags=["Privacy"],
 )
 def export_status(
@@ -341,9 +480,10 @@ def export_status(
     expiry = cast(datetime | None, row["expires_at"])
     return ExportStatusResponse(
         export_id=export_id,
-        status=str(row["status"]),
-        categories=list(cast(list[str], row["categories"])),
-        expires_at=_iso_date(expiry),
+        status=cast(ExportStatus, str(row["status"])),
+        categories=list(cast(list[ExportCategory], row["categories"])),
+        created_at=cast(datetime, row["created_at"]),
+        expires_at=expiry,
         download_capability=(
             str(row["download_capability"]) if row["download_capability"] else None
         ),
@@ -352,12 +492,27 @@ def export_status(
 
 @router.post(
     "/privacy/exports/{export_id}",
+    operation_id="confirmPrivacyExport",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=None,
     responses={
-        401: {"description": "需要有效会话"},
-        404: {"description": "导出不存在"},
-        409: {"description": "导出状态冲突"},
+        401: _export_problem(
+            401, "AUTHENTICATION_REQUIRED", "Authentication required", "需要有效会话"
+        ),
+        404: _export_problem(404, "RESOURCE_NOT_FOUND", "Not found", "本人导出不存在。"),
+        422: _export_problem(
+            422,
+            "VALIDATION_ERROR",
+            "Request validation failed",
+            "导出 ID 格式无效。",
+            instance="/api/v1/privacy/exports/not-a-uuid",
+        ),
+        409: _export_problem(
+            409, "IDEMPOTENCY_CONFLICT", "Export state conflict", "导出状态不允许确认。"
+        ),
+        503: _export_problem(
+            503, "SERVICE_UNAVAILABLE", "Service unavailable", "加密导出暂不可用。"
+        ),
     },
     tags=["Privacy"],
 )
@@ -371,9 +526,28 @@ def confirm_export(
 
 @router.post(
     "/privacy/exports/{export_id}/cancel",
+    operation_id="cancelPrivacyExport",
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
-    responses={401: {"description": "需要有效会话"}, 404: {"description": "导出不存在"}},
+    responses={
+        401: _export_problem(
+            401, "AUTHENTICATION_REQUIRED", "Authentication required", "需要有效会话"
+        ),
+        404: _export_problem(404, "RESOURCE_NOT_FOUND", "Not found", "本人导出不存在。"),
+        422: _export_problem(
+            422,
+            "VALIDATION_ERROR",
+            "Request validation failed",
+            "导出 ID 格式无效。",
+            instance="/api/v1/privacy/exports/not-a-uuid",
+        ),
+        409: _export_problem(
+            409, "IDEMPOTENCY_CONFLICT", "Export state conflict", "该导出状态不允许取消。"
+        ),
+        503: _export_problem(
+            503, "SERVICE_UNAVAILABLE", "Service unavailable", "隐私服务暂不可用。"
+        ),
+    },
     tags=["Privacy"],
 )
 def cancel_export(
@@ -386,7 +560,21 @@ def cancel_export(
 
 @router.get(
     "/privacy/exports/download",
+    operation_id="downloadPrivacyExport",
     response_model=None,
+    responses={
+        200: {
+            "description": "五分钟单次能力对应的 ZIP 流。",
+            "content": {"application/zip": {"schema": {"type": "string", "format": "binary"}}},
+        },
+        404: _export_problem(404, "RESOURCE_NOT_FOUND", "Not found", "下载能力不可用或已使用。"),
+        422: _export_problem(
+            422, "VALIDATION_ERROR", "Request validation failed", "下载 header 格式无效。"
+        ),
+        503: _export_problem(
+            503, "SERVICE_UNAVAILABLE", "Service unavailable", "导出下载暂不可用。"
+        ),
+    },
     include_in_schema=True,
     tags=["Privacy"],
 )
