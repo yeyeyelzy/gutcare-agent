@@ -15,3 +15,9 @@ declare module '@/../uni_modules/gutcare-secure-store' {
   export function removeDeletionReceiptRecord(): void
   export function hasDeletionReceiptRecord(): boolean
 }
+
+declare module '@/../uni_modules/gutcare-medical-file-picker' {
+  import type { MedicalPickerFailure, PickedMedicalFile } from '../uni_modules/gutcare-medical-file-picker/utssdk/interface.uts'
+  export function chooseMedicalFile(success: (file: PickedMedicalFile) => void, failure: (reason: MedicalPickerFailure) => void): void
+  export function cleanupMedicalFile(path: string): void
+}

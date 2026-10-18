@@ -49,6 +49,23 @@ describe('named route registry and protected navigation', () => {
     expect(routeNameFromUrl(APP_ROUTES.history.path)).toBe('history')
   })
 
+  it('holds a medical-document deep link in memory across login and rejects invalid identifiers', () => {
+    const navigator = makeNavigator()
+    let state: AuthState = 'anonymous'
+    const router = new AppRouter(navigator, () => state)
+    const id = '00000000-0000-4000-8000-000000000099'
+    expect(routeNameFromUrl(`${APP_ROUTES.medicalDocumentDetail.path}?document_id=${id}`)).toBe('medicalDocumentDetail')
+    expect(router.guardUrl(`${APP_ROUTES.medicalDocumentDetail.path}?document_id=${id}`)).toBe(false)
+    expect(router.returnToStore.takeMedicalDocumentTarget()).toBe(id)
+    expect(router.navigateMedicalDocumentDetail('invalid')).toBe(false)
+    state = 'authenticated'
+    router.returnToStore.saveMedicalDocumentTarget(id)
+    router.afterAuthentication()
+    expect(navigator.reLaunch).toHaveBeenLastCalledWith(`${APP_ROUTES.medicalDocumentDetail.path}?document_id=${id}`)
+    expect(router.navigateMedicalDocumentDetail(id)).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenLastCalledWith(`${APP_ROUTES.medicalDocumentDetail.path}?document_id=${id}`)
+  })
+
   it('maps analysis evidence through fixed routes and refuses deleted, invalid, or unsupported sources', () => {
     const navigator = makeNavigator()
     const router = new AppRouter(navigator, () => 'authenticated')

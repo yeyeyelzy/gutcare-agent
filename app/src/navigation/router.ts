@@ -17,6 +17,7 @@ export class MemoryReturnToStore {
   private analysisTaskTarget: { id: string; owner: AppTabName; fromHistory: boolean } | null = null
   private adviceTarget: { id: string; owner: 'analysis' | 'me'; from: 'list' | 'history' | 'external' | 'notification'; notificationId: string | null } | null = null
   private adviceNotificationReturn: string | null = null
+  private medicalDocumentTarget: string | null = null
 
   save(value: unknown): void {
     this.value = parseReturnTo(value)
@@ -34,6 +35,7 @@ export class MemoryReturnToStore {
     this.analysisTaskTarget = null
     this.adviceTarget = null
     this.adviceNotificationReturn = null
+    this.medicalDocumentTarget = null
   }
 
   saveNotificationTarget(type: 'analysis_task' | 'advice', id: string): void {
@@ -70,6 +72,12 @@ export class MemoryReturnToStore {
     this.adviceNotificationReturn = null
     return isUuid(value) ? value : null
   }
+  saveMedicalDocumentTarget(id: string): void { this.medicalDocumentTarget = isUuid(id) ? id : null }
+  takeMedicalDocumentTarget(): string | null {
+    const value = this.medicalDocumentTarget
+    this.medicalDocumentTarget = null
+    return isUuid(value) ? value : null
+  }
 }
 
 export class AppRouter {
@@ -93,6 +101,16 @@ export class AppRouter {
     if (!this.authorize('riskAlertDetail')) return false
     if (!/^[0-9a-f-]{36}$/i.test(id)) return false
     this.navigator.navigateTo(`${APP_ROUTES.riskAlertDetail.path}?alert_id=${encodeURIComponent(id)}`)
+    return true
+  }
+
+  navigateMedicalDocumentDetail(id: string): boolean {
+    if (!isUuid(id)) return false
+    if (!this.authorize('medicalDocumentDetail')) {
+      this.returnToStore.saveMedicalDocumentTarget(id)
+      return false
+    }
+    this.navigator.navigateTo(`${APP_ROUTES.medicalDocumentDetail.path}?document_id=${encodeURIComponent(id)}`)
     return true
   }
 
@@ -254,6 +272,12 @@ export class AppRouter {
       this.returnToStore.takeNotificationTarget()
       return
     }
+    const medicalDocumentTarget = this.returnToStore.takeMedicalDocumentTarget()
+    if (medicalDocumentTarget) {
+      this.navigator.reLaunch(`${APP_ROUTES.medicalDocumentDetail.path}?document_id=${encodeURIComponent(medicalDocumentTarget)}`)
+      this.returnToStore.take()
+      return
+    }
     const adviceTarget = this.returnToStore.takeAdviceTarget()
     if (adviceTarget) {
       if (adviceTarget.from === 'notification' && adviceTarget.notificationId) {
@@ -316,6 +340,11 @@ export class AppRouter {
       const query = new URLSearchParams(url.split('?')[1]?.split('#')[0] ?? '')
       const taskId = query.get('task_id')
       if (isUuid(taskId)) this.returnToStore.saveAnalysisTaskTarget(taskId, query.get('owner') === 'me' ? 'me' : 'analysis', query.get('from') === 'history')
+    }
+    if (name === 'medicalDocumentDetail' && this.getAuthState() !== 'authenticated') {
+      const query = new URLSearchParams(url.split('?')[1]?.split('#')[0] ?? '')
+      const documentId = query.get('document_id')
+      if (isUuid(documentId)) this.returnToStore.saveMedicalDocumentTarget(documentId)
     }
     if (name === 'adviceDetail' && this.getAuthState() !== 'authenticated') {
       const query = new URLSearchParams(url.split('?')[1]?.split('#')[0] ?? '')

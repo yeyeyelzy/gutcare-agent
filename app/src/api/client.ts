@@ -30,6 +30,8 @@ import { PrivacyDeletionService } from './privacyDeletionService'
 import { NativeDeletionReceiptStore } from './deletionReceiptStore'
 import { AnalysisApi } from './analysisApi'
 import { AdviceApi } from './adviceApi'
+import { MedicalDocumentsApi } from './medicalDocumentsApi'
+import { MedicalDocumentPreviewAdapter, nativeMedicalPreviewPlatform } from './medicalDocumentPreview'
 
 const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, { allowLocalHttp: import.meta.env.DEV })
 
@@ -75,6 +77,8 @@ export function createAppServices(pinia: Pinia) {
   const trendApi = new TrendApi(requestClient)
   const analysisApi = new AnalysisApi(requestClient)
   const adviceApi = new AdviceApi(requestClient)
+  const medicalDocumentsApi = new MedicalDocumentsApi(requestClient)
+  const medicalDocumentPreview = new MedicalDocumentPreviewAdapter(nativeMedicalPreviewPlatform, apiBaseUrl)
   const medicationApi = new MedicationApi(requestClient)
   const riskApi = new RiskApi(requestClient)
   const notificationApi = new NotificationApi(requestClient)
@@ -100,6 +104,8 @@ export function createAppServices(pinia: Pinia) {
     trendApi,
     analysisApi,
     adviceApi,
+    medicalDocumentsApi,
+    medicalDocumentPreview,
     medicationApi,
     riskApi,
     notificationApi,

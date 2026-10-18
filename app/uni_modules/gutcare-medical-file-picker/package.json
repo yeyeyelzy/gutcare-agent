@@ -1,0 +1,6 @@
+{
+  "id": "gutcare-medical-file-picker",
+  "displayName": "GutCare Medical File Picker",
+  "version": "1.0.0",
+  "description": "Single-file Android SAF and iOS document picker with cache-only copy and cleanup."
+}

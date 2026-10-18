@@ -23,6 +23,8 @@ import type { HistoryApi } from './historyApi'
 import type { TrendApi } from './trendApi'
 import type { AnalysisApi } from './analysisApi'
 import type { AdviceApi } from './adviceApi'
+import type { MedicalDocumentsApi } from './medicalDocumentsApi'
+import type { MedicalDocumentPreviewAdapter } from './medicalDocumentPreview'
 
 export const requestClientKey: InjectionKey<RequestClient> = Symbol('gutcare-request-client')
 export const sessionServiceKey: InjectionKey<SessionService> = Symbol('gutcare-session-service')
@@ -41,6 +43,8 @@ export const historyApiKey: InjectionKey<HistoryApi> = Symbol('gutcare-history-a
 export const trendApiKey: InjectionKey<TrendApi> = Symbol('gutcare-trend-api')
 export const analysisApiKey: InjectionKey<AnalysisApi> = Symbol('gutcare-analysis-api')
 export const adviceApiKey: InjectionKey<AdviceApi> = Symbol('gutcare-advice-api')
+export const medicalDocumentsApiKey: InjectionKey<MedicalDocumentsApi> = Symbol('gutcare-medical-documents-api')
+export const medicalDocumentPreviewKey: InjectionKey<MedicalDocumentPreviewAdapter> = Symbol('gutcare-medical-document-preview')
 export const medicationApiKey: InjectionKey<MedicationApi> = Symbol('gutcare-medication-api')
 export const riskApiKey: InjectionKey<RiskApi> = Symbol('gutcare-risk-api')
 export const notificationApiKey: InjectionKey<NotificationApi> = Symbol('gutcare-notification-api')

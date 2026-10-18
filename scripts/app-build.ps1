@@ -20,13 +20,13 @@ try {
     $version = & $node $corepack pnpm --version
     if ($LASTEXITCODE -ne 0 -or $version -ne '10.28.0') { throw "pnpm 10.28.0 is required; resolver reports '$version'." }
     foreach ($target in @(
-        @{ Name = 'Android'; Script = 'build:android'; Artifact = 'dist\build\hx\app\app-android\uni_modules\gutcare-secure-store\manifest.json'; CompilerArtifact = 'dist\build\.tsc\uni_modules\gutcare-secure-store\utssdk\app-android\index.uts.ts' },
-        @{ Name = 'iOS'; Script = 'build:ios'; Artifact = 'dist\build\hx\app\app-ios\uni_modules\gutcare-secure-store\manifest.json'; CompilerArtifact = 'dist\build\.tsc\uni_modules\gutcare-secure-store\utssdk\app-ios\index.uts.ts' }
+        @{ Name = 'Android'; Script = 'build:android'; Artifact = 'dist\build\hx\app\app-android\uni_modules\gutcare-secure-store\manifest.json'; CompilerArtifact = 'dist\build\.tsc\uni_modules\gutcare-secure-store\utssdk\app-android\index.uts.ts'; PickerArtifact = 'dist\build\hx\app\app-android\uni_modules\gutcare-medical-file-picker\manifest.json'; PickerCompilerArtifact = 'dist\build\.tsc\uni_modules\gutcare-medical-file-picker\utssdk\app-android\index.uts.ts' },
+        @{ Name = 'iOS'; Script = 'build:ios'; Artifact = 'dist\build\hx\app\app-ios\uni_modules\gutcare-secure-store\manifest.json'; CompilerArtifact = 'dist\build\.tsc\uni_modules\gutcare-secure-store\utssdk\app-ios\index.uts.ts'; PickerArtifact = 'dist\build\hx\app\app-ios\uni_modules\gutcare-medical-file-picker\manifest.json'; PickerCompilerArtifact = 'dist\build\.tsc\uni_modules\gutcare-medical-file-picker\utssdk\app-ios\index.uts.ts' }
     )) {
         $buildStartedAt = Get-Date
         Invoke-AppBuildCommand -FilePath $node -ArgumentList @($corepack, 'pnpm', 'run', $target.Script) -TargetName $target.Name
 
-        foreach ($relativeArtifact in @($target.Artifact, $target.CompilerArtifact, 'dist\build\app\app-service.js')) {
+        foreach ($relativeArtifact in @($target.Artifact, $target.CompilerArtifact, $target.PickerArtifact, $target.PickerCompilerArtifact, 'dist\build\app\app-service.js')) {
             $artifactPath = Join-Path $appPath $relativeArtifact
             if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf) -or
                 (Get-Item -LiteralPath $artifactPath).Length -eq 0) {

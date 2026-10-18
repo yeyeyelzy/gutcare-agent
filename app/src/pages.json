@@ -22,6 +22,8 @@
     { "path": "pages/records/symptoms/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/records/mood/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/records/activity/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/records/health-archive/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/records/medical-documents/detail", "style": { "navigationStyle": "custom" } },
     { "path": "pages/medications/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/risk-alerts/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/history/index", "style": { "navigationStyle": "custom" } },

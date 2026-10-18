@@ -126,3 +126,9 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 ## B09b 今日首页真实数据摘要
 
 今日页只调用五项既有本人 API：风险前三条未读、今日用药打卡、通知未读数、最近一条建议、以及患者 IANA 时区当日的六类趋势聚合。风险优先展示；建议卡按服务端返回状态直显（包括已归档），不将其描述为待处理或有效。每卡独立加载/空/错误/重试；刷新失败保留已载入数据，首次失败不折算为零/无数据。心情授权缺失与授权下空桶分别呈现。趋势原样展示后端聚合，不在客户端生成结论；不请求逐条记录详情。
+
+## F02a 医疗档案基础 APP
+
+“记录 → 健康档案”使用受保护 `/records/health-archive`，文档详情使用 `/records/medical-documents/:documentId`。APP 只通过既有业务 API 创建上传会话、向同源受保护 gateway 传原始 bytes、完成扫描后创建本人档案；禁止直连 Agent/MinIO、持久化 capability、记录 capability URL/本地路径/文件名或展示 bucket/key。PDF 最大 20 MiB，JPEG/PNG 最大 10 MiB；客户端预检不替代服务器 MIME、大小与安全扫描。扫描不可用显示可重试错误，不伪装成功。`store_only` 不提交解析；`analyze` 的授权与解析任务由后端执行，未经患者逐字段确认的候选不成为事实。
+
+原生文件选择由窄 UTS 插件提供：Android SAF `ACTION_OPEN_DOCUMENT`、iOS `UIDocumentPickerViewController`，单选后复制到 APP cache，上传/取消/失败清理 cache；不申请广泛存储/照片权限。H5 与插件不可用均 fail-closed。当前自动化与 CLI 检查不等同于 HBuilderX 自定义基座/签名安装或 Android、iOS/iCloud/cloud-provider 真机验证；这些设备证据仍是外部发布门禁。T130 是本切片 APP 合同测试；后端 F02/T03–T06、T60–T65、T103–T104 与本次 APP 验收分开记录。

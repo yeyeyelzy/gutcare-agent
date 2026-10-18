@@ -1,0 +1,140 @@
+import { FileHandle, FileManager, URL } from 'Foundation'
+import { UIDocumentPickerDelegate, UIDocumentPickerMode, UIDocumentPickerViewController } from 'UIKit'
+import { UTSiOS } from 'DCloudUTSFoundation'
+import type { MedicalPickerFailure, MedicalPickerMime, PickedMedicalFile } from '../interface.uts'
+
+const PREFIX = 'gutcare-medical-'
+const PDF_LIMIT = 20 * 1024 * 1024
+const IMAGE_LIMIT = 10 * 1024 * 1024
+let activeDelegate: PickerDelegate | null = null
+
+function mimeFor(name: string): MedicalPickerMime | null {
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.pdf')) return 'application/pdf'
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
+  if (lower.endsWith('.png')) return 'image/png'
+  return null
+}
+
+function sanitizedName(name: string): string {
+  const clean = name.split('/').pop()?.split('\\').pop()?.replace(/[^A-Za-z0-9._-]/g, '_').slice(-180) ?? ''
+  return clean.length > 0 ? clean : 'medical-file'
+}
+
+function removePartial(destination: URL): void {
+  try { FileManager.default.removeItem(at = destination) } catch (_cleanup) {}
+}
+
+function copyBounded(source: URL, destination: URL, max: number): number {
+  if (!FileManager.default.createFile(atPath = destination.path, contents = null, attributes = null)) throw new Error('unavailable')
+  var input: FileHandle | null = null
+  var output: FileHandle | null = null
+  var copied = 0
+  try {
+    input = FileHandle(forReadingFrom = source)
+    output = FileHandle(forWritingTo = destination)
+    const boundedLimit = max + 1
+    while (copied < boundedLimit) {
+      const chunk = input.readData(ofLength = Math.min(64 * 1024, boundedLimit - copied))
+      const count = Number(chunk.length)
+      if (count <= 0) break
+      output.write(data = chunk)
+      copied += count
+      if (copied > max) throw new Error('too_large')
+    }
+    if (copied <= 0) throw new Error('unavailable')
+    output.closeFile()
+    output = null
+    input.closeFile()
+    input = null
+    return copied
+  } catch (error: any) {
+    try { output?.closeFile() } catch (_close) {}
+    try { input?.closeFile() } catch (_close) {}
+    removePartial(destination)
+    if (error?.message == 'too_large') throw error
+    throw new Error('unavailable')
+  }
+}
+
+function copyToCache(source: URL): PickedMedicalFile {
+  if (!source.startAccessingSecurityScopedResource()) throw new Error('unavailable')
+  try {
+    const name = sanitizedName(source.lastPathComponent)
+    const mime = mimeFor(name)
+    if (mime == null) throw new Error('unsupported_type')
+    const cache = FileManager.default.urls(for = FileManager.SearchPathDirectory.cachesDirectory, in = FileManager.SearchPathDomainMask.userDomainMask).first!
+    const extension = mime == 'application/pdf' ? 'pdf' : mime == 'image/jpeg' ? 'jpg' : 'png'
+    const destination = cache.appendingPathComponent(PREFIX + UUID().uuidString + '.' + extension, isDirectory = false)
+    const max = mime == 'application/pdf' ? PDF_LIMIT : IMAGE_LIMIT
+    // Check the provider's source metadata before touching the cache. When it is
+    // absent/untrustworthy, copyBounded enforces the same limit while streaming.
+    var sourceSize: number | null = null
+    try {
+      const attributes = FileManager.default.attributesOfItem(atPath = source.path) as Map<string, any>
+      const candidate = Number(attributes.get('NSFileSize'))
+      if (Number.isSafeInteger(candidate) && candidate >= 0) sourceSize = candidate
+    } catch (_metadata) {}
+    if (sourceSize != null && sourceSize > max) throw new Error('too_large')
+    let size = 0
+    try {
+      size = copyBounded(source, destination, max)
+    } catch (error: any) {
+      removePartial(destination)
+      throw error
+    }
+    if (size > max) { removePartial(destination); throw new Error('too_large') }
+    return { path: destination.path, name, size, mime }
+  } finally { source.stopAccessingSecurityScopedResource() }
+}
+
+class PickerDelegate extends NSObject implements UIDocumentPickerDelegate {
+  private successCallback: ((file: PickedMedicalFile) => void) | null
+  private failureCallback: ((reason: MedicalPickerFailure) => void) | null
+  constructor(success: (file: PickedMedicalFile) => void, failure: (reason: MedicalPickerFailure) => void) {
+    super()
+    this.successCallback = success
+    this.failureCallback = failure
+  }
+  documentPicker(controller: UIDocumentPickerViewController, urls: Array<URL>): void {
+    const selected = urls.first
+    if (selected == null) { this.finishFailure('cancelled'); return }
+    try {
+      const file = copyToCache(selected)
+      const callback = this.successCallback
+      this.clear()
+      activeDelegate = null
+      callback?.(file)
+    } catch (error: any) {
+      const reason = error?.message == 'unsupported_type' ? 'unsupported_type' : error?.message == 'too_large' ? 'too_large' : 'unavailable'
+      this.finishFailure(reason)
+    }
+  }
+  documentPickerWasCancelled(controller: UIDocumentPickerViewController): void { this.finishFailure('cancelled') }
+  private finishFailure(reason: MedicalPickerFailure): void {
+    const callback = this.failureCallback
+    this.clear()
+    activeDelegate = null
+    callback?.(reason)
+  }
+  private clear(): void { this.successCallback = null; this.failureCallback = null }
+}
+
+export function chooseMedicalFile(success: (file: PickedMedicalFile) => void, failure: (reason: MedicalPickerFailure) => void): void {
+  if (activeDelegate != null) { failure('unavailable'); return }
+  DispatchQueue.main.async(execute = (): void => {
+    const picker = new UIDocumentPickerViewController(documentTypes = ['com.adobe.pdf', 'public.jpeg', 'public.png'], in = UIDocumentPickerMode.import)
+    const delegate = new PickerDelegate(success, failure)
+    activeDelegate = delegate
+    picker.delegate = delegate
+    picker.allowsMultipleSelection = false
+    UTSiOS.getCurrentViewController().present(picker, animated = true)
+  })
+}
+
+export function cleanupMedicalFile(path: string): void {
+  const cache = FileManager.default.urls(for = FileManager.SearchPathDirectory.cachesDirectory, in = FileManager.SearchPathDomainMask.userDomainMask).first!
+  const file = URL(fileURLWithPath = path)
+  if (!file.path.hasPrefix(cache.path + '/') || !file.lastPathComponent.hasPrefix(PREFIX)) return
+  try { FileManager.default.removeItem(at = file) } catch (_error) {}
+}

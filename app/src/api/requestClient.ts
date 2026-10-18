@@ -8,6 +8,8 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export interface RequestOptions {
   method: HttpMethod
   path: string
+  /** Only for the same-origin, root-mounted file gateway. */
+  gatewayOrigin?: boolean
   data?: unknown
   headers?: Record<string, string>
   idempotencyKey?: string
@@ -38,6 +40,21 @@ export class RequestClient {
 
   async request<T>(options: RequestOptions): Promise<T> {
     return (await this.requestWithMetadata<T>(options)).data
+  }
+
+  /** Upload raw bytes through the authenticated same-origin gateway; the URL is never persisted or logged. */
+  async uploadThroughGateway(uploadUrl: string, bytes: ArrayBuffer, contentType: string): Promise<void> {
+    let parsed: URL
+    try { parsed = new URL(uploadUrl) } catch { throw new AppError('protocol', '上传地址无效。') }
+    const base = new URL(this.config.baseUrl)
+    if (parsed.origin !== base.origin || parsed.username || parsed.password || parsed.search || parsed.hash
+      || !/^\/uploads\/[A-Za-z0-9_-]{32,128}$/.test(parsed.pathname)) {
+      throw new AppError('protocol', '上传地址无效。')
+    }
+    return this.request<void>({
+      method: 'PUT', path: parsed.pathname, gatewayOrigin: true, data: bytes,
+      headers: { 'Content-Type': contentType },
+    })
   }
 
   /** Preserve response headers for operations whose frozen contract uses Location. */
@@ -153,12 +170,15 @@ export class RequestClient {
       'X-Request-ID': (this.config.createRequestId ?? createRequestId)(),
       'X-App-Version': this.config.appVersion,
     }
-    if (options.data !== undefined) headers['Content-Type'] = 'application/json'
+    if (options.data !== undefined && !Object.keys(headers).some((name) => name.toLowerCase() === 'content-type')) {
+      headers['Content-Type'] = 'application/json'
+    }
     if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey
     const token = includeAccessToken ? this.config.getAccessToken() : null
     if (token) headers.Authorization = `Bearer ${token}`
     try {
-      return await this.config.transport.send<T>(`${this.config.baseUrl.replace(/\/$/, '')}${options.path}`, { ...options, headers })
+      const base = options.gatewayOrigin ? new URL(this.config.baseUrl).origin : this.config.baseUrl.replace(/\/$/, '')
+      return await this.config.transport.send<T>(`${base}${options.path}`, { ...options, headers })
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
       const kind = /timeout/i.test(message) ? 'timeout' : /offline/i.test(message) ? 'offline' : 'network'

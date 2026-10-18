@@ -42,6 +42,24 @@ describe('RequestClient', () => {
     })
   })
 
+  it('uploads raw bytes with bearer auth to the root-mounted same-origin gateway only', async () => {
+    let capturedUrl = ''
+    let captured: (RequestOptions & { headers: Record<string, string> }) | undefined
+    const bytes = new Uint8Array([1, 2, 3]).buffer
+    const send: HttpTransport['send'] = async <T>(url: string, options: RequestOptions & { headers: Record<string, string> }): Promise<HttpResponse<T>> => {
+      capturedUrl = url
+      captured = options
+      return { status: 204, data: undefined as T }
+    }
+    const { client, access } = makeClient(send)
+    access.value = 'upload-access'
+    await expect(client.uploadThroughGateway('https://api.example.invalid/uploads/abcdefghijklmnopqrstuvwxyz123456', bytes, 'image/png')).resolves.toBeUndefined()
+    expect(capturedUrl).toBe('https://api.example.invalid/uploads/abcdefghijklmnopqrstuvwxyz123456')
+    expect(captured).toMatchObject({ method: 'PUT', data: bytes, headers: { Authorization: 'Bearer upload-access', 'Content-Type': 'image/png' } })
+    await expect(client.uploadThroughGateway('https://other.example.invalid/uploads/abcdefghijklmnopqrstuvwxyz123456', bytes, 'image/png')).rejects.toMatchObject({ kind: 'protocol' })
+    expect(capturedUrl).toBe('https://api.example.invalid/uploads/abcdefghijklmnopqrstuvwxyz123456')
+  })
+
   it('surfaces service availability separately and preserves RFC 9457 fields', async () => {
     const send: HttpTransport['send'] = async <T>() => ({
       status: 503, data: { type: 'about:blank', title: 'Unavailable', status: 503, code: 'SERVICE_UNAVAILABLE', request_id: 'req-1' } as T,

@@ -13,6 +13,8 @@ export const APP_ROUTES = {
   analysis: { path: '/pages/tabs/analysis/index', logicalPath: '/tabs/analysis', access: 'authenticated', returnToAllowed: true, tab: true },
   me: { path: '/pages/tabs/me/index', logicalPath: '/tabs/me', access: 'authenticated', returnToAllowed: true, tab: true },
   profile: { path: '/pages/profile/index', access: 'authenticated', returnToAllowed: true },
+  healthArchive: { path: '/pages/records/health-archive/index', access: 'authenticated', returnToAllowed: true },
+  medicalDocumentDetail: { path: '/pages/records/medical-documents/detail', access: 'authenticated', returnToAllowed: true },
   privacyCenter: { path: '/pages/privacy/center', access: 'authenticated', returnToAllowed: true },
   privacyExports: { path: '/pages/privacy/exports', access: 'authenticated', returnToAllowed: true },
   accountDeletionConfirm: { path: '/pages/privacy/deletion-confirm', access: 'authenticated', returnToAllowed: false },
@@ -39,7 +41,6 @@ export const APP_ROUTES = {
   analysisAdvice: { path: '/pages/advice/analysis', access: 'authenticated', returnToAllowed: true },
   advice: { path: '/pages/advice/index', access: 'authenticated', returnToAllowed: true },
   adviceDetail: { path: '/pages/advice/detail', access: 'authenticated', returnToAllowed: true },
-  healthArchive: { path: '/pages/placeholder/index?screen=healthArchive', access: 'authenticated', returnToAllowed: true },
   settings: { path: '/pages/placeholder/index?screen=settings', access: 'authenticated', returnToAllowed: true },
 } as const
 
@@ -69,7 +70,7 @@ export function mapNotificationTarget(target: { type: string; id: string } | nul
   }
   return { kind: 'unavailable' }
 }
-export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'accountDeletionProgress' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'privacyCenter' | 'privacyExports' | 'accountDeletionConfirm' | 'placeholder' | 'history' | 'trends' | 'analysisTrends' | 'analysisNew' | 'analysisHistory' | 'analysisTaskDetail' | 'analysisReports' | 'analysisAdvice' | 'advice' | 'adviceDetail' | RecordWorkspaceRouteName | MoodWorkspaceRouteName | ActivityWorkspaceRouteName | MedicationWorkspaceRouteName | RiskRouteName | NotificationRouteName>
+export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'accountDeletionProgress' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'healthArchive' | 'medicalDocumentDetail' | 'privacyCenter' | 'privacyExports' | 'accountDeletionConfirm' | 'placeholder' | 'history' | 'trends' | 'analysisTrends' | 'analysisNew' | 'analysisHistory' | 'analysisTaskDetail' | 'analysisReports' | 'analysisAdvice' | 'advice' | 'adviceDetail' | RecordWorkspaceRouteName | MoodWorkspaceRouteName | ActivityWorkspaceRouteName | MedicationWorkspaceRouteName | RiskRouteName | NotificationRouteName>
 export type ProtectedRouteName = {
   [Name in AppRouteName]: typeof APP_ROUTES[Name]['access'] extends 'authenticated' ? Name : never
 }[AppRouteName]
@@ -114,7 +115,6 @@ export function routeNameFromUrl(url: string): AppRouteName | null {
 }
 
 export const PLACEHOLDER_META: Record<PlaceholderRouteName, { title: string; ownerTab: AppTabName }> = {
-  healthArchive: { title: '健康档案', ownerTab: 'me' },
   settings: { title: '设置', ownerTab: 'me' },
 }
 
