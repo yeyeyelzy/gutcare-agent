@@ -3,7 +3,7 @@ import { MedicalDocumentsApi } from '../src/api/medicalDocumentsApi'
 import type { RequestClient } from '../src/api/requestClient'
 
 describe('MedicalDocumentsApi', () => {
-  it('uses only generated F02 operations and applies idempotency only to upload-session creation', async () => {
+  it('uses generated F02 candidate DTO operations and independent decision idempotency keys', async () => {
     const request = vi.fn().mockResolvedValue({ items: [], next_cursor: null })
     const uploadThroughGateway = vi.fn().mockResolvedValue(undefined)
     const api = new MedicalDocumentsApi({ request, uploadThroughGateway } as unknown as RequestClient)
@@ -21,10 +21,15 @@ describe('MedicalDocumentsApi', () => {
     expect(request).toHaveBeenLastCalledWith({ method: 'POST', path: '/medical-documents', data: body })
     await api.get('document/id')
     expect(request).toHaveBeenLastCalledWith({ method: 'GET', path: '/medical-documents/document%2Fid' })
+    await api.listCandidates('document/id')
+    expect(request).toHaveBeenLastCalledWith({ method: 'GET', path: '/medical-documents/document%2Fid/candidates' })
+    const decision = { decision: 'accept', record_version: 3, value: { certainty: 'suspected' } } as const
+    await api.decideCandidate('candidate/id', decision, 'candidate-decision-key-1')
+    expect(request).toHaveBeenLastCalledWith({ method: 'POST', path: '/medical-field-candidates/candidate%2Fid/decision', data: decision, idempotencyKey: 'candidate-decision-key-1' })
     await api.delete('document-id')
     expect(request).toHaveBeenLastCalledWith({ method: 'DELETE', path: '/medical-documents/document-id' })
     await api.createDownloadGrant('file-id')
     expect(request).toHaveBeenLastCalledWith({ method: 'POST', path: '/files/file-id/download-grants' })
-    expect(request.mock.calls.slice(1).every(([options]) => !('idempotencyKey' in options))).toBe(true)
+    expect(request.mock.calls.filter(([options]) => options.method === 'POST' && options.path.endsWith('/decision'))).toHaveLength(1)
   })
 })

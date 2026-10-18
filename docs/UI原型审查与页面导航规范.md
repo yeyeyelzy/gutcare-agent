@@ -239,6 +239,12 @@ G1 实现验收标准：OpenAPI 与 Agent contract 通过 schema 检查；后端
 
 文件选择由窄原生 UTS 插件实现 Android SAF 与 iOS UIDocumentPicker，单选 PDF/JPEG/PNG 并复制到 APP cache；不请求广泛媒体权限。上传成功、取消、失败、页面离开清理临时输入文件；download grant 仅内存单次使用，预览临时文件在离页或完成后移除。H5/不支持平台 fail-closed。页面不展示对象 bucket/key/capability URL，不接入 Agent/MinIO、不实现候选确认或临床解释；原生自定义基座、签名包和双端真机视觉/文件提供器行为仍需外部签收。
 
+### F02b 医疗候选逐字段审核
+
+审核内容仅出现在已认证医疗文档详情 `/records/medical-documents/:documentId`，不创建候选详情深链。解析 outcome 使用独立于任务状态的受控提示：`extracted` 表示有候选待本人逐项处理，`no_supported_facts` 表示没有可支持字段，`insufficient_quality` 表示资料质量不足；技术 `failed` 单独表达。候选卡显示字段名、后端候选/已决定值、当前审核状态及受控来源定位标签。excerpt 默认隐藏，只能由患者在该详情内按需展开短显，不进入路由或缓存。
+
+每个 pending 字段各有“按原值确认”“更正后确认”“不采纳”，没有整包/默认确认。诊断候选在更正时保留原 certainty，仅编辑文字；候选 certainty 原样呈现，不通过置信度、交互或文案升格。409 保留页面并尝试读取最新文档/候选，提示用户查看，不自动重发。来源失效候选隐藏 locator 与 excerpt；404 统一到资源不可用并清除候选证据。详情页面隐藏时清空候选/更正输入内存，恢复显示后重新读取。组件继承 430×880、安全区、至少 44×44pt 触控与受控 GcButton/颜色 token。
+
 ### B08a F08 分析任务基础页面
 
 新增受保护页面：`/analysis/new`（预览/创建）、`/analysis/history`（任务游标历史）与 `/analysis/task/:id`（任务状态摘要）。统一使用现有 430×880 内容基线、状态栏/底部安全区与至少 44×44pt 触控区域；二级页不显示全局底栏，按 `ownerTab` 返回 analysis 或 me。深链任务详情必须先经过认证恢复，未知或无效任务 ID 进入安全错误态，不渲染任务数据。

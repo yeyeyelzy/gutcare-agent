@@ -1,5 +1,5 @@
 import type { RequestClient } from './requestClient'
-import type { DownloadGrant, MedicalDocument, MedicalDocumentCreate, MedicalDocumentPage, UploadRequest, UploadSession, UploadedFileObject } from './openapiTypes'
+import type { DownloadGrant, MedicalCandidateDecision, MedicalDocument, MedicalDocumentCreate, MedicalDocumentPage, MedicalFieldCandidate, UploadRequest, UploadSession, UploadedFileObject } from './openapiTypes'
 
 export interface MedicalDocumentListQuery { cursor?: string; limit?: number; document_type?: MedicalDocument['document_type'] }
 
@@ -29,6 +29,14 @@ export class MedicalDocumentsApi {
 
   get(documentId: string): Promise<MedicalDocument> {
     return this.client.request({ method: 'GET', path: `/medical-documents/${encodeURIComponent(documentId)}` })
+  }
+
+  listCandidates(documentId: string): Promise<MedicalFieldCandidate[]> {
+    return this.client.request({ method: 'GET', path: `/medical-documents/${encodeURIComponent(documentId)}/candidates` })
+  }
+
+  decideCandidate(candidateId: string, body: MedicalCandidateDecision, idempotencyKey: string): Promise<void> {
+    return this.client.request({ method: 'POST', path: `/medical-field-candidates/${encodeURIComponent(candidateId)}/decision`, data: body, idempotencyKey })
   }
 
   create(body: MedicalDocumentCreate): Promise<MedicalDocument> {

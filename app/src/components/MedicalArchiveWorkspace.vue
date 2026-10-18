@@ -20,11 +20,24 @@
             <text class="status-line">{{ documentTypeLabel(document.document_type) }} · {{ fileStatusLabel(document.file_status) }}</text>
             <view class="detail-row"><text class="detail-label">处理方式</text><text class="detail-value">{{ document.processing_mode === 'store_only' ? '仅存储' : '提交解析' }}</text></view>
             <view class="detail-row"><text class="detail-label">解析状态</text><text class="detail-value">{{ parseStatusLabel(document.parse_status) }}</text></view>
+            <view v-if="document.processing_mode === 'analyze'" class="detail-row"><text class="detail-label">解析结果</text><text class="detail-value" data-testid="medical-document-parse-outcome">{{ parseOutcomeLabel(document) || '等待解析结果' }}</text></view>
+            <view v-if="document.processing_mode === 'analyze' && parseReasonLabel(document)" class="detail-row"><text class="detail-label">结果说明</text><text class="detail-value">{{ parseReasonLabel(document) }}</text></view>
             <view class="detail-row"><text class="detail-label">医疗机构</text><text class="detail-value">{{ document.hospital_name || '未填写' }}</text></view>
             <view class="detail-row"><text class="detail-label">报告日期</text><text class="detail-value">{{ document.document_date || '未填写' }}</text></view>
             <view class="detail-row detail-row--notes"><text class="detail-label">备注</text><text class="detail-value">{{ document.notes || '未填写' }}</text></view>
           </view>
           <text v-if="detailError" class="inline-error" role="alert" data-testid="medical-document-detail-refresh-error">{{ detailError }}</text>
+          <MedicalCandidateReview
+            v-if="candidateSectionVisible"
+            :key="candidatePanelGeneration"
+            :candidates="candidates"
+            :loading="candidateLoading"
+            :error="candidateError"
+            :conflict-message="candidateConflict"
+            :busy-candidate-id="busyCandidateId"
+            @refresh="refreshCandidatesForPage"
+            @decide="decideCandidate"
+          />
           <view class="action-stack">
             <GcButton label="预览文件" :busy="previewBusy" :disabled="document.file_status !== 'available' || previewBusy" test-id="medical-document-preview" @click="preview" />
             <GcButton label="删除档案" variant="danger" :busy="deleting" :disabled="document.file_status !== 'available' || deleting" test-id="medical-document-delete" @click="confirmDelete" />
@@ -83,8 +96,10 @@ import { pickMedicalFile, preflightMedicalFile, bytesMatchDeclaredSize } from '.
 import { nativeMedicalFilePicker } from '../api/medicalDocumentNativePicker'
 import { canRenderRoute } from '../navigation/routes'
 import { appRouterKey } from '../api/context'
-import type { MedicalDocument, MedicalDocumentCreate } from '../api/openapiTypes'
+import type { MedicalCandidateDecision, MedicalDocument, MedicalDocumentCreate, MedicalFieldCandidate } from '../api/openapiTypes'
+import { parseOutcomeLabel as getParseOutcomeLabel, parseReasonLabel as getParseReasonLabel, safeCandidateForDisplay } from '../api/medicalCandidateReview'
 import GcButton from './GcButton.vue'
+import MedicalCandidateReview from './MedicalCandidateReview.vue'
 
 const api = inject(medicalDocumentsApiKey)
 const previewAdapter = inject(medicalDocumentPreviewKey)
@@ -95,6 +110,7 @@ const isDetail = computed(() => Boolean(routeDocumentId.value))
 const authorized = computed(() => canRenderRoute(isDetail.value ? 'medicalDocumentDetail' : 'healthArchive', auth.state))
 const documents = ref<MedicalDocument[]>([])
 const document = ref<MedicalDocument | null>(null)
+const candidates = ref<MedicalFieldCandidate[]>([])
 const nextCursor = ref<string | null>(null)
 const listLoading = ref(false)
 const appendLoading = ref(false)
@@ -105,6 +121,11 @@ const deleting = ref(false)
 const listError = ref('')
 const appendError = ref('')
 const detailError = ref('')
+const candidateError = ref('')
+const candidateConflict = ref('')
+const candidateLoading = ref(false)
+const busyCandidateId = ref<string | null>(null)
+const candidatePanelGeneration = ref(0)
 const uploadError = ref('')
 const selectedFile = ref<Awaited<ReturnType<typeof pickMedicalFile>> | null>(null)
 const hospitalName = ref('')
@@ -121,6 +142,9 @@ let previewVisible = false
 let uploadIdempotencyKey = ''
 let activeUpload: { uploadId: string; uploadUrl: string; uploaded: boolean; fileObjectId: string | null; file: NonNullable<typeof selectedFile.value> } | null = null
 let documentCreateAttempted = false
+let candidateNeedsRefresh = false
+let detailNeedsRefresh = false
+const candidateSectionVisible = computed(() => Boolean(document.value && document.value.processing_mode === 'analyze' && (document.value.parse_outcome === 'extracted' || document.value.parse_status === 'needs_confirmation' || document.value.parse_status === 'confirmed')))
 
 const isCurrent = (generation: number) => active && pageGeneration === generation
 
@@ -145,6 +169,8 @@ onShow(() => {
   active = true
   if (previewVisible) { previewVisible = false; void previewAdapter?.clear() }
   if (isDetail.value && !document.value && !detailLoading.value && !detailError.value) void loadDetail()
+  else if (isDetail.value && document.value && detailNeedsRefresh) void loadDetail()
+  else if (isDetail.value && document.value && candidateNeedsRefresh && candidateSectionVisible.value) void refreshCandidatesForPage()
   else if (!isDetail.value && documents.value.length > 0) void loadFirstPage()
 })
 onHide(() => {
@@ -153,6 +179,10 @@ onHide(() => {
   if (!previewVisible) void previewAdapter?.clear()
   listLoading.value = false; appendLoading.value = false; detailLoading.value = false
   uploadBusy.value = false; previewBusy.value = false; deleting.value = false
+  candidatePanelGeneration.value++
+  candidates.value = []; candidateError.value = ''; candidateConflict.value = ''; candidateLoading.value = false; busyCandidateId.value = null
+  candidateNeedsRefresh = true
+  detailNeedsRefresh = true
   const oldFile = selectedFile.value
   selectedFile.value = null
   activeUpload = null
@@ -162,6 +192,8 @@ onHide(() => {
 onUnload(() => {
   active = false
   pageGeneration++
+  candidatePanelGeneration.value++
+  candidates.value = []; candidateError.value = ''; candidateConflict.value = ''; candidateLoading.value = false; busyCandidateId.value = null
   const oldFilePath = selectedFile.value?.path || activeUpload?.file.path
   selectedFile.value = null
   if (oldFilePath) void nativeMedicalFilePicker.cleanup(oldFilePath)
@@ -219,12 +251,98 @@ async function loadDetail() {
     const result = await api.get(routeDocumentId.value)
     if (!isCurrent(generation)) return
     document.value = result
+    detailNeedsRefresh = false
+    if (shouldLoadCandidates(result)) await loadCandidates(result.id, generation)
+    else clearCandidateState()
   } catch (error) {
     if (!isCurrent(generation)) return
     detailError.value = userError(error, '档案暂不可用，请重试。')
-    if (isNotFound(error)) { document.value = null; detailError.value = '档案不存在或当前不可用。' }
+    if (isNotFound(error)) { clearSensitiveDetail(); document.value = null; detailError.value = '档案不存在或当前不可用。' }
   } finally { if (isCurrent(generation)) detailLoading.value = false }
 }
+
+async function loadCandidates(documentId: string, generation: number) {
+  if (!api || !isCurrent(generation)) return
+  candidateLoading.value = candidates.value.length === 0
+  candidateError.value = ''
+  candidateNeedsRefresh = false
+  try {
+    const result = await api.listCandidates(documentId)
+    if (!isCurrent(generation)) return
+    candidates.value = result.map(safeCandidateForDisplay)
+  } catch (error) {
+    if (!isCurrent(generation)) return
+    if (isNotFound(error)) {
+      clearSensitiveDetail()
+      document.value = null
+      detailError.value = '档案不存在或当前不可用。'
+      return
+    }
+    candidateError.value = userError(error, '字段候选暂不可用；已保留当前显示内容。')
+  } finally { if (isCurrent(generation)) candidateLoading.value = false }
+}
+
+async function refreshCandidatesForPage() {
+  if (!api || !document.value || !candidateSectionVisible.value || candidateLoading.value) return
+  const generation = ++pageGeneration
+  active = true
+  await loadCandidates(document.value.id, generation)
+}
+
+async function decideCandidate(candidate: MedicalFieldCandidate, decision: MedicalCandidateDecision['decision'], value: unknown) {
+  if (!api || !active || busyCandidateId.value !== null || candidate.review_status !== 'pending') return
+  const generation = pageGeneration
+  busyCandidateId.value = candidate.id
+  candidateError.value = ''
+  candidateConflict.value = ''
+  try {
+    const body: MedicalCandidateDecision = { decision, record_version: candidate.record_version, value }
+    await api.decideCandidate(candidate.id, body, createIdempotencyKey())
+    if (!isCurrent(generation)) return
+    busyCandidateId.value = null
+    await loadDetail()
+  } catch (error) {
+    if (!isCurrent(generation)) return
+    if (isNotFound(error)) {
+      clearSensitiveDetail()
+      document.value = null
+      detailError.value = '档案或候选不存在或当前不可用。'
+    } else if (error instanceof AppError && error.status === 409) {
+      candidateConflict.value = '候选已发生变化；当前决定未自动重发。请查看重新读取的状态后，再由你决定下一步。'
+      await reloadAfterCandidateConflict(generation)
+    } else candidateError.value = userError(error, '该字段暂未提交，请检查网络后刷新状态。')
+  } finally { if (isCurrent(generation)) busyCandidateId.value = null }
+}
+
+async function reloadAfterCandidateConflict(generation: number) {
+  if (!api || !document.value || !isCurrent(generation)) return
+  candidateLoading.value = true
+  try {
+    const currentDocument = await api.get(document.value.id)
+    if (!isCurrent(generation)) return
+    const latestCandidates = shouldLoadCandidates(currentDocument) ? await api.listCandidates(currentDocument.id) : []
+    if (!isCurrent(generation)) return
+    document.value = currentDocument
+    candidates.value = latestCandidates.map(safeCandidateForDisplay)
+    candidateError.value = ''
+    candidateNeedsRefresh = false
+  } catch (error) {
+    if (!isCurrent(generation)) return
+    if (isNotFound(error)) {
+      clearSensitiveDetail()
+      document.value = null
+      detailError.value = '档案或候选不存在或当前不可用。'
+    } else candidateError.value = userError(error, '暂时无法读取最新候选；当前界面已保留且不会自动重发。请稍后手动刷新。')
+  } finally { if (isCurrent(generation)) candidateLoading.value = false }
+}
+
+function shouldLoadCandidates(value: MedicalDocument) {
+  return value.file_status === 'available' && value.processing_mode === 'analyze' && (value.parse_outcome === 'extracted' || value.parse_status === 'needs_confirmation' || value.parse_status === 'confirmed')
+}
+function clearCandidateState() {
+  candidates.value = []; candidateError.value = ''; candidateConflict.value = ''; candidateLoading.value = false; busyCandidateId.value = null; candidateNeedsRefresh = false
+}
+function clearSensitiveDetail() { clearCandidateState(); candidatePanelGeneration.value++ }
 
 async function pickFile() {
   uploadError.value = ''
@@ -385,6 +503,8 @@ function onTypeChange(event: { detail?: { value?: string } }) { const value = Nu
 function onDateChange(event: { detail?: { value?: string } }) { if (typeof event.detail?.value === 'string') documentDate.value = event.detail.value }
 function documentTypeLabel(value: MedicalDocument['document_type']) { return documentTypeLabels[documentTypes.indexOf(value)] ?? '医疗资料' }
 function parseStatusLabel(value: MedicalDocument['parse_status']) { return ({ not_requested: '仅存储', pending: '等待解析', processing: '正在解析', needs_confirmation: '待本人核对', confirmed: '已逐项确认', failed: '解析未完成' } as const)[value] }
+function parseOutcomeLabel(value: MedicalDocument) { return getParseOutcomeLabel(value) }
+function parseReasonLabel(value: MedicalDocument) { return getParseReasonLabel(value) }
 function fileStatusLabel(value: MedicalDocument['file_status']) { return value === 'deleting' ? '正在删除' : '文件可用' }
 function mimeLabel(value: string) { return value === 'application/pdf' ? 'PDF' : value === 'image/jpeg' ? 'JPEG' : 'PNG' }
 function formatBytes(value: number) { return `${(value / (1024 * 1024)).toFixed(value >= 1024 * 1024 ? 1 : 2)} MiB` }

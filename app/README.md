@@ -132,3 +132,9 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 “记录 → 健康档案”使用受保护 `/records/health-archive`，文档详情使用 `/records/medical-documents/:documentId`。APP 只通过既有业务 API 创建上传会话、向同源受保护 gateway 传原始 bytes、完成扫描后创建本人档案；禁止直连 Agent/MinIO、持久化 capability、记录 capability URL/本地路径/文件名或展示 bucket/key。PDF 最大 20 MiB，JPEG/PNG 最大 10 MiB；客户端预检不替代服务器 MIME、大小与安全扫描。扫描不可用显示可重试错误，不伪装成功。`store_only` 不提交解析；`analyze` 的授权与解析任务由后端执行，未经患者逐字段确认的候选不成为事实。
 
 原生文件选择由窄 UTS 插件提供：Android SAF `ACTION_OPEN_DOCUMENT`、iOS `UIDocumentPickerViewController`，单选后复制到 APP cache，上传/取消/失败清理 cache；不申请广泛存储/照片权限。H5 与插件不可用均 fail-closed。当前自动化与 CLI 检查不等同于 HBuilderX 自定义基座/签名安装或 Android、iOS/iCloud/cloud-provider 真机验证；这些设备证据仍是外部发布门禁。T130 是本切片 APP 合同测试；后端 F02/T03–T06、T60–T65、T103–T104 与本次 APP 验收分开记录。
+
+## F02b 医疗解析候选逐字段审核 APP
+
+文档详情在解析 outcome 为 `extracted` 时读取生成类型的候选 DTO，并仅对 `pending` 候选提供逐字段“按原值确认 / 更正后确认 / 不采纳”；没有批量或自动确认。决定请求携带候选当前 `record_version`、独立 `Idempotency-Key` 和契约要求的 body。`accepted/corrected/rejected/invalidated` 状态及已确认值按后端返回显示；诊断确定性保持原值，不作升级。`no_supported_facts`、`insufficient_quality` 与技术 `failed` 分别说明。409 保留当前内容、重新读取文档/候选并要求用户查看，不自动重发；跨患者/删除 404 显示统一不可用状态并清除候选来源证据。
+
+来源定位只显示受控页码/文本位置/页面区域标签，excerpt 必须在受保护详情中显式按需展开且仅短显；离页清空内存候选/更正草稿并在返回时重新取数。更正值按字段类型编辑（诊断仅改文字并保留 certainty；对象值采用 JSON 输入，服务端继续校验）。候选内容不写路由、日志、遥测或普通持久化。T131 为本切片 APP 合同/辅助函数/交互状态测试；不代表 Agent 推理、真机或完整 F02 验收。

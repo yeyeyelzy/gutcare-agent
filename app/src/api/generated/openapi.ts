@@ -632,6 +632,40 @@ export interface paths {
         patch: operations["updateMedicalDocument"];
         trace?: never;
     };
+    "/medical-documents/{document_id}/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取文档解析候选，候选不代表患者事实 */
+        get: operations["listMedicalDocumentCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/medical-field-candidates/{candidate_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 对一个字段候选作出患者决定；幂等摘要为规范化 action 与 corrected_value，同键同摘要（含候选脱敏后）返回空 204 且不新增审计/事实，异摘要或候选返回 409 */
+        post: operations["decideMedicalFieldCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/files/{file_id}/download-grants": {
         parameters: {
             query?: never;
@@ -3739,6 +3773,60 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MedicalDocument"];
                 };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    listMedicalDocumentCandidates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 当前文档所有字段候选 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MedicalFieldCandidate"][];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    decideMedicalFieldCandidate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MedicalCandidateDecision"];
+            };
+        };
+        responses: {
+            /** @description 决定已处理或幂等重放；新决定追加审计，accept/correct 生成独立确认事实；无响应正文 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: components["responses"]["Problem"];
             404: components["responses"]["Problem"];

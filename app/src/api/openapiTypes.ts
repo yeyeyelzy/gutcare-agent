@@ -81,4 +81,6 @@ export type UploadedFileObject = operations['completeUpload']['responses'][200][
 export type MedicalDocumentCreate = operations['createMedicalDocument']['requestBody']['content']['application/json']
 export type MedicalDocument = components['schemas']['MedicalDocument']
 export type MedicalDocumentPage = components['schemas']['MedicalDocumentPage']
+export type MedicalFieldCandidate = components['schemas']['MedicalFieldCandidate']
+export type MedicalCandidateDecision = operations['decideMedicalFieldCandidate']['requestBody']['content']['application/json']
 export type DownloadGrant = operations['createFileDownloadGrant']['responses'][200]['content']['application/json']
