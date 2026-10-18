@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AppRouter } from '../src/navigation/router'
-import { APP_ROUTES, canRenderRoute, decideRouteAccess, parseReturnTo, PLACEHOLDER_META, placeholderRouteFromScreen, routeNameFromUrl } from '../src/navigation/routes'
+import { APP_ROUTES, canRenderRoute, decideRouteAccess, parseReturnTo, placeholderRouteFromScreen, routeNameFromUrl } from '../src/navigation/routes'
 import type { AuthState } from '../src/stores/auth'
 import { createPinia, setActivePinia } from 'pinia'
 import { useRegistrationDraftStore } from '../src/stores/registrationDraft'
@@ -41,7 +41,7 @@ describe('named route registry and protected navigation', () => {
     expect(router.navigateHistoryTarget('medication_checkin', id)).toBe(true)
     expect(navigator.navigateTo).toHaveBeenCalledWith(APP_ROUTES.medications.path)
     expect(router.navigateHistoryTarget('advice', id)).toBe(true)
-    expect(navigator.navigateTo).toHaveBeenCalledWith(APP_ROUTES.advice.path)
+    expect(navigator.navigateTo).toHaveBeenCalledWith(`${APP_ROUTES.adviceDetail.path}?advice_id=${id}&owner=me&from=history`)
     expect(router.navigateHistoryTarget('https://example.invalid/route', id)).toBe(false)
     expect(router.navigateHistoryTarget('diet_record', 'bad-id')).toBe(false)
     expect(navigator.navigateTo).toHaveBeenCalledTimes(3)
@@ -146,6 +146,61 @@ describe('named route registry and protected navigation', () => {
     expect(navigator.reLaunch).not.toHaveBeenCalled()
   })
 
+  it('preserves advice owner and source semantics across list, history and authenticated deep links', () => {
+    const navigator = makeNavigator()
+    let state: AuthState = 'authenticated'
+    const router = new AppRouter(navigator, () => state)
+    const id = '00000000-0000-4000-8000-000000000021'
+    expect(router.navigateAdviceDetail(id, 'analysis', 'list')).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenLastCalledWith(`${APP_ROUTES.adviceDetail.path}?advice_id=${id}&owner=analysis&from=list`)
+    expect(router.returnFromAdvice('analysis', 'list')).toBe(true)
+    expect(navigator.navigateBack).toHaveBeenCalledTimes(1)
+    expect(router.navigateAdviceDetail(id, 'me', 'external')).toBe(true)
+    expect(router.returnFromAdvice('me', 'external')).toBe(true)
+    expect(navigator.reLaunch).toHaveBeenLastCalledWith(APP_ROUTES.me.path)
+
+    state = 'anonymous'
+    expect(router.guardUrl(`${APP_ROUTES.adviceDetail.path}?advice_id=${id}&owner=analysis`)).toBe(false)
+    expect(navigator.reLaunch).toHaveBeenLastCalledWith(APP_ROUTES.login.path)
+    state = 'authenticated'
+    router.afterAuthentication()
+    expect(navigator.reLaunch).toHaveBeenLastCalledWith(`${APP_ROUTES.adviceDetail.path}?advice_id=${id}&owner=analysis&from=external`)
+    expect(router.returnToStore.take()).toBeNull()
+  })
+
+  it('returns notification-origin advice to the validated notification detail or list, and keeps direct links at owner root', () => {
+    const navigator = makeNavigator()
+    let state: AuthState = 'authenticated'
+    const router = new AppRouter(navigator, () => state)
+    const adviceId = '00000000-0000-4000-8000-000000000021'
+    const notificationId = '00000000-0000-4000-8000-000000000022'
+
+    expect(router.navigateAdviceDetail(adviceId, 'me', 'notification', notificationId)).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenLastCalledWith(`${APP_ROUTES.adviceDetail.path}?advice_id=${adviceId}&owner=me&from=notification`)
+    expect(router.takeAdviceNotificationReturn()).toBe(notificationId)
+    expect(router.returnFromAdvice('me', 'notification', notificationId)).toBe(true)
+    expect(navigator.redirectTo).toHaveBeenLastCalledWith(`${APP_ROUTES.notificationDetail.path}?notification_id=${notificationId}`)
+
+    expect(router.navigateAdviceDetail(adviceId, 'me', 'notification')).toBe(false)
+    expect(router.navigateAdviceDetail(adviceId, 'me', 'notification', 'not-a-uuid')).toBe(false)
+    expect(router.returnFromAdvice('me', 'notification')).toBe(true)
+    expect(navigator.redirectTo).toHaveBeenLastCalledWith(APP_ROUTES.notifications.path)
+
+    state = 'anonymous'
+    expect(router.navigateAdviceDetail(adviceId, 'me', 'notification', notificationId)).toBe(false)
+    state = 'authenticated'
+    router.afterAuthentication()
+    expect(navigator.reLaunch).toHaveBeenLastCalledWith(`${APP_ROUTES.adviceDetail.path}?advice_id=${adviceId}&owner=me&from=notification`)
+    expect(router.takeAdviceNotificationReturn()).toBe(notificationId)
+    router.returnToStore.clear()
+    expect(router.takeAdviceNotificationReturn()).toBeNull()
+
+    expect(router.guardUrl(`${APP_ROUTES.adviceDetail.path}?advice_id=${adviceId}&owner=me&from=notification`)).toBe(true)
+    expect(router.takeAdviceNotificationReturn()).toBeNull()
+    expect(router.returnFromAdvice('me', 'external')).toBe(true)
+    expect(navigator.reLaunch).toHaveBeenLastCalledWith(APP_ROUTES.me.path)
+  })
+
   it('allows only the protected profile route as a safe profile return target and drops it after auth invalidation', () => {
     const navigator = makeNavigator()
     const router = new AppRouter(navigator, () => 'anonymous')
@@ -204,8 +259,9 @@ describe('named route registry and protected navigation', () => {
     expect(router.returnToStore.take()).toBeNull()
     expect(placeholderRouteFromScreen('recordDiet')).toBeNull()
     expect(placeholderRouteFromScreen('assistant')).toBeNull()
-    expect(PLACEHOLDER_META.analysisAdvice.ownerTab).toBe('analysis')
-    expect(PLACEHOLDER_META.advice.ownerTab).toBe('me')
+    expect(APP_ROUTES.analysisAdvice.path).toBe('/pages/advice/analysis')
+    expect(APP_ROUTES.advice.path).toBe('/pages/advice/index')
+    expect(APP_ROUTES.adviceDetail.path).toBe('/pages/advice/detail')
     expect(routeNameFromUrl(APP_ROUTES.analysisTrends.path)).toBe('analysisTrends')
     expect(routeNameFromUrl(APP_ROUTES.trends.path)).toBe('trends')
     expect(APP_ROUTES.analysisTrends.path).toContain('owner=analysis')

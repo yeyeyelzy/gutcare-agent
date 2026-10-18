@@ -1365,9 +1365,13 @@ paths:
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
         - {name: cursor, in: query, schema: {type: string, minLength: 1, maxLength: 128}, description: 稳定 created_at/id 降序游标}
       responses:
-        '200': {description: 患者建议分页, content: {application/json: {schema: {$ref: '#/components/schemas/AdvicePage'}}}}
+        '200': {description: 患者建议稳定游标分页, content: {application/json: {schema: {$ref: '#/components/schemas/AdvicePageRead'}, example: {items: [{id: '019a0000-0000-7000-8000-000000000901', task_id: '019a0000-0000-7000-8000-000000000801', category: record_management, priority: routine, title: 继续记录相关情况, body: 可继续记录相关情况供后续回顾, uncertainty: {level: moderate, reasons: [记录数量有限]}, applicability: {scope: general, limitations: []}, safety_boundary: {not_diagnosis: true, not_prescription: true, risk_alert_priority: true}, version: '1.0', status: new, basis_updated: false, basis_updated_at: null, basis_update_reason: null, risk_priority_context: null, evidence: [], feedback: null, feedback_history: [], created_at: '2026-10-01T00:00:00Z'}], next_cursor: null}}}}
         '400': {$ref: '#/components/responses/Problem'}
         '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+        '503': {description: 建议服务不可用, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}, example: {type: 'https://gutcare.invalid/problems/service_unavailable', title: Request failed, status: 503, detail: Advice service unavailable, instance: '/api/v1/advice', code: SERVICE_UNAVAILABLE, request_id: '00000000-0000-4000-8000-000000000503'}}}}
   /advice/{advice_id}:
     parameters:
       - {name: advice_id, in: path, required: true, schema: {type: string, format: uuid}}
@@ -1376,9 +1380,12 @@ paths:
       tags: [Advice]
       operationId: getAdvice
       responses:
-        '200': {description: 建议详情, content: {application/json: {schema: {$ref: '#/components/schemas/Advice'}}}}
+        '200': {description: 建议详情与受控证据入口, content: {application/json: {schema: {$ref: '#/components/schemas/AdviceRead'}, example: {id: '019a0000-0000-7000-8000-000000000901', task_id: '019a0000-0000-7000-8000-000000000801', category: record_management, priority: routine, title: 继续记录相关情况, body: 可继续记录相关情况供后续回顾, uncertainty: {level: moderate, reasons: [记录数量有限]}, applicability: {scope: general, limitations: []}, safety_boundary: {not_diagnosis: true, not_prescription: true, risk_alert_priority: true}, version: '1.0', status: new, basis_updated: false, basis_updated_at: null, basis_update_reason: null, risk_priority_context: null, evidence: [], feedback: null, feedback_history: [], created_at: '2026-10-01T00:00:00Z'}}}}
         '401': {$ref: '#/components/responses/Problem'}
         '404': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+        '503': {description: 建议服务不可用, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}, example: {type: 'https://gutcare.invalid/problems/service_unavailable', title: Request failed, status: 503, detail: Advice service unavailable, instance: '/api/v1/advice/{advice_id}', code: SERVICE_UNAVAILABLE, request_id: '00000000-0000-4000-8000-000000000503'}}}}
   /advice/{advice_id}/read:
     post:
       summary: 标记建议已读
@@ -1386,9 +1393,12 @@ paths:
       operationId: readAdvice
       parameters: [{name: advice_id, in: path, required: true, schema: {type: string, format: uuid}}]
       responses:
-        '200': {description: 建议已读，依据变化字段独立保留, content: {application/json: {schema: {$ref: '#/components/schemas/Advice'}}}}
+        '200': {description: 建议已读，依据变化字段独立保留, content: {application/json: {schema: {$ref: '#/components/schemas/AdviceRead'}, example: {id: '019a0000-0000-7000-8000-000000000901', task_id: '019a0000-0000-7000-8000-000000000801', category: record_management, priority: routine, title: 继续记录相关情况, body: 可继续记录相关情况供后续回顾, uncertainty: {level: moderate, reasons: [记录数量有限]}, applicability: {scope: general, limitations: []}, safety_boundary: {not_diagnosis: true, not_prescription: true, risk_alert_priority: true}, version: '1.0', status: read, basis_updated: false, basis_updated_at: null, basis_update_reason: null, risk_priority_context: null, evidence: [], feedback: null, feedback_history: [], created_at: '2026-10-01T00:00:00Z'}}}}
         '401': {$ref: '#/components/responses/Problem'}
         '404': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+        '503': {description: 建议服务不可用, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}, example: {type: 'https://gutcare.invalid/problems/service_unavailable', title: Request failed, status: 503, detail: Advice service unavailable, instance: '/api/v1/advice/{advice_id}/read', code: SERVICE_UNAVAILABLE, request_id: '00000000-0000-4000-8000-000000000503'}}}}
   /advice/{advice_id}/archive:
     post:
       summary: 归档建议
@@ -1396,9 +1406,12 @@ paths:
       operationId: archiveAdvice
       parameters: [{name: advice_id, in: path, required: true, schema: {type: string, format: uuid}}]
       responses:
-        '200': {description: 建议已归档，依据变化字段独立保留, content: {application/json: {schema: {$ref: '#/components/schemas/Advice'}}}}
+        '200': {description: 建议已归档，依据变化字段独立保留, content: {application/json: {schema: {$ref: '#/components/schemas/AdviceRead'}, example: {id: '019a0000-0000-7000-8000-000000000901', task_id: '019a0000-0000-7000-8000-000000000801', category: record_management, priority: routine, title: 继续记录相关情况, body: 可继续记录相关情况供后续回顾, uncertainty: {level: moderate, reasons: [记录数量有限]}, applicability: {scope: general, limitations: []}, safety_boundary: {not_diagnosis: true, not_prescription: true, risk_alert_priority: true}, version: '1.0', status: archived, basis_updated: false, basis_updated_at: null, basis_update_reason: null, risk_priority_context: null, evidence: [], feedback: null, feedback_history: [], created_at: '2026-10-01T00:00:00Z'}}}}
         '401': {$ref: '#/components/responses/Problem'}
         '404': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+        '503': {description: 建议服务不可用, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}, example: {type: 'https://gutcare.invalid/problems/service_unavailable', title: Request failed, status: 503, detail: Advice service unavailable, instance: '/api/v1/advice/{advice_id}/archive', code: SERVICE_UNAVAILABLE, request_id: '00000000-0000-4000-8000-000000000503'}}}}
   /advice/{advice_id}/feedback:
     put:
       summary: 新增或更新结构化建议反馈
@@ -1409,11 +1422,13 @@ paths:
         - {$ref: '#/components/parameters/IdempotencyKey'}
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AdviceFeedbackRequest'}}}}
       responses:
-        '200': {description: 反馈版本, content: {application/json: {schema: {$ref: '#/components/schemas/AdviceFeedback'}}}}
+        '200': {description: 反馈版本, content: {application/json: {schema: {$ref: '#/components/schemas/AdviceFeedbackRead'}, example: {advice_id: '019a0000-0000-7000-8000-000000000901', feedback_type: helpful, version: 1}}}}
         '401': {$ref: '#/components/responses/Problem'}
         '404': {$ref: '#/components/responses/Problem'}
         '409': {$ref: '#/components/responses/Problem'}
         '422': {$ref: '#/components/responses/Problem'}
+        '500': {$ref: '#/components/responses/Problem'}
+        '503': {description: 建议服务不可用, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}, example: {type: 'https://gutcare.invalid/problems/service_unavailable', title: Request failed, status: 503, detail: Advice service unavailable, instance: '/api/v1/advice/{advice_id}/feedback', code: SERVICE_UNAVAILABLE, request_id: '00000000-0000-4000-8000-000000000503'}}}}
   /medication-plans:
     get:
       tags: [Medication]
@@ -2330,10 +2345,20 @@ components:
             title: {type: string, minLength: 1, maxLength: 240}
             publisher: {type: string, minLength: 1, maxLength: 160}
             citation_url: {type: [string, 'null'], format: uri, pattern: '^https://'}
-    Advice:
+    RiskPriorityContext:
       type: object
       additionalProperties: false
-      required: [id, task_id, category, priority, title, body, uncertainty, applicability, safety_boundary, version, status, basis_updated, basis_updated_at, basis_update_reason, evidence, feedback, feedback_history, created_at]
+      required: [alert_id, severity, status, triggered_at]
+      description: 当前患者最近一条 seek_care 或 emergency 风险提示的受控快照。该记录状态仅表示风险提示状态，不表示风险解除或已安全。
+      properties:
+        alert_id: {type: string, format: uuid}
+        severity: {type: string, enum: [seek_care, emergency]}
+        status: {type: string, enum: [unread, read, reevaluated]}
+        triggered_at: {type: string, format: date-time}
+    AdviceRead:
+      type: object
+      additionalProperties: false
+      required: [id, task_id, category, priority, title, body, uncertainty, applicability, safety_boundary, version, status, basis_updated, basis_updated_at, basis_update_reason, risk_priority_context, evidence, feedback, feedback_history, created_at]
       properties:
         id: {type: string, format: uuid}
         task_id: {type: string, format: uuid}
@@ -2349,15 +2374,17 @@ components:
         basis_updated: {type: boolean}
         basis_updated_at: {type: [string, 'null'], format: date-time}
         basis_update_reason: {type: [string, 'null'], enum: [source_updated, source_deleted, fact_replaced, null]}
+        risk_priority_context: {oneOf: [{$ref: '#/components/schemas/RiskPriorityContext'}, {type: 'null'}]}
         evidence: {type: array, items: {$ref: '#/components/schemas/AdviceEvidence'}}
-        feedback: {oneOf: [{$ref: '#/components/schemas/AdviceFeedback'}, {type: 'null'}]}
+        feedback: {oneOf: [{$ref: '#/components/schemas/AdviceFeedbackRead'}, {type: 'null'}]}
         feedback_history: {type: array, items: {type: object, additionalProperties: false, required: [feedback_type, version, created_at], properties: {feedback_type: {type: string, enum: [helpful, not_helpful, not_applicable]}, version: {type: integer, minimum: 1}, created_at: {type: string, format: date-time}}}}
         created_at: {type: string, format: date-time}
-    AdvicePage:
+    AdvicePageRead:
       type: object
+      additionalProperties: false
       required: [items, next_cursor]
       properties:
-        items: {type: array, items: {$ref: '#/components/schemas/Advice'}}
+        items: {type: array, items: {$ref: '#/components/schemas/AdviceRead'}}
         next_cursor: {type: [string, 'null']}
     AdviceFeedbackRequest:
       type: object
@@ -2366,7 +2393,7 @@ components:
       properties:
         feedback_type: {type: string, enum: [helpful, not_helpful, not_applicable]}
         expected_version: {type: integer, minimum: 0}
-    AdviceFeedback:
+    AdviceFeedbackRead:
       type: object
       additionalProperties: false
       required: [advice_id, feedback_type, version]

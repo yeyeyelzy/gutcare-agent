@@ -15,6 +15,8 @@ export class MemoryReturnToStore {
   private value: ReturnToTarget | null = null
   private notificationTarget: { type: 'analysis_task' | 'advice'; id: string } | null = null
   private analysisTaskTarget: { id: string; owner: AppTabName; fromHistory: boolean } | null = null
+  private adviceTarget: { id: string; owner: 'analysis' | 'me'; from: 'list' | 'history' | 'external' | 'notification'; notificationId: string | null } | null = null
+  private adviceNotificationReturn: string | null = null
 
   save(value: unknown): void {
     this.value = parseReturnTo(value)
@@ -30,6 +32,8 @@ export class MemoryReturnToStore {
     this.value = null
     this.notificationTarget = null
     this.analysisTaskTarget = null
+    this.adviceTarget = null
+    this.adviceNotificationReturn = null
   }
 
   saveNotificationTarget(type: 'analysis_task' | 'advice', id: string): void {
@@ -49,6 +53,22 @@ export class MemoryReturnToStore {
     const value = this.analysisTaskTarget
     this.analysisTaskTarget = null
     return value
+  }
+  saveAdviceTarget(id: string, owner: 'analysis' | 'me', from: 'list' | 'history' | 'external' | 'notification', notificationId?: string): void {
+    this.adviceTarget = isUuid(id) ? { id, owner, from, notificationId: from === 'notification' && isUuid(notificationId) ? notificationId : null } : null
+  }
+  takeAdviceTarget(): { id: string; owner: 'analysis' | 'me'; from: 'list' | 'history' | 'external' | 'notification'; notificationId: string | null } | null {
+    const value = this.adviceTarget
+    this.adviceTarget = null
+    return value
+  }
+  saveAdviceNotificationReturn(notificationId: string): void {
+    this.adviceNotificationReturn = isUuid(notificationId) ? notificationId : null
+  }
+  takeAdviceNotificationReturn(): string | null {
+    const value = this.adviceNotificationReturn
+    this.adviceNotificationReturn = null
+    return isUuid(value) ? value : null
   }
 }
 
@@ -87,6 +107,41 @@ export class AppRouter {
     return true
   }
 
+  navigateAdviceDetail(id: string, owner: 'analysis' | 'me' = 'me', from: 'list' | 'history' | 'external' | 'notification' = 'external', notificationId?: string): boolean {
+    if (!isUuid(id)) return false
+    const safeNotificationId = from === 'notification' && isUuid(notificationId) ? notificationId : null
+    if (from === 'notification' && !safeNotificationId) return false
+    if (!this.authorize('adviceDetail')) {
+      this.returnToStore.saveAdviceTarget(id, owner, from, safeNotificationId ?? undefined)
+      return false
+    }
+    if (safeNotificationId) this.returnToStore.saveAdviceNotificationReturn(safeNotificationId)
+    this.navigator.navigateTo(`${APP_ROUTES.adviceDetail.path}?advice_id=${encodeURIComponent(id)}&owner=${owner}&from=${from}`)
+    return true
+  }
+
+  takeAdviceNotificationReturn(): string | null {
+    return this.returnToStore.takeAdviceNotificationReturn()
+  }
+
+  returnFromAdvice(owner: 'analysis' | 'me', from: 'list' | 'history' | 'external' | 'notification', notificationId?: string | null): boolean {
+    if (from === 'notification') {
+      const storedId = this.returnToStore.takeAdviceNotificationReturn()
+      const returnId = isUuid(notificationId) ? notificationId : storedId
+      if (returnId) {
+        this.navigator.redirectTo(`${APP_ROUTES.notificationDetail.path}?notification_id=${encodeURIComponent(returnId)}`)
+      } else {
+        this.navigator.redirectTo(APP_ROUTES.notifications.path)
+      }
+      return true
+    }
+    if ((from === 'list' || from === 'history') && this.navigator.navigateBack) {
+      this.navigator.navigateBack()
+      return true
+    }
+    return this.switchTab(owner)
+  }
+
   returnFromAnalysisTask(owner: AppTabName, fromHistory: boolean): boolean {
     if (fromHistory) {
       const url = `${APP_ROUTES.analysisHistory.path}?owner=${owner === 'me' ? 'me' : 'analysis'}`
@@ -120,8 +175,8 @@ export class AppRouter {
       mood_record: 'recordMood',
       activity_record: 'recordActivity',
       medication_checkin: 'medications',
-      advice: 'advice',
     }
+    if (type === 'advice') return this.navigateAdviceDetail(id, 'me', 'history')
     const name = routes[type]
     if (!name || !isUuid(id) || !this.authorize(name)) return false
     if (name === 'medications' || name === 'advice') {
@@ -199,6 +254,15 @@ export class AppRouter {
       this.returnToStore.takeNotificationTarget()
       return
     }
+    const adviceTarget = this.returnToStore.takeAdviceTarget()
+    if (adviceTarget) {
+      if (adviceTarget.from === 'notification' && adviceTarget.notificationId) {
+        this.returnToStore.saveAdviceNotificationReturn(adviceTarget.notificationId)
+      }
+      this.navigator.reLaunch(`${APP_ROUTES.adviceDetail.path}?advice_id=${encodeURIComponent(adviceTarget.id)}&owner=${adviceTarget.owner}&from=${adviceTarget.from}`)
+      this.returnToStore.take()
+      return
+    }
     const notificationTarget = this.returnToStore.takeNotificationTarget()
     const target = this.returnToStore.take() ?? { name: 'today' as const }
     if (notificationTarget) {
@@ -252,6 +316,11 @@ export class AppRouter {
       const query = new URLSearchParams(url.split('?')[1]?.split('#')[0] ?? '')
       const taskId = query.get('task_id')
       if (isUuid(taskId)) this.returnToStore.saveAnalysisTaskTarget(taskId, query.get('owner') === 'me' ? 'me' : 'analysis', query.get('from') === 'history')
+    }
+    if (name === 'adviceDetail' && this.getAuthState() !== 'authenticated') {
+      const query = new URLSearchParams(url.split('?')[1]?.split('#')[0] ?? '')
+      const adviceId = query.get('advice_id')
+      if (isUuid(adviceId)) this.returnToStore.saveAdviceTarget(adviceId, query.get('owner') === 'analysis' ? 'analysis' : 'me', 'external')
     }
     this.clearDraftIfLeavingFlow(name)
     const decision = decideRouteAccess(name, this.getAuthState())

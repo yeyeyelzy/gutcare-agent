@@ -24,6 +24,7 @@ describe('F12 notification UI contract', () => {
     expect(workspace).toContain('router?.navigateRiskAlertDetail(target.id)')
     expect(workspace).toContain("router?.navigate('medications')")
     expect(workspace).toContain('router?.navigateNotificationTarget(target.kind, target.id)')
+    expect(workspace).toContain("router?.navigateAdviceDetail(target.id, 'me', 'notification', value.id)")
   })
 
   it('renders each notification error region once and preserves batch selection and items on failure', () => {

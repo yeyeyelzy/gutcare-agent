@@ -25,7 +25,7 @@ uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端。患者�
 
 ## 原生构建与真机门禁
 
-UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文档明确指出 uni-app UTS 插件目前不支持 CLI 创建/使用。为现有 Vite CLI 路径显式锁定匹配版本 `@dcloudio/uni-uts-v1@3.0.0-4060620250520001`，只能让 CLI 执行其可用的预处理/导出流程，不能改变该路径非官方支持的状态。`scripts/app-build.ps1` 检查 UTS/模块编译诊断和预期 HBuilderX 导入文件，但 CLI 输出 `dist/build/app` 及 UTS 描述文件不等同于 APK/IPA、Android/iOS 原生 UTS 编译、签名或设备验证。uni CLI 可能在出现 UTS 语法错误时仍返回 0，脚本因此也扫描完整输出。Android 需在 HBuilderX 中构建包含此 UTS 插件的自定义基座并在真机验证；iOS 原生编译和运行需 macOS + Xcode，设备安装还需 Apple 开发者签名证书及 provisioning profile。当前仓库未提供签名材料，也未记录 Android 或 iOS 真机证据，不得据 CLI 导出结果宣称原生安全存储已经验收。
+UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文档明确指出 uni-app UTS 插件目前不支持 CLI 创建/使用。为现有 Vite CLI 路径显式锁定匹配版本 `@dcloudio/uni-uts-v1@3.0.0-4060620250520001`，只能让 CLI 执行其可用的预处理/导出流程，不能改变该路径非官方支持的状态。`scripts/app-build.ps1` 按原生命令退出码判定失败、将 stdout/stderr 原样保留在控制台，并检查预期 HBuilderX 导入文件；PowerShell 5.1 与 pwsh 7 均兼容，stderr 中的 Sass 弃用警告本身不代表失败。CLI 输出 `dist/build/app` 及 UTS 描述文件不等同于 APK/IPA、Android/iOS 原生 UTS 编译、签名或设备验证。Android 需在 HBuilderX 中构建包含此 UTS 插件的自定义基座并在真机验证；iOS 原生编译和运行需 macOS + Xcode，设备安装还需 Apple 开发者签名证书及 provisioning profile。当前仓库未提供签名材料，也未记录 Android 或 iOS 真机证据，不得据 CLI 导出结果宣称原生安全存储已经验收。脚本 stderr/退出码兼容性可用 `scripts/test-app-build-command.ps1` 在 Windows PowerShell 5.1 和 pwsh 7 验证。
 
 自动化测试覆盖了 Keychain 写入状态决策（duplicate→update→not-found→retry-add→duplicate→retry-update）、未找到不能假成功及删除幂等规则；该纯逻辑测试不调用 iOS Security 原生 API。发布前还必须真机验证：原生插件可编译且未记录令牌；set/get/has/remove 持久化和退出清理（包括 Keychain 更新竞态及同步性/可访问属性）；iOS 锁屏后返回 `DEVICE_LOCKED` 且解锁后仍可读取；密文损坏/Keystore key 丢失后清理并要求重新登录；Android 云备份与设备迁移不携带令牌文件；iOS 卸载重装清除遗留 Keychain 值、恢复到另一设备不迁移 Keychain；Web/unsupported target fail-closed。
 
@@ -77,7 +77,7 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 
 ## B05b F12 站内通知
 
-通知中心、详情、普通通知偏好和分析/建议安全占位均为受保护路由。`NotificationApi` 复用共享 RequestClient；筛选、cursor、未读计数、单条/批量已读及偏好 DTO 直接来自 OpenAPI 生成类型。通知仅显示契约事件类别/时间/优先级，不构造通知正文、药名剂量、报告或建议内容。target 严格按服务端类型 allowlist 映射；target 缺失/不可用时不推测路由，分析/建议 UUID 在需要重新认证时只保存在进程内受控返回目标。
+通知中心、详情、普通通知偏好和分析/建议受保护 target 均使用注册路由。`NotificationApi` 复用共享 RequestClient；筛选、cursor、未读计数、单条/批量已读及偏好 DTO 直接来自 OpenAPI 生成类型。通知仅显示契约事件类别/时间/优先级，不构造通知正文、药名剂量、报告或建议内容。target 严格按服务端类型 allowlist 映射；target 缺失/不可用时不推测路由。建议通知进入已实现的受保护详情，并由路由器内存授权固定 `from=notification`；详情返回时恢复来源通知详情，缺少有效来源 ID 则回通知列表。任意外部 URL/query 不作为返回地址，直接建议深链仍回 owner Tab。
 
 批量操作仅提交患者明确选择的未读通知 ID；后端失败时列表与选择保留，成功按返回 DTO 精确更新。首页和“我的”通过 `/notifications/unread-count` 显示真实数字，错误不显示成 0。普通提醒开关/quiet hours 不隐藏风险通知、不更改风险提示状态；不接外部 push 或供应商 SDK。T121 自动化覆盖 API、过滤与分页、目标 allowlist、批量状态 helper、偏好豁免及未读入口；设备真机/无障碍验收仍单独进行。
 
@@ -116,3 +116,9 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 详情页仅在 pending/processing 显示二次确认取消，仅 failed 显示二次确认重试；`needs_input` 是终态并引导补齐后新建任务。重试带 Idempotency-Key，成功必须核验 202、Location 与 `retry_of` 后打开服务端新任务，失败不覆盖当前状态、不自动重提。非终态每15秒刷新，页面隐藏停止、显示恢复时刷新；错误保留最后状态，不制造进度。partial 与 succeeded 分开标识。
 
 结果仅展示生成 DTO `AnalysisResult` schema_version `1.0` 的 summary、observations、evidence、uncertainties、missing_data。证据通过 source_type 固定映射；已删除来源隐藏 locator 且不跳转，未知/不支持来源不跳转。错误码只显示通用安全映射；不显示 callback_id、prompt、模型原始输出、报告正文/URL 或 mood note。结果明确不是诊断或处方。“报告与结果”入口指向任务历史，结构化内容从任务详情进入。APP T127 覆盖状态矩阵、动作、轮询生命周期与结果白名单；服务端能力仍以 T66–T71、T111–T112 为准。
+
+## B09a F09 建议 APP
+
+`/pages/advice/analysis` 和 `/pages/advice/index` 分别归属分析与“我的”Tab；详情 `/pages/advice/detail` 保留 owner/from，并支持历史/通知按受控 UUID 映射进入。通知发起的详情只在内存授权的 `from=notification` 下返回原通知详情；缺少内存通知 UUID 时回通知列表，未经授权的直接深链回 owner Tab。顶部返回与系统返回执行同一来源策略。`AdviceApi` 与 Advice/Feedback DTO 由 OpenAPI 生成，复用共享 `RequestClient` 的 RFC 9457、认证刷新与请求 ID。列表/详情显式区分 loading、empty、error/offline、refresh 与 append 错误；追加失败保留已载入记录和 cursor，首次 onShow 不重复请求，隐藏/卸载后响应失效。
+
+标记已读、归档、反馈均由患者显式操作；反馈使用契约 `expected_version` 和 `Idempotency-Key`。409 不覆盖当前内容、不自动重提。risk_priority_context 总在建议前优先展示并固定路由 F10；状态文案不把 read/reevaluated 解释为风险解除或安全。来源只呈现经过 source_type、source_id、`type:id` locator、target、删除状态共同校验的固定标签；知识引用仅展示无 userinfo HTTPS 域名，不显示 URL 或自动打开。mood evidence 已受后端冻结快照和四授权 fence 限制；APP 不显示 mood note/emotion_tags、不传 patient_id、不记录建议正文到通知、日志或埋点。T128 覆盖 API、证据/引用 allowlist、风险优先、A/B 与授权 fence、409、owner/from/deep-link 和生命周期竞态。CLI build 不替代 Android/iOS 真机无障碍签收。

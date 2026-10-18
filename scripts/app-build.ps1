@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'app-build-command.ps1')
 $root = Split-Path -Parent $PSScriptRoot
 $node = & (Join-Path $PSScriptRoot 'resolve-node.ps1')
 if (-not $node) { throw 'Project Node resolver did not return an executable.' }
@@ -23,25 +24,7 @@ try {
         @{ Name = 'iOS'; Script = 'build:ios'; Artifact = 'dist\build\hx\app\app-ios\uni_modules\gutcare-secure-store\manifest.json'; CompilerArtifact = 'dist\build\.tsc\uni_modules\gutcare-secure-store\utssdk\app-ios\index.uts.ts' }
     )) {
         $buildStartedAt = Get-Date
-        $output = & $node $corepack pnpm run $target.Script 2>&1
-        $exitCode = $LASTEXITCODE
-        $output | ForEach-Object { Write-Output $_ }
-        $text = ($output | ForEach-Object { [string]$_ }) -join "`n"
-
-        $diagnostics = @(
-            '(?im)^\s*x\s+',
-            '(?i)Cannot find module:',
-            '(?i)Module not found',
-            '(?i)UTS.{0,40}(error|failed|exception)',
-            '(?i)(Syntax|Compile|Compilation) Error',
-            '(?i)Build failed',
-            '(?i)error TS\d+',
-            '(?i)Error:'
-        )
-        $diagnostic = $diagnostics | Where-Object { $text -match $_ } | Select-Object -First 1
-        if ($exitCode -ne 0 -or $diagnostic) {
-            throw "APP $($target.Name) build failed (exit=$exitCode; diagnostic=$diagnostic)."
-        }
+        Invoke-AppBuildCommand -FilePath $node -ArgumentList @($corepack, 'pnpm', 'run', $target.Script) -TargetName $target.Name
 
         foreach ($relativeArtifact in @($target.Artifact, $target.CompilerArtifact, 'dist\build\app\app-service.js')) {
             $artifactPath = Join-Path $appPath $relativeArtifact

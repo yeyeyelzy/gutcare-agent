@@ -21,7 +21,13 @@ $assetsByHash = @{}
 foreach ($spec in $assetSpec) { $assetsByHash[$spec.sha256] = $spec }
 
 function Get-BytesHash([byte[]] $Bytes) {
-    return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes)).ToLowerInvariant()
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha256.ComputeHash($Bytes)
+        return [BitConverter]::ToString($digest).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $sha256.Dispose()
+    }
 }
 
 function Get-PngDimensions([byte[]] $Bytes) {

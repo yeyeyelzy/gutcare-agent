@@ -4794,7 +4794,12 @@ def _f09_postgres18_callback_feedback_projection_and_isolation(database: Any) ->
                 db.execute(
                     text("SELECT set_config('app.patient_id', :id, true)"), {"id": str(patient_id)}
                 )
-                for kind in ("health_data_processing", "third_party_ai"):
+                for kind in (
+                    "health_data_processing",
+                    "third_party_ai",
+                    "mood_data_processing",
+                    "mood_ai_sharing",
+                ):
                     db.add(
                         PatientConsent(
                             patient_id=patient_id,
@@ -4814,6 +4819,19 @@ def _f09_postgres18_callback_feedback_projection_and_isolation(database: Any) ->
                         record_version=3,
                     )
                 )
+                db.add(
+                    MoodRecord(
+                        patient_id=patient_id,
+                        occurred_at=utc_now(),
+                        mood_level=2,
+                        emotion_tags=[],
+                        note="private mood note must not enter frozen agent snapshot",
+                        record_version=2,
+                    )
+                )
+                # Flush while the transaction-local RLS patient context still
+                # matches these pending rows; the next loop iteration changes it.
+                db.flush()
                 if patient_id == patient_a:
                     parse_request = MedicalParseRequest(
                         patient_id=patient_a,
@@ -4866,6 +4884,10 @@ def _f09_postgres18_callback_feedback_projection_and_isolation(database: Any) ->
         assert worker.claim()["task_id"] == str(task_id)
         inputs = worker.inputs(task_id)
         source = next(row for row in inputs["records"] if row["record_type"] == "diet_record")
+        mood_source = next(
+            row for row in inputs["mood_records"] if row["record_type"] == "mood_record"
+        )
+        assert "private mood note" not in json.dumps(inputs)
         assert any(
             row["record_type"] == "confirmed_medical_fact"
             and row["payload"]["value"].get("certainty") == "suspected"
@@ -4920,7 +4942,14 @@ def _f09_postgres18_callback_feedback_projection_and_isolation(database: Any) ->
                             "source_id": source["record_id"],
                             "source_version": source["record_version"],
                             "locator": source["locator"],
-                        }
+                        },
+                        {
+                            "evidence_type": "patient",
+                            "source_type": mood_source["record_type"],
+                            "source_id": mood_source["record_id"],
+                            "source_version": mood_source["record_version"],
+                            "locator": mood_source["locator"],
+                        },
                     ],
                 }
             ],
@@ -4938,6 +4967,42 @@ def _f09_postgres18_callback_feedback_projection_and_isolation(database: Any) ->
         with pytest.raises(Problem) as inapplicable:
             advice_service.callback(task_id, condition_specific_payload)
         assert inapplicable.value.code == "ADVICE_NOT_APPLICABLE"
+
+        # A mood-bearing frozen snapshot cannot produce advice after any required
+        # mood consent is withdrawn, even if the callback evidence is snapshot-bound.
+        with _sessions(app_engine).begin() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :id, true)"), {"id": str(patient_a)}
+            )
+            db.add(
+                PatientConsent(
+                    patient_id=patient_a,
+                    consent_type="mood_ai_sharing",
+                    document_version="t-v1",
+                    granted=False,
+                    decided_at=utc_now() + timedelta(seconds=1),
+                    revoked_at=utc_now() + timedelta(seconds=1),
+                    metadata_json={"notice_summary_hash": "a" * 64},
+                )
+            )
+        withdrawn_payload = {**advice_payload, "callback_id": str(uuid4())}
+        with pytest.raises(Problem) as consent_blocked:
+            advice_service.callback(task_id, withdrawn_payload)
+        assert consent_blocked.value.code == "CONSENT_REQUIRED"
+        with _sessions(app_engine).begin() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :id, true)"), {"id": str(patient_a)}
+            )
+            db.add(
+                PatientConsent(
+                    patient_id=patient_a,
+                    consent_type="mood_ai_sharing",
+                    document_version="t-v1",
+                    granted=True,
+                    decided_at=utc_now() + timedelta(seconds=2),
+                    metadata_json={"notice_summary_hash": "a" * 64},
+                )
+            )
         with _sessions(migrator_engine).begin() as db:
             db.execute(
                 text("SELECT set_config('app.patient_id', :id, true)"), {"id": str(patient_a)}
@@ -4956,8 +5021,74 @@ def _f09_postgres18_callback_feedback_projection_and_isolation(database: Any) ->
             )
         advice_service.callback(task_id, advice_payload)
         advice_service.callback(task_id, advice_payload)
-        assert len(patient_advice_service.list(context_a, 20)["items"]) == 1
-        advice_id = UUID(patient_advice_service.list(context_a, 20)["items"][0]["id"])
+        risk_rule_id, risk_a_id, risk_b_id = uuid4(), uuid4(), uuid4()
+        with _sessions(migrator_engine).begin() as db:
+            db.add(
+                RiskRule(
+                    id=risk_rule_id,
+                    rule_code="f09-risk-context-test-only",
+                    version=1,
+                    severity="emergency",
+                    condition_json={},
+                    message="synthetic test-only context",
+                    recommended_action="synthetic test-only action",
+                    review_status="draft",
+                    environment="test_only",
+                )
+            )
+        with _sessions(app_engine).begin() as db:
+            for patient_id, alert_id, severity, status in (
+                (patient_a, risk_a_id, "emergency", "reevaluated"),
+                (patient_b, risk_b_id, "seek_care", "unread"),
+            ):
+                db.execute(
+                    text("SELECT set_config('app.patient_id', :id, true)"),
+                    {"id": str(patient_id)},
+                )
+                db.execute(
+                    text("""
+                    INSERT INTO safety.risk_alert
+                      (id,patient_id,rule_id,source_record_id,source_record_version,severity,
+                       message,recommended_action,deduplication_key,status,triggered_at,evidence_summary)
+                    VALUES (:id,:p,:rule,:source,1,:severity,'synthetic','synthetic',:dedupe,
+                            :status,:triggered_at,'{}'::jsonb)
+                    """),
+                    {
+                        "id": alert_id,
+                        "p": patient_id,
+                        "rule": risk_rule_id,
+                        "source": uuid4(),
+                        "severity": severity,
+                        "dedupe": f"f09-risk-context-{patient_id}",
+                        "status": status,
+                        "triggered_at": utc_now(),
+                    },
+                )
+        risk_query_count = 0
+
+        def count_risk_context_query(
+            _conn: Any,
+            _cursor: Any,
+            statement: str,
+            _parameters: Any,
+            _context: Any,
+            _executemany: bool,
+        ) -> None:
+            nonlocal risk_query_count
+            if "FROM safety.risk_alert" in statement:
+                risk_query_count += 1
+
+        event.listen(app_engine, "before_cursor_execute", count_risk_context_query)
+        try:
+            first_page = patient_advice_service.list(context_a, 20)
+        finally:
+            event.remove(app_engine, "before_cursor_execute", count_risk_context_query)
+        assert len(first_page["items"]) == 1 and risk_query_count == 1
+        risk_context = first_page["items"][0]["risk_priority_context"]
+        assert risk_context["alert_id"] == str(risk_a_id)
+        assert risk_context["severity"] == "emergency"
+        assert risk_context["status"] == "reevaluated"
+        advice_id = UUID(first_page["items"][0]["id"])
         with pytest.raises(Problem) as wrong_digest:
             advice_service.callback(
                 task_id,
@@ -4978,6 +5109,30 @@ def _f09_postgres18_callback_feedback_projection_and_isolation(database: Any) ->
         projected = patient_advice_service.get(context_a, advice_id)
         assert projected["basis_updated"] is True
         assert projected["basis_update_reason"] == "source_updated"
+        assert "private mood note" not in json.dumps(projected)
+        mood_evidence = next(
+            item for item in projected["evidence"] if item["source_type"] == "mood_record"
+        )
+        assert mood_evidence["source_deleted"] is False and mood_evidence["locator"]
+        with _sessions(app_engine).begin() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :id, true)"), {"id": str(patient_a)}
+            )
+            db.execute(
+                text(
+                    "UPDATE health.mood_record SET deleted_at=:now WHERE id=:id AND patient_id=:p"
+                ),
+                {"now": utc_now(), "id": mood_source["record_id"], "p": patient_a},
+            )
+        deleted_mood_projection = patient_advice_service.get(context_a, advice_id)
+        deleted_mood_evidence = next(
+            item
+            for item in deleted_mood_projection["evidence"]
+            if item["source_type"] == "mood_record"
+        )
+        assert deleted_mood_evidence["source_deleted"] is True
+        assert deleted_mood_evidence["locator"] is None and deleted_mood_evidence["target"] is None
+        assert "private mood note" not in json.dumps(deleted_mood_projection)
         with _sessions(app_engine).begin() as db:
             db.execute(
                 text("SELECT set_config('app.patient_id', :id, true)"), {"id": str(patient_a)}
@@ -5020,6 +5175,17 @@ def _f09_postgres18_callback_feedback_projection_and_isolation(database: Any) ->
         # Two writers with distinct keys and the same optimistic version: exactly one wins.
         second_callback = {**advice_payload, "callback_id": str(uuid4())}
         advice_service.callback(task_id, second_callback)
+        risk_query_count = 0
+        event.listen(app_engine, "before_cursor_execute", count_risk_context_query)
+        try:
+            advice_list_with_two_items = patient_advice_service.list(context_a, 20)
+        finally:
+            event.remove(app_engine, "before_cursor_execute", count_risk_context_query)
+        assert len(advice_list_with_two_items["items"]) == 2 and risk_query_count == 1
+        assert all(
+            item["risk_priority_context"]["alert_id"] == str(risk_a_id)
+            for item in advice_list_with_two_items["items"]
+        )
         page_one = patient_advice_service.list(context_a, 1)
         assert len(page_one["items"]) == 1 and page_one["next_cursor"]
         page_two = patient_advice_service.list(context_a, 1, page_one["next_cursor"])

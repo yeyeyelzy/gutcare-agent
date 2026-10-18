@@ -7,6 +7,7 @@ import json
 import re
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, Protocol, cast
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
@@ -23,11 +24,12 @@ from gutcare.analysis.advice_models import (
 )
 from gutcare.analysis.models import AnalysisTask, TaskInputSnapshot
 from gutcare.analysis.service import AnalysisService
-from gutcare.auth.api import current_auth_context
+from gutcare.auth.api import current_auth_context, problem_response
 from gutcare.auth.models import PatientConsent, PatientProfile, UserAccount
 from gutcare.auth.service import AuthContext
 from gutcare.files.models import ConfirmedMedicalFact, MedicalFieldCandidate
 from gutcare.medication.models import MedicationCheckin, MedicationPlan
+from gutcare.mood.models import MoodRecord
 from gutcare.records.models import DietRecord, RiskAlert, StoolRecord, SymptomRecord
 from gutcare.shared.errors import Problem
 
@@ -43,6 +45,7 @@ class PatientEvidence(BaseModel):
         "diet_record",
         "stool_record",
         "symptom_record",
+        "mood_record",
         "medication_plan",
         "medication_checkin",
         "risk_alert",
@@ -122,6 +125,211 @@ class FeedbackBody(BaseModel):
     expected_version: int = Field(strict=True, ge=0)
 
 
+class _StrictResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class RiskPriorityContext(_StrictResponse):
+    alert_id: UUID
+    severity: Literal["seek_care", "emergency"]
+    status: Literal["unread", "read", "reevaluated"]
+    triggered_at: datetime
+
+
+class AdviceEvidenceTargetRead(_StrictResponse):
+    type: str
+    id: UUID
+
+
+class AdvicePatientEvidenceRead(_StrictResponse):
+    evidence_type: Literal["patient"]
+    source_type: Literal[
+        "confirmed_medical_fact",
+        "diet_record",
+        "stool_record",
+        "symptom_record",
+        "mood_record",
+        "medication_plan",
+        "medication_checkin",
+        "risk_alert",
+    ]
+    source_id: UUID
+    source_version: int = Field(ge=1)
+    locator: str | None = Field(max_length=160)
+    source_deleted: bool
+    target: AdviceEvidenceTargetRead | None
+
+
+class AdviceKnowledgeEvidenceRead(_StrictResponse):
+    evidence_type: Literal["knowledge"]
+    knowledge_ref: str = Field(min_length=1, max_length=160)
+    knowledge_version: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=240)
+    publisher: str = Field(min_length=1, max_length=160)
+    citation_url: AnyHttpUrl | None
+
+
+class AdviceFeedbackRead(_StrictResponse):
+    advice_id: UUID
+    feedback_type: Literal["helpful", "not_helpful", "not_applicable"]
+    version: int = Field(ge=1)
+
+
+class AdviceFeedbackHistoryRead(_StrictResponse):
+    feedback_type: Literal["helpful", "not_helpful", "not_applicable"]
+    version: int = Field(ge=1)
+    created_at: datetime
+
+
+class AdviceUncertaintyRead(_StrictResponse):
+    level: Literal["low", "moderate", "high"]
+    reasons: list[Annotated[str, Field(max_length=240)]] = Field(max_length=10)
+
+
+class AdviceApplicabilityRead(_StrictResponse):
+    scope: Literal["general", "condition_specific"]
+    limitations: list[Annotated[str, Field(max_length=240)]] = Field(max_length=10)
+
+
+class AdviceSafetyBoundaryRead(_StrictResponse):
+    not_diagnosis: Literal[True]
+    not_prescription: Literal[True]
+    risk_alert_priority: Literal[True]
+
+
+class AdviceRead(_StrictResponse):
+    id: UUID
+    task_id: UUID
+    category: Literal[
+        "diet", "lifestyle", "record_management", "medication_adherence", "care_consultation"
+    ]
+    priority: Literal["routine", "important"]
+    title: str = Field(min_length=1, max_length=160)
+    body: str = Field(min_length=1, max_length=3000)
+    uncertainty: AdviceUncertaintyRead
+    applicability: AdviceApplicabilityRead
+    safety_boundary: AdviceSafetyBoundaryRead
+    version: str = Field(min_length=1, max_length=32)
+    status: Literal["new", "read", "archived"]
+    basis_updated: bool
+    basis_updated_at: datetime | None
+    basis_update_reason: Literal["source_updated", "source_deleted", "fact_replaced"] | None
+    risk_priority_context: RiskPriorityContext | None
+    evidence: list[AdvicePatientEvidenceRead | AdviceKnowledgeEvidenceRead]
+    feedback: AdviceFeedbackRead | None
+    feedback_history: list[AdviceFeedbackHistoryRead]
+    created_at: datetime
+
+
+class AdvicePageRead(_StrictResponse):
+    items: list[AdviceRead]
+    next_cursor: str | None
+
+
+def _advice_problem(status: int, code: str, detail: str, instance: str) -> dict[str, Any]:
+    return {
+        "type": f"https://gutcare.invalid/problems/{code.lower()}",
+        "title": "Request validation failed" if status == 422 else "Request failed",
+        "status": status,
+        "detail": detail,
+        "instance": instance,
+        "code": code,
+        "request_id": f"00000000-0000-4000-8000-{status:012d}",
+    }
+
+
+def _advice_problem_responses(
+    path: str, statuses: tuple[int, ...]
+) -> dict[int | str, dict[str, Any]]:
+    issues = {
+        400: ("INVALID_CURSOR", "Advice cursor is invalid"),
+        401: ("AUTHENTICATION_REQUIRED", "Authentication required"),
+        404: ("RESOURCE_NOT_FOUND", "Resource not found"),
+        409: ("RECORD_VERSION_CONFLICT", "Advice feedback version conflict"),
+        422: ("VALIDATION_ERROR", "Request validation failed"),
+        500: ("INTERNAL_ERROR", "Service temporarily unavailable"),
+        503: ("SERVICE_UNAVAILABLE", "Advice service unavailable"),
+    }
+    return {
+        status: problem_response(
+            issues[status][1],
+            _advice_problem(status, *issues[status], path),
+        )
+        for status in statuses
+    }
+
+
+def _advice_success_response(
+    status: int, schema: str, description: str, *, advice_status: str = "new"
+) -> dict[int | str, dict[str, Any]]:
+    example: dict[str, Any]
+    if schema == "AdvicePageRead":
+        example = {"items": [_advice_example()], "next_cursor": None}
+    elif schema == "AdviceFeedbackRead":
+        example = {
+            "advice_id": "019a0000-0000-7000-8000-000000000901",
+            "feedback_type": "helpful",
+            "version": 1,
+        }
+    else:
+        example = _advice_example(status=advice_status)
+    return {
+        status: {
+            "description": description,
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": f"#/components/schemas/{schema}"},
+                    "examples": {"example": {"value": example}},
+                }
+            },
+        }
+    }
+
+
+def _is_safe_knowledge_citation(value: str | AnyHttpUrl | None) -> bool:
+    if value is None:
+        return True
+    try:
+        parsed = urlsplit(str(value))
+        return (
+            parsed.scheme.lower() == "https"
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.port != 0
+        )
+    except ValueError:
+        return False
+
+
+def _advice_example(*, status: str = "new") -> dict[str, Any]:
+    return {
+        "id": "019a0000-0000-7000-8000-000000000901",
+        "task_id": "019a0000-0000-7000-8000-000000000801",
+        "category": "record_management",
+        "priority": "routine",
+        "title": "继续记录相关情况",
+        "body": "可继续记录相关情况供后续回顾",
+        "uncertainty": {"level": "moderate", "reasons": ["记录数量有限"]},
+        "applicability": {"scope": "general", "limitations": []},
+        "safety_boundary": {
+            "not_diagnosis": True,
+            "not_prescription": True,
+            "risk_alert_priority": True,
+        },
+        "version": "1.0",
+        "status": status,
+        "basis_updated": False,
+        "basis_updated_at": None,
+        "basis_update_reason": None,
+        "risk_priority_context": None,
+        "evidence": [],
+        "feedback": None,
+        "feedback_history": [],
+        "created_at": "2026-10-01T00:00:00Z",
+    }
+
+
 class AdviceServiceLike(Protocol):
     def callback(self, task_id: UUID, payload: dict[str, Any]) -> None: ...
     def list(self, context: AuthContext, limit: int, cursor: str | None) -> dict[str, Any]: ...
@@ -171,7 +379,15 @@ def advice_callback(
     return Response(status_code=204)
 
 
-@router.get("", operation_id="listAdvice")
+@router.get(
+    "",
+    operation_id="listAdvice",
+    response_model=AdvicePageRead,
+    responses={
+        **_advice_success_response(200, "AdvicePageRead", "患者建议稳定游标分页"),
+        **_advice_problem_responses("/api/v1/advice", (400, 401, 404, 422, 500, 503)),
+    },
+)
 def list_advice(
     context: Annotated[AuthContext, Depends(current_auth_context)],
     svc: Annotated[AdviceServiceLike, Depends(_service)],
@@ -181,7 +397,15 @@ def list_advice(
     return svc.list(context, limit, cursor)
 
 
-@router.get("/{advice_id}", operation_id="getAdvice")
+@router.get(
+    "/{advice_id}",
+    operation_id="getAdvice",
+    response_model=AdviceRead,
+    responses={
+        **_advice_success_response(200, "AdviceRead", "建议详情与受控证据入口"),
+        **_advice_problem_responses("/api/v1/advice/{advice_id}", (401, 404, 422, 500, 503)),
+    },
+)
 def get_advice(
     advice_id: UUID,
     context: Annotated[AuthContext, Depends(current_auth_context)],
@@ -190,7 +414,17 @@ def get_advice(
     return svc.get(context, advice_id)
 
 
-@router.post("/{advice_id}/read", operation_id="readAdvice")
+@router.post(
+    "/{advice_id}/read",
+    operation_id="readAdvice",
+    response_model=AdviceRead,
+    responses={
+        **_advice_success_response(
+            200, "AdviceRead", "建议已读，依据变化状态独立保留", advice_status="read"
+        ),
+        **_advice_problem_responses("/api/v1/advice/{advice_id}/read", (401, 404, 422, 500, 503)),
+    },
+)
 def read_advice(
     advice_id: UUID,
     context: Annotated[AuthContext, Depends(current_auth_context)],
@@ -199,7 +433,19 @@ def read_advice(
     return svc.mark_read(context, advice_id)
 
 
-@router.post("/{advice_id}/archive", operation_id="archiveAdvice")
+@router.post(
+    "/{advice_id}/archive",
+    operation_id="archiveAdvice",
+    response_model=AdviceRead,
+    responses={
+        **_advice_success_response(
+            200, "AdviceRead", "建议已归档，依据变化状态独立保留", advice_status="archived"
+        ),
+        **_advice_problem_responses(
+            "/api/v1/advice/{advice_id}/archive", (401, 404, 422, 500, 503)
+        ),
+    },
+)
 def archive_advice(
     advice_id: UUID,
     context: Annotated[AuthContext, Depends(current_auth_context)],
@@ -208,7 +454,17 @@ def archive_advice(
     return svc.archive(context, advice_id)
 
 
-@router.put("/{advice_id}/feedback", operation_id="updateAdviceFeedback")
+@router.put(
+    "/{advice_id}/feedback",
+    operation_id="updateAdviceFeedback",
+    response_model=AdviceFeedbackRead,
+    responses={
+        **_advice_success_response(200, "AdviceFeedbackRead", "建议反馈的当前乐观版本"),
+        **_advice_problem_responses(
+            "/api/v1/advice/{advice_id}/feedback", (401, 404, 409, 422, 500, 503)
+        ),
+    },
+)
 def feedback(
     advice_id: UUID,
     body: FeedbackBody,
@@ -243,7 +499,13 @@ class AdviceService:
 
     @staticmethod
     def _authorized(db: Session, patient_id: UUID) -> None:
-        for kind in ("health_data_processing", "third_party_ai"):
+        AdviceService._require_consents(
+            db, patient_id, ("health_data_processing", "third_party_ai")
+        )
+
+    @staticmethod
+    def _require_consents(db: Session, patient_id: UUID, kinds: tuple[str, ...]) -> None:
+        for kind in kinds:
             consent = db.scalar(
                 select(PatientConsent)
                 .where(PatientConsent.patient_id == patient_id, PatientConsent.consent_type == kind)
@@ -276,6 +538,21 @@ class AdviceService:
             ):
                 return False, None
             return True, getattr(source_row, "record_version", ev.source_version)
+        if ev.source_type == "mood_record":
+            mood_row = db.scalar(
+                select(MoodRecord).where(
+                    MoodRecord.id == ev.source_id,
+                    MoodRecord.patient_id == patient_id,
+                    MoodRecord.deleted_at.is_(None),
+                )
+            )
+            if mood_row is None:
+                return False, None
+            return AnalysisService._source_is_live(
+                db,
+                patient_id,
+                {"source_type": "mood_record", "source_id": str(ev.source_id)},
+            ), mood_row.record_version
         if ev.source_type == "confirmed_medical_fact":
             medical_row = db.execute(
                 select(ConfirmedMedicalFact, MedicalFieldCandidate.record_version)
@@ -311,7 +588,29 @@ class AdviceService:
         return False, None
 
     @staticmethod
-    def _dto(db: Session, row: HealthAdvice) -> dict[str, Any]:
+    def _risk_priority_context(db: Session, patient_id: UUID) -> dict[str, Any] | None:
+        alert = db.scalar(
+            select(RiskAlert)
+            .where(
+                RiskAlert.patient_id == patient_id,
+                RiskAlert.severity.in_(("seek_care", "emergency")),
+            )
+            .order_by(desc(RiskAlert.triggered_at), desc(RiskAlert.id))
+            .limit(1)
+        )
+        if alert is None:
+            return None
+        return {
+            "alert_id": str(alert.id),
+            "severity": alert.severity,
+            "status": alert.status,
+            "triggered_at": alert.triggered_at.isoformat(),
+        }
+
+    @staticmethod
+    def _dto(
+        db: Session, row: HealthAdvice, risk_priority_context: dict[str, Any] | None
+    ) -> dict[str, Any]:
         evidence_rows = db.scalars(
             select(AdviceEvidence).where(
                 AdviceEvidence.advice_id == row.id, AdviceEvidence.patient_id == row.patient_id
@@ -377,6 +676,7 @@ class AdviceService:
             "basis_updated": row.basis_updated,
             "basis_updated_at": row.basis_updated_at.isoformat() if row.basis_updated_at else None,
             "basis_update_reason": row.basis_update_reason,
+            "risk_priority_context": risk_priority_context,
             "created_at": row.created_at.isoformat(),
             "evidence": evidence,
             "feedback": {"feedback_type": feedback.feedback_type, "version": feedback.version}
@@ -436,6 +736,20 @@ class AdviceService:
             if snapshot is None:
                 raise Problem(409, "TASK_STATE_CONFLICT", "Task snapshot is unavailable")
             records = snapshot.snapshot_payload.get("records", [])
+            has_mood_snapshot = any(
+                record.get("record_type") == "mood_record" for record in records
+            )
+            if has_mood_snapshot:
+                self._require_consents(
+                    db,
+                    patient_id,
+                    (
+                        "health_data_processing",
+                        "mood_data_processing",
+                        "mood_ai_sharing",
+                        "third_party_ai",
+                    ),
+                )
             has_explicit_diagnosis = _snapshot_has_explicit_diagnosis(records)
             if not has_explicit_diagnosis and any(
                 advice.get("applicability", {}).get("scope") == "condition_specific"
@@ -505,9 +819,11 @@ class AdviceService:
                         )
                     else:
                         url = item.get("citation_url")
-                        if url and not str(url).startswith("https://"):
+                        if not _is_safe_knowledge_citation(url):
                             raise Problem(
-                                422, "INVALID_EVIDENCE", "Knowledge citation must use HTTPS"
+                                422,
+                                "INVALID_EVIDENCE",
+                                "Knowledge citation must be an HTTPS URL without user information",
                             )
                         db.add(
                             AdviceEvidence(
@@ -570,10 +886,14 @@ class AdviceService:
             )
             has_more = len(rows) > limit
             rows = rows[:limit]
+            risk_priority_context = self._risk_priority_context(db, p.id)
             next_cursor = (
                 self._encode_cursor(rows[-1].created_at, rows[-1].id) if has_more and rows else None
             )
-            return {"items": [self._dto(db, row) for row in rows], "next_cursor": next_cursor}
+            return {
+                "items": [self._dto(db, row, risk_priority_context) for row in rows],
+                "next_cursor": next_cursor,
+            }
 
     def get(self, context: AuthContext, advice_id: UUID) -> dict[str, Any]:
         with self._sessions.begin() as db:
@@ -585,7 +905,7 @@ class AdviceService:
             )
             if row is None:
                 raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
-            return self._dto(db, row)
+            return self._dto(db, row, self._risk_priority_context(db, p.id))
 
     def _change(self, context: AuthContext, advice_id: UUID, status: str) -> dict[str, Any]:
         with self._sessions.begin() as db:
@@ -602,7 +922,7 @@ class AdviceService:
                 row.status, row.read_at = "read", now
             elif status == "archived":
                 row.status, row.archived_at = "archived", now
-            return self._dto(db, row)
+            return self._dto(db, row, self._risk_priority_context(db, p.id))
 
     def mark_read(self, context: AuthContext, advice_id: UUID) -> dict[str, Any]:
         return self._change(context, advice_id, "read")

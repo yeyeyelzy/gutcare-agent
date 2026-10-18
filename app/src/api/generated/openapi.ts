@@ -736,6 +736,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/advice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出当前患者建议 */
+        get: operations["listAdvice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/advice/{advice_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                advice_id: string;
+            };
+            cookie?: never;
+        };
+        /** 获取建议详情与受控证据入口 */
+        get: operations["getAdvice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/advice/{advice_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 标记建议已读 */
+        post: operations["readAdvice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/advice/{advice_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 归档建议 */
+        post: operations["archiveAdvice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/advice/{advice_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** 新增或更新结构化建议反馈 */
+        put: operations["updateAdviceFeedback"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/medication-plans": {
         parameters: {
             query?: never;
@@ -1545,7 +1632,18 @@ export interface components {
             /** Format: uri */
             citation_url: string | null;
         };
-        Advice: {
+        /** @description 当前患者最近一条 seek_care 或 emergency 风险提示的受控快照。该记录状态仅表示风险提示状态，不表示风险解除或已安全。 */
+        RiskPriorityContext: {
+            /** Format: uuid */
+            alert_id: string;
+            /** @enum {string} */
+            severity: "seek_care" | "emergency";
+            /** @enum {string} */
+            status: "unread" | "read" | "reevaluated";
+            /** Format: date-time */
+            triggered_at: string;
+        };
+        AdviceRead: {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -1582,8 +1680,9 @@ export interface components {
             basis_updated_at: string | null;
             /** @enum {string|null} */
             basis_update_reason: "source_updated" | "source_deleted" | "fact_replaced" | null;
+            risk_priority_context: components["schemas"]["RiskPriorityContext"] | null;
             evidence: components["schemas"]["AdviceEvidence"][];
-            feedback: components["schemas"]["AdviceFeedback"] | null;
+            feedback: components["schemas"]["AdviceFeedbackRead"] | null;
             feedback_history: {
                 /** @enum {string} */
                 feedback_type: "helpful" | "not_helpful" | "not_applicable";
@@ -1594,8 +1693,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
         };
-        AdvicePage: {
-            items: components["schemas"]["Advice"][];
+        AdvicePageRead: {
+            items: components["schemas"]["AdviceRead"][];
             next_cursor: string | null;
         };
         AdviceFeedbackRequest: {
@@ -1603,7 +1702,7 @@ export interface components {
             feedback_type: "helpful" | "not_helpful" | "not_applicable";
             expected_version: number;
         };
-        AdviceFeedback: {
+        AdviceFeedbackRead: {
             /** Format: uuid */
             advice_id: string;
             /** @enum {string} */
@@ -3695,6 +3794,398 @@ export interface operations {
             409: components["responses"]["AnalysisTaskConflictProblem"];
             422: components["responses"]["AnalysisTaskValidationProblem"];
             500: components["responses"]["AnalysisTaskInternalProblem"];
+        };
+    };
+    listAdvice: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description 稳定 created_at/id 降序游标 */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 患者建议稳定游标分页 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "019a0000-0000-7000-8000-000000000901",
+                     *           "task_id": "019a0000-0000-7000-8000-000000000801",
+                     *           "category": "record_management",
+                     *           "priority": "routine",
+                     *           "title": "继续记录相关情况",
+                     *           "body": "可继续记录相关情况供后续回顾",
+                     *           "uncertainty": {
+                     *             "level": "moderate",
+                     *             "reasons": [
+                     *               "记录数量有限"
+                     *             ]
+                     *           },
+                     *           "applicability": {
+                     *             "scope": "general",
+                     *             "limitations": []
+                     *           },
+                     *           "safety_boundary": {
+                     *             "not_diagnosis": true,
+                     *             "not_prescription": true,
+                     *             "risk_alert_priority": true
+                     *           },
+                     *           "version": "1.0",
+                     *           "status": "new",
+                     *           "basis_updated": false,
+                     *           "basis_updated_at": null,
+                     *           "basis_update_reason": null,
+                     *           "risk_priority_context": null,
+                     *           "evidence": [],
+                     *           "feedback": null,
+                     *           "feedback_history": [],
+                     *           "created_at": "2026-10-01T00:00:00Z"
+                     *         }
+                     *       ],
+                     *       "next_cursor": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdvicePageRead"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            500: components["responses"]["Problem"];
+            /** @description 建议服务不可用 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "https://gutcare.invalid/problems/service_unavailable",
+                     *       "title": "Request failed",
+                     *       "status": 503,
+                     *       "detail": "Advice service unavailable",
+                     *       "instance": "/api/v1/advice",
+                     *       "code": "SERVICE_UNAVAILABLE",
+                     *       "request_id": "00000000-0000-4000-8000-000000000503"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getAdvice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                advice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 建议详情与受控证据入口 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "019a0000-0000-7000-8000-000000000901",
+                     *       "task_id": "019a0000-0000-7000-8000-000000000801",
+                     *       "category": "record_management",
+                     *       "priority": "routine",
+                     *       "title": "继续记录相关情况",
+                     *       "body": "可继续记录相关情况供后续回顾",
+                     *       "uncertainty": {
+                     *         "level": "moderate",
+                     *         "reasons": [
+                     *           "记录数量有限"
+                     *         ]
+                     *       },
+                     *       "applicability": {
+                     *         "scope": "general",
+                     *         "limitations": []
+                     *       },
+                     *       "safety_boundary": {
+                     *         "not_diagnosis": true,
+                     *         "not_prescription": true,
+                     *         "risk_alert_priority": true
+                     *       },
+                     *       "version": "1.0",
+                     *       "status": "new",
+                     *       "basis_updated": false,
+                     *       "basis_updated_at": null,
+                     *       "basis_update_reason": null,
+                     *       "risk_priority_context": null,
+                     *       "evidence": [],
+                     *       "feedback": null,
+                     *       "feedback_history": [],
+                     *       "created_at": "2026-10-01T00:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdviceRead"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            500: components["responses"]["Problem"];
+            /** @description 建议服务不可用 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "https://gutcare.invalid/problems/service_unavailable",
+                     *       "title": "Request failed",
+                     *       "status": 503,
+                     *       "detail": "Advice service unavailable",
+                     *       "instance": "/api/v1/advice/{advice_id}",
+                     *       "code": "SERVICE_UNAVAILABLE",
+                     *       "request_id": "00000000-0000-4000-8000-000000000503"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    readAdvice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                advice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 建议已读，依据变化字段独立保留 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "019a0000-0000-7000-8000-000000000901",
+                     *       "task_id": "019a0000-0000-7000-8000-000000000801",
+                     *       "category": "record_management",
+                     *       "priority": "routine",
+                     *       "title": "继续记录相关情况",
+                     *       "body": "可继续记录相关情况供后续回顾",
+                     *       "uncertainty": {
+                     *         "level": "moderate",
+                     *         "reasons": [
+                     *           "记录数量有限"
+                     *         ]
+                     *       },
+                     *       "applicability": {
+                     *         "scope": "general",
+                     *         "limitations": []
+                     *       },
+                     *       "safety_boundary": {
+                     *         "not_diagnosis": true,
+                     *         "not_prescription": true,
+                     *         "risk_alert_priority": true
+                     *       },
+                     *       "version": "1.0",
+                     *       "status": "read",
+                     *       "basis_updated": false,
+                     *       "basis_updated_at": null,
+                     *       "basis_update_reason": null,
+                     *       "risk_priority_context": null,
+                     *       "evidence": [],
+                     *       "feedback": null,
+                     *       "feedback_history": [],
+                     *       "created_at": "2026-10-01T00:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdviceRead"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            500: components["responses"]["Problem"];
+            /** @description 建议服务不可用 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "https://gutcare.invalid/problems/service_unavailable",
+                     *       "title": "Request failed",
+                     *       "status": 503,
+                     *       "detail": "Advice service unavailable",
+                     *       "instance": "/api/v1/advice/{advice_id}/read",
+                     *       "code": "SERVICE_UNAVAILABLE",
+                     *       "request_id": "00000000-0000-4000-8000-000000000503"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    archiveAdvice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                advice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 建议已归档，依据变化字段独立保留 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "019a0000-0000-7000-8000-000000000901",
+                     *       "task_id": "019a0000-0000-7000-8000-000000000801",
+                     *       "category": "record_management",
+                     *       "priority": "routine",
+                     *       "title": "继续记录相关情况",
+                     *       "body": "可继续记录相关情况供后续回顾",
+                     *       "uncertainty": {
+                     *         "level": "moderate",
+                     *         "reasons": [
+                     *           "记录数量有限"
+                     *         ]
+                     *       },
+                     *       "applicability": {
+                     *         "scope": "general",
+                     *         "limitations": []
+                     *       },
+                     *       "safety_boundary": {
+                     *         "not_diagnosis": true,
+                     *         "not_prescription": true,
+                     *         "risk_alert_priority": true
+                     *       },
+                     *       "version": "1.0",
+                     *       "status": "archived",
+                     *       "basis_updated": false,
+                     *       "basis_updated_at": null,
+                     *       "basis_update_reason": null,
+                     *       "risk_priority_context": null,
+                     *       "evidence": [],
+                     *       "feedback": null,
+                     *       "feedback_history": [],
+                     *       "created_at": "2026-10-01T00:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdviceRead"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            500: components["responses"]["Problem"];
+            /** @description 建议服务不可用 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "https://gutcare.invalid/problems/service_unavailable",
+                     *       "title": "Request failed",
+                     *       "status": 503,
+                     *       "detail": "Advice service unavailable",
+                     *       "instance": "/api/v1/advice/{advice_id}/archive",
+                     *       "code": "SERVICE_UNAVAILABLE",
+                     *       "request_id": "00000000-0000-4000-8000-000000000503"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateAdviceFeedback: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                advice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdviceFeedbackRequest"];
+            };
+        };
+        responses: {
+            /** @description 反馈版本 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "advice_id": "019a0000-0000-7000-8000-000000000901",
+                     *       "feedback_type": "helpful",
+                     *       "version": 1
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdviceFeedbackRead"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            500: components["responses"]["Problem"];
+            /** @description 建议服务不可用 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "https://gutcare.invalid/problems/service_unavailable",
+                     *       "title": "Request failed",
+                     *       "status": 503,
+                     *       "detail": "Advice service unavailable",
+                     *       "instance": "/api/v1/advice/{advice_id}/feedback",
+                     *       "code": "SERVICE_UNAVAILABLE",
+                     *       "request_id": "00000000-0000-4000-8000-000000000503"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listMedicationPlans: {

@@ -79,11 +79,13 @@
 
 个性化建议和健康趋势可从首页卡片与“我的”区域进入；风险提示可从首页风险卡片和站内通知进入。具体入口不得制造第二套冲突底栏。
 
-F12 通知中心作为四个主 Tab 之外的受保护二级页面，从今日入口和“我的”入口进入；未读数以 `/notifications/unread-count` 服务端响应为准。target 只允许服务端受控类型映射：风险详情、用药页面或带原始 ID 的受保护分析/建议安全占位；target 不可用、为空或未知时不推测目的地、不拼任意深链。普通通知开关和静默时段不得影响风险通知，也不得改变风险业务已读状态。
+F12 通知中心作为四个主 Tab 之外的受保护二级页面，从今日入口和“我的”入口进入；未读数以 `/notifications/unread-count` 服务端响应为准。target 只允许服务端受控类型映射：风险详情、用药页面、分析任务安全占位或已实现的受保护建议详情；建议详情只接受通知页发起的固定路由，来源标记 `from=notification` 必须由内存中的通知 UUID 授权，顶部/系统返回优先恢复原通知详情，缺少受控上下文则回通知列表。未读 target 不可用、为空或未知时不推测目的地、不拼任意深链。普通通知开关和静默时段不得影响风险通知，也不得改变风险业务已读状态。
 
 F11 历史时间线作为记录 Tab 下的受保护二级页面，从记录分类页进入并返回所属 Tab。类别仅限 diet/stool/symptom/mood/medication_checkin/activity/advice；since/until 必须带时区并按 UTC 半开区间 `[since,until)` 解释。列表只显示受控类别、发生时间和 target，不复制正文、心情备注/标签或敏感摘要；target 仅固定映射到记录详情、用药页、建议安全占位，null、未知、ID 无效或目标不可用时不跳转。游标与类别/时间筛选绑定，筛选变化清除旧游标；追加失败保留当前条目和游标。首屏加载和返回列表后的刷新须去重，离页时失效在途响应。
 
 F11 趋势作为受保护二级页面注册在 `/pages/trends/index`，分析与我的入口分别绑定 `owner=analysis` 与 `owner=me`，返回来源栈或所属根 Tab。日期输入基于账户 IANA 时区生成带时区 UTC 半开范围，支持快速范围、自定义日期和日/周粒度；切换范围或粒度重新请求服务端聚合。页面分别呈现 activity、stool、symptom、diet confirmed categories、medication checkins 和 mood 六类结果，不在客户端合并或重算。mood `availability=consent_required` 显示缺少的健康/心情处理授权及隐私中心入口，不得显示成 0；`available` 空 buckets 才表示已授权无记录。标题限定为患者自评/记录统计；不显示 mood note/emotion_tags，不生成诊断、病因、因果、饮食或运动建议。加载、空、授权不可用、接口错误和离线状态必须分开；刷新失败保留旧值并显错，离页请求响应不得回填。
+
+F09 建议工作区由分析与“我的”入口分别进入 `/pages/advice/analysis`、`/pages/advice/index`，详情 `/pages/advice/detail` 保留 `ownerTab` 与来源语义；历史 target 进入受保护建议详情并以 `from=history` 返回来源栈。站内通知 target 使用已实现的建议详情，但 `from=notification` 仅在路由器内存持有由通知详情页发出的有效通知 UUID 时生效；顶部和系统返回均 `redirectTo` 该通知详情，若无受控 UUID 则回通知列表。通知 target 不接受任意 URL 或外部 query 指定的返回地址；直接深链仍退回 owner Tab。风险优先上下文若存在，必须在建议前方以图形+文本提示并固定跳转 F10；`read`/`reevaluated` 不得解释为风险解除或安全。建议读、归档、反馈均为显式操作；409 不自动覆盖或重提。证据只显示已验证的受控来源标签，locator 不原样展示；知识 citation 只展示无凭证 HTTPS 域名，不自动打开、不输出原始 URL。建议正文不进入通知、日志或埋点；不得显示 mood note/emotion_tags。
 
 ## 3. 入口、返回和不合理跳转修正
 

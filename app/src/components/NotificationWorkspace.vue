@@ -215,7 +215,8 @@ function openTarget(value: PatientNotification) {
   const target = mapNotificationTarget(value.target, value.target_unavailable)
   if (target.kind === 'risk_alert') router?.navigateRiskAlertDetail(target.id)
   else if (target.kind === 'medication_checkin') router?.navigate('medications')
-  else if (target.kind === 'analysis_task' || target.kind === 'advice') router?.navigateNotificationTarget(target.kind, target.id)
+  else if (target.kind === 'analysis_task') router?.navigateNotificationTarget(target.kind, target.id)
+  else if (target.kind === 'advice') router?.navigateAdviceDetail(target.id, 'me', 'notification', value.id)
 }
 function validateTarget(options: Record<string, unknown> | undefined) {
   const type = options?.target_type
