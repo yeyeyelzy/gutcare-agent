@@ -2,6 +2,10 @@
 .env.*
 !.env.example
 .env.local
+.demo-source/
+.demo-output/
+demo-bundle*.json
+demo-source*.json
 .minio-source/
 .minio-image-digest
 *.log

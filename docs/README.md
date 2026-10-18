@@ -14,6 +14,7 @@
 已采纳 ADR-0020：注册告知单一来源、生产 fail-closed 与登录后资料引导，见 `ADR/0020-registration-notice-source-and-profile-bootstrap.md`；仓库注册、心情授权及 F03/F04 purpose-specific 图像识别开发/测试告知制品分别见 `../contracts/consent/registration-notices.json`、`../contracts/consent/consent-notices.json` 和 `../contracts/consent/record-image-recognition-notices.json`，均不是生产法律文案。
 已采纳 ADR-0021：F03/F04 记录图片附件与独立识别候选闭环，含 Diet request-local 候选分组、名称先决事实落点、类型化 FK 附件快照、显式患者 retry 和 Stool Bristol-only 候选，见 `ADR/0021-f03-f04-image-recognition-lifecycle.md`。业务后端与 APP 源码已实现并经独立代码审查；真实 Agent 端到端、production purpose-specific notice 法律签核、Android/iOS 真机 picker/安全区证据均未验收。APP 当前契约不支持记录图片持久预览。
 APP 22 页原型事实、导航规范、视觉验收与编码前 G1 数据契约门禁见 `UI原型审查与页面导航规范.md`。
+比赛演示数据离线构建器的输入白名单、执行方式及初始化限制见 `demo-data-tooling.md`。
 源码输入哈希、视觉令牌、资产隔离导入、静态跳转缺陷及 GcAvatar 几何基线见 `UI源码基线与导入规范.md`。
 认证公开页面和组件化交付跟踪见 `前端开发与前后端联调计划.md` 的 B01-2 小节及 `需求追踪矩阵.md`。
 F02 的表/状态/API/隐私/测试追踪增补见 `F02-文件与医疗档案实现补充.md`。
