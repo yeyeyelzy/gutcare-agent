@@ -1,6 +1,6 @@
 # GutCare 移动端
 
-uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端。患者端交付目标是原生 APP；不提供 H5 发布脚本。认证、本人资料、设置导航枢纽、四个 Tab 根页，以及 F03 饮食、F04 排便、F05 症状、F07 活动、F10 风险提示、F11 历史/趋势、F12 站内通知、F13 注销/数据导出、F14 心情记录页面已有实现；其他尚未接入模块仍显示受保护占位。“我的”页“设置与隐私”行进入 `/pages/settings/index`；hub 提供独立隐私中心行，路由到 `/pages/privacy/center`。hub 只提供已接通的资料与账户、站内通知偏好、隐私授权、隐私中心、数据导出、账号注销和只读版本入口；退出登录仍由资料页负责。`/pages/privacy/consents` 使用服务端当前授权状态与告知，不在客户端伪造授权版本。设置页应用版本单一来源为 `src/manifest.json` `versionName`；原生数据导出文件保存能力尚未验收。
+uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端。患者端交付目标是原生 APP；不提供 H5 发布脚本。认证、本人资料、设置导航枢纽、四个 Tab 根页，以及 F03 饮食、F04 排便、F05 症状、F07 活动、F08 分析任务与结果、F09 建议工作区、F10 风险提示、F11 历史/趋势、F12 站内通知、F13 注销/数据导出、F14 心情记录页面已有实现；F03/F04 图片识别 APP 源码也已完成，Agent 服务与真机/法律签核仍待外部验收。通用占位元数据表 `PLACEHOLDER_META` 为空，没有通用“功能建设中”占位路由注册；具体尚未接入的数据只显示安全状态。“我的”页“设置与隐私”行进入 `/pages/settings/index`；hub 提供独立隐私中心行，路由到 `/pages/privacy/center`。hub 只提供已接通的资料与账户、站内通知偏好、隐私授权、隐私中心、数据导出、账号注销和只读版本入口；退出登录仍由资料页负责。`/pages/privacy/consents` 使用服务端当前授权状态与告知，不在客户端伪造授权版本。设置页应用版本单一来源为 `src/manifest.json` `versionName`；原生数据导出文件保存能力尚未验收。
 
 ## 命令
 
@@ -65,13 +65,13 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 
 `/pages/profile/index` 是认证路由，资料读取和编辑只使用 `/patients/me`；PATCH 以当前 `profile_version` 为准，仅提交患者改动过的 `nickname`、`birth_year`、`timezone` 字段，清空昵称发送 `null`。409 不自动覆盖，先重新 GET 并向患者展示最新值/拟改值，由患者确认后再重试。资料 404 会清会话、保留 request_id 并跳转资料一致性错误页。
 
-退出有二次确认和防重复调用。刷新令牌删除和服务端 logout 都会尝试；Access Token 与 profile 内存态始终清除，受保护页面栈及 `returnTo` 被清空后 reLaunch 到登录页。若本机安全存储拒绝删除，登录页显示原生安全存储错误码，不把 token 放入 UI 状态或日志。无效 refresh 对过期/冻结账户统一按认证失败处理，不恢复旧 returnTo。双患者资料隔离和 profile 乐观锁由后端 T49/PG18 集成证据覆盖；客户端不提交 patient id。
+退出有二次确认和防重复调用。刷新令牌删除和服务端 logout 都会尝试；Access Token 与 profile 内存态始终清除，受保护页面栈及 `returnTo` 被清空后 reLaunch 到登录页。若本机安全存储拒绝删除，登录页显示原生安全存储错误码，不把 token 放入 UI 状态或日志。无效 refresh 对过期/冻结账户统一按认证失败处理，不恢复旧 returnTo。双患者资料隔离和 profile 乐观锁由后端 canonical T49、补充 T142/PG18 集成证据覆盖；客户端不提交 patient id。
 
 ## B02 四根 Tab 导航壳
 
-路由注册名 `today`、`records`、`analysis`、`me` 映射逻辑路径 `/tabs/today`、`/tabs/records`、`/tabs/analysis`、`/tabs/me`；uni-app 页面物理路径位于 `pages/tabs/*/index`。共享 `GcBottomNav` 位于四个根页，底栏切换调用命名路由并以根页 `reLaunch` 避免压入重复页面。二级占位均隐藏底栏，显式绑定 `ownerTab`，系统返回与页面返回都回所属根页。所有根和占位路由受登录守卫保护，returnTo 只保存白名单中的命名路由。
+路由注册名 `today`、`records`、`analysis`、`me` 映射逻辑路径 `/tabs/today`、`/tabs/records`、`/tabs/analysis`、`/tabs/me`；uni-app 页面物理路径位于 `pages/tabs/*/index`。共享 `GcBottomNav` 位于四个根页，底栏切换调用命名路由并以根页 `reLaunch` 避免压入重复页面。二级业务页隐藏底栏并显式绑定 `ownerTab`；通用 placeholder route metadata 为空，未注册功能占位路由。受保护根页与业务页均由登录守卫保护，returnTo 只保存白名单中的命名路由。
 
-今日页包含摘要、快捷记录、用药、饮食和趋势卡片；未接入服务时只显示“未接入”而非假数据。“我的”使用无图片 GcAvatar 占位。底栏和页面图形均由组件/CSS/code-native SVG 构成，不引用隔离的原型素材。数据状态组件支持 loading/empty/error/unavailable；需由真实 API 驱动状态后才能显示数据态。Android/iOS CLI 构建不等于真机视觉/可访问性签收。
+今日页包含真实摘要五卡（风险、用药、通知、最近建议、趋势）和快捷记录；未接入的单项服务只显示“未接入”而非假数据。“我的”使用无图片 GcAvatar 呈现头像缺省状态。底栏和页面图形均由组件/CSS/code-native SVG 构成，不引用隔离的原型素材。数据状态组件支持 loading/empty/error/unavailable；Android/iOS CLI 构建不等于真机视觉/可访问性签收。
 
 当前组件状态映射、表单/服务流程和页面约束测试、类型检查与 Android/iOS CLI 导出可自动验证；这不构成真机视觉签收。当前未生成或签收 430×880 像素基线；Android/iOS 真机截图、键盘/安全区/动态字号检查、逐页像素对比 SSIM ≥0.95，以及经法律批准的生产注册告知，仍是发布门禁。无患者 Web/H5 发布目标。
 
@@ -97,7 +97,7 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 
 受保护 `/pages/history/index` 从记录 Tab 进入，返回所属根 Tab。`HistoryApi` 复用共享 `RequestClient`，DTO 来自 `getHistoryTimeline` 的生成 OpenAPI 类型。多类别筛选仅使用冻结的七类枚举；本地日历筛选转换为带时区的 UTC `[since, until)`，按时区日历边界计算以正确处理 DST。追加分页采用后端签名 cursor；失败保留当前项目和 cursor，支持重试。
 
-页面只显示记录类别、时间和固定 target。目标通过 allowlist 映射到记录详情、用药页或建议安全占位；未知/null/无效 ID 不跳转。不会复制记录正文、mood note、emotion_tags、敏感摘要，也不调用 Agent 或发送 patient_id。T124 覆盖类别/时间序列化、DST、目标 allowlist、筛选重置、首次 onShow 去重、详情返回刷新、离页响应失效及追加失败保留；双端 CLI/自动化不替代 Android/iOS 真机视觉与无障碍验收。
+页面只显示记录类别、时间和固定 target。目标通过 allowlist 映射到记录详情、用药页或受保护建议详情；未知/null/无效 ID 不跳转。不会复制记录正文、mood note、emotion_tags、敏感摘要，也不调用 Agent 或发送 patient_id。T124 覆盖类别/时间序列化、DST、目标 allowlist、筛选重置、首次 onShow 去重、详情返回刷新、离页响应失效及追加失败保留；双端 CLI/自动化不替代 Android/iOS 真机视觉与无障碍验收。
 
 ## B07b F11 确定性趋势
 
