@@ -5,6 +5,7 @@ import type { AuthState } from '../src/stores/auth'
 import { createPinia, setActivePinia } from 'pinia'
 import { useRegistrationDraftStore } from '../src/stores/registrationDraft'
 import type { AnalysisResultEvidence } from '../src/api/openapiTypes'
+import { ME_SETTINGS_ENTRY_ROUTE, navigateMeEntry, openSettingsRow, returnFromPrivacyCenter } from '../src/navigation/settingsNavigation'
 
 function makeNavigator() {
   return { navigateTo: vi.fn(), redirectTo: vi.fn(), reLaunch: vi.fn(), navigateBack: vi.fn() }
@@ -28,6 +29,8 @@ describe('named route registry and protected navigation', () => {
     expect(canRenderRoute('riskAlerts', 'authenticated')).toBe(true)
     expect(canRenderRoute('riskAlertDetail', 'anonymous')).toBe(false)
     expect(canRenderRoute('privacyCenter', 'anonymous')).toBe(false)
+    expect(canRenderRoute('privacyConsents', 'anonymous')).toBe(false)
+    expect(canRenderRoute('settings', 'anonymous')).toBe(false)
     expect(canRenderRoute('accountDeletionConfirm', 'anonymous')).toBe(false)
     expect(canRenderRoute('accountDeletionProgress', 'anonymous')).toBe(true)
   })
@@ -239,7 +242,8 @@ describe('named route registry and protected navigation', () => {
 
   it('allows only the protected profile route as a safe profile return target and drops it after auth invalidation', () => {
     const navigator = makeNavigator()
-    const router = new AppRouter(navigator, () => 'anonymous')
+    let authState: AuthState = 'anonymous'
+    const router = new AppRouter(navigator, () => authState)
     expect(router.guardUrl('/pages/profile/index?nickname=private')).toBe(false)
     expect(router.returnToStore.take()).toEqual({ name: 'profile' })
     router.returnToStore.save({ name: 'profile' })
@@ -288,13 +292,34 @@ describe('named route registry and protected navigation', () => {
 
   it('keeps remaining placeholder deep links protected and preserves only their named safe route in returnTo', () => {
     const navigator = makeNavigator()
-    const router = new AppRouter(navigator, () => 'anonymous')
+    let authState: AuthState = 'anonymous'
+    const router = new AppRouter(navigator, () => authState)
     expect(router.guardUrl('/pages/records/activity/index?id=00000000-0000-4000-8000-000000000004')).toBe(false)
     expect(router.returnToStore.take()).toEqual({ name: 'recordActivity' })
     expect(router.guardUrl('/pages/placeholder/index?screen=unknown')).toBe(false)
     expect(router.returnToStore.take()).toBeNull()
     expect(placeholderRouteFromScreen('recordDiet')).toBeNull()
     expect(placeholderRouteFromScreen('assistant')).toBeNull()
+    expect(routeNameFromUrl('/pages/settings/index')).toBe('settings')
+    expect(routeNameFromUrl('/pages/privacy/consents')).toBe('privacyConsents')
+    expect(routeNameFromUrl('/pages/placeholder/index?screen=settings')).toBe('placeholder')
+    expect(router.guardUrl('/pages/settings/index')).toBe(false)
+    expect(router.returnToStore.take()).toEqual({ name: 'settings' })
+    expect(parseReturnTo({ name: 'privacyConsents' })).toEqual({ name: 'privacyConsents' })
+    const consentNavigator = makeNavigator()
+    let consentAuth: AuthState = 'anonymous'
+    const consentRouter = new AppRouter(consentNavigator, () => consentAuth)
+    expect(consentRouter.guardUrl('/pages/privacy/consents')).toBe(false)
+    consentAuth = 'authenticated'
+    consentRouter.afterAuthentication()
+    expect(consentNavigator.reLaunch).toHaveBeenCalledWith('/pages/privacy/consents')
+    const settingsNavigator = makeNavigator()
+    let settingsAuth: AuthState = 'anonymous'
+    const settingsRouter = new AppRouter(settingsNavigator, () => settingsAuth)
+    expect(settingsRouter.guardUrl('/pages/settings/index')).toBe(false)
+    settingsAuth = 'authenticated'
+    settingsRouter.afterAuthentication()
+    expect(settingsNavigator.reLaunch).toHaveBeenCalledWith('/pages/settings/index')
     expect(APP_ROUTES.analysisAdvice.path).toBe('/pages/advice/analysis')
     expect(APP_ROUTES.advice.path).toBe('/pages/advice/index')
     expect(APP_ROUTES.adviceDetail.path).toBe('/pages/advice/detail')
@@ -302,6 +327,26 @@ describe('named route registry and protected navigation', () => {
     expect(routeNameFromUrl(APP_ROUTES.trends.path)).toBe('trends')
     expect(APP_ROUTES.analysisTrends.path).toContain('owner=analysis')
     expect(APP_ROUTES.trends.path).toContain('owner=me')
+  })
+
+  it('returns from settings to the Me tab using registered routes', () => {
+    const navigator = makeNavigator()
+    const router = new AppRouter(navigator, () => 'authenticated')
+    expect(router.navigate('settings')).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenCalledWith('/pages/settings/index')
+    expect(router.switchTab('me')).toBe(true)
+    expect(navigator.reLaunch).toHaveBeenCalledWith(APP_ROUTES.me.path)
+  })
+
+  it('opens the Settings hub from the Me entry, then privacy center, and returns through the stack', () => {
+    const navigator = makeNavigator()
+    const router = new AppRouter(navigator, () => 'authenticated')
+    expect(navigateMeEntry(router, ME_SETTINGS_ENTRY_ROUTE)).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenLastCalledWith(APP_ROUTES.settings.path)
+    expect(openSettingsRow(router, 'privacyCenter')).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenLastCalledWith(APP_ROUTES.privacyCenter.path)
+    returnFromPrivacyCenter(router, 3)
+    expect(navigator.navigateBack).toHaveBeenCalledOnce()
   })
 
   it('uses dedicated protected record workspaces and recognizes ID-bearing deep links', () => {

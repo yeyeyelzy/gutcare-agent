@@ -1,6 +1,6 @@
 # GutCare 移动端
 
-uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端。患者端交付目标是原生 APP；不提供 H5 发布脚本。认证、本人资料、四个 Tab 根页，以及 F03 饮食、F04 排便、F05 症状、F07 活动、F10 风险提示、F11 历史/趋势、F12 站内通知、F13 注销/数据导出、F14 心情记录页面已有实现；其他尚未接入模块仍显示受保护占位。隐私设置页使用服务端当前授权状态与告知，不在客户端伪造授权版本。
+uni-app + Vue 3 + TypeScript strict + Pinia 的 Android/iOS 客户端。患者端交付目标是原生 APP；不提供 H5 发布脚本。认证、本人资料、设置导航枢纽、四个 Tab 根页，以及 F03 饮食、F04 排便、F05 症状、F07 活动、F10 风险提示、F11 历史/趋势、F12 站内通知、F13 注销/数据导出、F14 心情记录页面已有实现；其他尚未接入模块仍显示受保护占位。“我的”页“设置与隐私”行进入 `/pages/settings/index`；hub 提供独立隐私中心行，路由到 `/pages/privacy/center`。hub 只提供已接通的资料与账户、站内通知偏好、隐私授权、隐私中心、数据导出、账号注销和只读版本入口；退出登录仍由资料页负责。`/pages/privacy/consents` 使用服务端当前授权状态与告知，不在客户端伪造授权版本。设置页应用版本单一来源为 `src/manifest.json` `versionName`；原生数据导出文件保存能力尚未验收。
 
 ## 命令
 
@@ -37,7 +37,7 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 - 路由注册表有 public/authenticated 元数据；仅允许白名单中标记的受保护命名路由作为进程内 `returnTo`。导航拦截器与根页条件渲染双重阻止认证/资料尚未完成时显示受保护页面。启动/登录恢复固定执行 session restore → `GET /patients/me`：200 才进入今日；401 清会话返回登录；404 清会话进入不可继续的资料一致性错误态并展示 `request_id`；不会伪造资料或进入 `/onboarding/profile`。
 - Access Token 和患者资料仅保存在 Pinia 内存；原生 Refresh Token 继续由 B00b SecureTokenStore 管理。登出调用 `POST /auth/logout` 后清除 returnTo，并用 `reLaunch(login)` 清空页面栈。
 - RFC 9457 `ProblemDetails` 从生成的 OpenAPI `components.schemas.Problem` 派生；客户端稳定错误类型只封装 kind/status/code/requestId，不另行复制契约字段。
-- `RecordsApi`、`MoodApi` 与 `ActivityApi` 复用唯一 RequestClient、RFC 9457 错误映射与既有 refresh 单飞逻辑。F03–F05/F14 创建使用生成 DTO 和幂等键；F07 冻结契约不定义创建幂等键，APP 仅以单飞状态阻止重复点击；PATCH/DELETE 使用服务端 `record_version`，409 不覆盖。F14 P0 总是写空 `emotion_tags` 数组。心情备注仅本人详情/编辑可见；列表不展示，页面不输出分析/日志/埋点。心情新建/修改先读服务端当前授权状态并要求 `health_data_processing` 与 `mood_data_processing` 同意；AI共享两项独立管理。Settings 仅显示与运行时版本/hash匹配的服务端告知；开发测试文案醒目标记 test-only，生产无获批告知时禁用同意操作。错误/版本冲突保留草稿并要求患者明确操作。
+- `RecordsApi`、`MoodApi` 与 `ActivityApi` 复用唯一 RequestClient、RFC 9457 错误映射与既有 refresh 单飞逻辑。F03–F05/F14 创建使用生成 DTO 和幂等键；F07 冻结契约不定义创建幂等键，APP 仅以单飞状态阻止重复点击；PATCH/DELETE 使用服务端 `record_version`，409 不覆盖。F14 P0 总是写空 `emotion_tags` 数组。心情备注仅本人详情/编辑可见；列表不展示，页面不输出分析/日志/埋点。心情新建/修改先读服务端当前授权状态并要求 `health_data_processing` 与 `mood_data_processing` 同意；AI共享两项独立管理。授权管理页仅显示与运行时版本/hash匹配的服务端告知；开发测试文案醒目标记 test-only，生产无获批告知时禁用同意操作。错误/版本冲突保留草稿并要求患者明确操作。
 
 生成器过滤范围包括 auth/profile、consent、F03–F07/F10/F14 记录 CRUD/状态历史、F06 用药与 F10 风险提示端点；每个 F10 operationId 由集合断言唯一覆盖。`RiskApi` 使用同一 `RequestClient` 与 RFC 9457/401 refresh，提供游标分页、未读筛选、详情、独立标记已查看和重新评估动作。
 

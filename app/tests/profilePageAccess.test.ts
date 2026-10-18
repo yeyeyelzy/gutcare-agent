@@ -130,8 +130,10 @@ describe('protected profile page cold-entry gate', () => {
       }
     }
     const placeholder = await read('../src/pages/placeholder/index.vue')
-    expect(placeholder).toContain('v-else-if="pageMeta"')
-    expect(placeholder).toContain('if (!canRenderRoute(name, auth.state))')
+    expect(placeholder).toContain('data-testid="feature-placeholder"')
+    expect(placeholder).toContain('if (!canRenderRoute(route, auth.state))')
     expect(placeholder).toContain('if (!name)')
+    expect(placeholder).not.toContain('PrivacyConsentSettings')
+    expect(placeholder).not.toContain('isSettings')
   })
 })

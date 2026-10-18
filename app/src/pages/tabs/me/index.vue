@@ -12,7 +12,7 @@
 
     <view class="section-row"><text class="section-title">健康管理</text></view>
     <view class="entry-list" data-testid="me-entry-list">
-      <button v-for="item in entries" :key="item.route" class="entry-card" :data-testid="`me-${item.route}`" @click="router?.navigate(item.route)">
+      <button v-for="item in entries" :key="item.route" class="entry-card" :data-testid="`me-${item.route}`" @click="navigateEntry(item.route)">
         <view class="entry-icon" :class="`entry-icon--${item.tint}`" aria-hidden="true"><text>{{ item.icon }}</text></view>
         <view class="entry-copy"><text class="entry-title">{{ item.title }}</text><text class="entry-description">{{ item.route === 'notifications' ? `${notificationCount === null ? '未读数暂不可用' : `未读 ${notificationCount} 条`} · ${item.description}` : item.description }}</text></view>
         <text class="chevron" aria-hidden="true">›</text>
@@ -29,6 +29,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { appRouterKey, notificationApiKey } from '../../../api/context'
 import type { AppRouteName } from '../../../navigation/routes'
 import { canRenderRoute } from '../../../navigation/routes'
+import { ME_SETTINGS_ENTRY_ROUTE, navigateMeEntry } from '../../../navigation/settingsNavigation'
 import { useAuthStore } from '../../../stores/auth'
 import GcAvatar from '../../../components/GcAvatar.vue'
 import TabRoot from '../../../components/TabRoot.vue'
@@ -44,10 +45,11 @@ const entries: ReadonlyArray<{ route: AppRouteName; title: string; description: 
   { route: 'medications', title: '用药计划', description: '查看已确认的用药安排', icon: '＋', tint: 'sage' },
   { route: 'advice', title: '个性化建议', description: '查看建议与相关依据', icon: '✧', tint: 'lilac' },
   { route: 'trends', title: '健康趋势', description: '查看结构化记录的变化', icon: '⌁', tint: 'yellow' },
-  { route: 'privacyCenter', title: '设置与隐私', description: '管理账户隐私并申请账号注销', icon: '⚙', tint: 'sage' },
+  { route: ME_SETTINGS_ENTRY_ROUTE, title: '设置与隐私', description: '管理账户设置、授权与隐私数据', icon: '⚙', tint: 'sage' },
 ]
 
 onShow(() => { if (!authorized.value) router?.requireAuthentication('me'); else void loadNotificationCount() })
+function navigateEntry(route: AppRouteName) { navigateMeEntry(router, route) }
 async function loadNotificationCount() { if (!notificationApi) return; try { notificationCount.value = (await notificationApi.unreadCount()).count } catch { /* Keep prior server value; never infer zero from failure. */ } }
 </script>
 

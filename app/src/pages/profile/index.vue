@@ -7,7 +7,7 @@
   <scroll-view v-else class="profile-scroll" scroll-y :show-scrollbar="false">
     <view class="profile-page" data-testid="profile-page">
       <view class="topbar">
-        <button class="back" aria-label="返回我的页面" data-testid="profile-back" @click="router?.switchTab('me')">‹</button>
+        <button class="back" aria-label="返回上一页" data-testid="profile-back" @click="goBack">‹</button>
         <text class="topbar-title">个人资料</text>
         <view class="topbar-spacer" />
       </view>
@@ -127,7 +127,9 @@ const displayName = computed(() => draft.nickname.trim() || 'GutCare 用户')
 const displayInitial = computed(() => displayName.value.slice(0, 1))
 
 onLoad(() => { void enterProfilePage() })
-onBackPress(() => { router?.switchTab('me'); return true })
+onBackPress(() => { goBack(); return true })
+
+function goBack() { if (getCurrentPages().length > 1) router?.navigateBack(); else router?.switchTab('me') }
 
 async function enterProfilePage() {
   const result = await enterProtectedProfilePage(startup, auth, router, async (profileLoadedDuringStartup) => {

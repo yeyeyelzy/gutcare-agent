@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const workspace = readFileSync(new URL('../src/components/MoodWorkspace.vue', import.meta.url), 'utf8')
-const placeholder = readFileSync(new URL('../src/pages/placeholder/index.vue', import.meta.url), 'utf8')
+const consentsPage = readFileSync(new URL('../src/pages/privacy/consents.vue', import.meta.url), 'utf8')
 const settings = readFileSync(new URL('../src/components/PrivacyConsentSettings.vue', import.meta.url), 'utf8')
 
 describe('F14 protected mood workspace', () => {
@@ -28,9 +28,9 @@ describe('F14 protected mood workspace', () => {
     expect(workspace).toContain('await consentApi.list()')
     expect(workspace).toContain("['health_data_processing', 'mood_data_processing']")
     expect(workspace).not.toMatch(/mood_ai_sharing.{0,40}consentStatuses|consentStatuses.{0,40}mood_ai_sharing/)
-    expect(placeholder).toContain('if (isSettings.value && getCurrentPages().length > 1)')
-    expect(placeholder).toContain('router?.navigateBack()')
-    expect(placeholder).toContain('<PrivacyConsentSettings v-if="isSettings"')
+    expect(consentsPage).toContain("canRenderRoute('privacyConsents', auth.state)")
+    expect(consentsPage).toContain('function goBack()')
+    expect(consentsPage).toContain('<PrivacyConsentSettings @back="goBack" />')
     expect(settings).toContain('api.notice(type)')
     expect(settings).toContain('item.status?.policy_version')
     expect(settings).toContain('v-if="item.notice?.enabled || item.status?.granted"')

@@ -1,6 +1,5 @@
 <template>
-  <PrivacyConsentSettings v-if="isSettings" @back="returnToOwner" />
-  <view v-else-if="pageMeta" class="placeholder-page" data-testid="feature-placeholder">
+  <view v-if="pageMeta" class="placeholder-page" data-testid="feature-placeholder">
     <view class="placeholder-shell">
       <view class="topbar"><button class="back-button" :aria-label="backLabel" data-testid="placeholder-back" @click="returnToOwner">‹</button><text class="topbar-title">{{ pageMeta.title }}</text><view class="topbar-spacer" /></view>
       <view class="placeholder-card">
@@ -21,10 +20,9 @@ import { computed, inject, ref } from 'vue'
 import { onBackPress, onLoad } from '@dcloudio/uni-app'
 import { appRouterKey } from '../../api/context'
 import { canRenderRoute, PLACEHOLDER_META, placeholderRouteFromScreen } from '../../navigation/routes'
-import type { AppTabName, PlaceholderRouteName } from '../../navigation/routes'
+import type { AppRouteName, AppTabName, PlaceholderRouteName } from '../../navigation/routes'
 import { useAuthStore } from '../../stores/auth'
 import GcButton from '../../components/GcButton.vue'
-import PrivacyConsentSettings from '../../components/PrivacyConsentSettings.vue'
 
 const auth = useAuthStore()
 const router = inject(appRouterKey)
@@ -32,9 +30,8 @@ const routeName = ref<PlaceholderRouteName | null>(null)
 const pageMeta = computed(() => routeName.value ? PLACEHOLDER_META[routeName.value] : null)
 const owner = computed<AppTabName>(() => pageMeta.value?.ownerTab ?? 'today')
 const ownerLabel = computed(() => ({ today: '今日', records: '记录', analysis: '分析', me: '我的' }[owner.value]))
-const isSettings = computed(() => routeName.value === 'settings')
-const backLabel = computed(() => isSettings.value ? '返回上一页' : `返回${ownerLabel.value}`)
-const returnLabel = computed(() => isSettings.value ? '返回记录' : `返回${ownerLabel.value}`)
+const backLabel = computed(() => `返回${ownerLabel.value}`)
+const returnLabel = computed(() => `返回${ownerLabel.value}`)
 
 onLoad((options) => {
   const name = placeholderRouteFromScreen(options?.screen)
@@ -43,8 +40,9 @@ onLoad((options) => {
     else router?.switchTab('today')
     return
   }
-  if (!canRenderRoute(name, auth.state)) {
-    router?.requireAuthentication(name)
+  const route = name as AppRouteName
+  if (!canRenderRoute(route, auth.state)) {
+    router?.requireAuthentication(route)
     return
   }
   routeName.value = name
@@ -52,10 +50,7 @@ onLoad((options) => {
 
 onBackPress(() => { returnToOwner(); return true })
 
-function returnToOwner() {
-  if (isSettings.value && getCurrentPages().length > 1) { router?.navigateBack(); return }
-  router?.switchTab(owner.value)
-}
+function returnToOwner() { router?.switchTab(owner.value) }
 </script>
 
 <style lang="scss" scoped>

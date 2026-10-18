@@ -18,6 +18,7 @@ export const APP_ROUTES = {
   medicalFactConflicts: { path: '/pages/records/medical-fact-conflicts/index', access: 'authenticated', returnToAllowed: true },
   medicalFactConflictDetail: { path: '/pages/records/medical-fact-conflicts/detail', access: 'authenticated', returnToAllowed: true },
   privacyCenter: { path: '/pages/privacy/center', access: 'authenticated', returnToAllowed: true },
+  privacyConsents: { path: '/pages/privacy/consents', access: 'authenticated', returnToAllowed: true },
   privacyExports: { path: '/pages/privacy/exports', access: 'authenticated', returnToAllowed: true },
   accountDeletionConfirm: { path: '/pages/privacy/deletion-confirm', access: 'authenticated', returnToAllowed: false },
   placeholder: { path: '/pages/placeholder/index', access: 'authenticated', returnToAllowed: false },
@@ -43,7 +44,7 @@ export const APP_ROUTES = {
   analysisAdvice: { path: '/pages/advice/analysis', access: 'authenticated', returnToAllowed: true },
   advice: { path: '/pages/advice/index', access: 'authenticated', returnToAllowed: true },
   adviceDetail: { path: '/pages/advice/detail', access: 'authenticated', returnToAllowed: true },
-  settings: { path: '/pages/placeholder/index?screen=settings', access: 'authenticated', returnToAllowed: true },
+  settings: { path: '/pages/settings/index', access: 'authenticated', returnToAllowed: true },
 } as const
 
 export type AppRouteName = keyof typeof APP_ROUTES
@@ -72,7 +73,7 @@ export function mapNotificationTarget(target: { type: string; id: string } | nul
   }
   return { kind: 'unavailable' }
 }
-export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'accountDeletionProgress' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'healthArchive' | 'medicalDocumentDetail' | 'medicalFactConflicts' | 'medicalFactConflictDetail' | 'privacyCenter' | 'privacyExports' | 'accountDeletionConfirm' | 'placeholder' | 'history' | 'trends' | 'analysisTrends' | 'analysisNew' | 'analysisHistory' | 'analysisTaskDetail' | 'analysisReports' | 'analysisAdvice' | 'advice' | 'adviceDetail' | RecordWorkspaceRouteName | MoodWorkspaceRouteName | ActivityWorkspaceRouteName | MedicationWorkspaceRouteName | RiskRouteName | NotificationRouteName>
+export type PlaceholderRouteName = string
 export type ProtectedRouteName = {
   [Name in AppRouteName]: typeof APP_ROUTES[Name]['access'] extends 'authenticated' ? Name : never
 }[AppRouteName]
@@ -116,9 +117,7 @@ export function routeNameFromUrl(url: string): AppRouteName | null {
   return null
 }
 
-export const PLACEHOLDER_META: Record<PlaceholderRouteName, { title: string; ownerTab: AppTabName }> = {
-  settings: { title: '设置', ownerTab: 'me' },
-}
+export const PLACEHOLDER_META: Record<string, { title: string; ownerTab: AppTabName }> = {}
 
 export function placeholderRouteFromScreen(screen: unknown): PlaceholderRouteName | null {
   return typeof screen === 'string' && Object.hasOwn(PLACEHOLDER_META, screen)
