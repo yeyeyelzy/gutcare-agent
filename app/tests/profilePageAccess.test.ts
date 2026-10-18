@@ -122,7 +122,12 @@ describe('protected profile page cold-entry gate', () => {
     for (const root of ['today', 'records', 'analysis', 'me']) {
       const page = await read(`../src/pages/tabs/${root}/index.vue`)
       expect(page).toContain(':authorized="authorized"')
-      expect(page).toContain('onShow(() => { if (!authorized.value) router?.requireAuthentication(')
+      if (root === 'today') {
+        expect(page).toContain('if (!authorized.value) { visible = false; router?.requireAuthentication(\'today\'); return }')
+        expect(page).toContain('onHide(() => invalidatePageRequests())')
+      } else {
+        expect(page).toContain('onShow(() => { if (!authorized.value) router?.requireAuthentication(')
+      }
     }
     const placeholder = await read('../src/pages/placeholder/index.vue')
     expect(placeholder).toContain('v-else-if="pageMeta"')

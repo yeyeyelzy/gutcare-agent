@@ -122,3 +122,7 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 `/pages/advice/analysis` 和 `/pages/advice/index` 分别归属分析与“我的”Tab；详情 `/pages/advice/detail` 保留 owner/from，并支持历史/通知按受控 UUID 映射进入。通知发起的详情只在内存授权的 `from=notification` 下返回原通知详情；缺少内存通知 UUID 时回通知列表，未经授权的直接深链回 owner Tab。顶部返回与系统返回执行同一来源策略。`AdviceApi` 与 Advice/Feedback DTO 由 OpenAPI 生成，复用共享 `RequestClient` 的 RFC 9457、认证刷新与请求 ID。列表/详情显式区分 loading、empty、error/offline、refresh 与 append 错误；追加失败保留已载入记录和 cursor，首次 onShow 不重复请求，隐藏/卸载后响应失效。
 
 标记已读、归档、反馈均由患者显式操作；反馈使用契约 `expected_version` 和 `Idempotency-Key`。409 不覆盖当前内容、不自动重提。risk_priority_context 总在建议前优先展示并固定路由 F10；状态文案不把 read/reevaluated 解释为风险解除或安全。来源只呈现经过 source_type、source_id、`type:id` locator、target、删除状态共同校验的固定标签；知识引用仅展示无 userinfo HTTPS 域名，不显示 URL 或自动打开。mood evidence 已受后端冻结快照和四授权 fence 限制；APP 不显示 mood note/emotion_tags、不传 patient_id、不记录建议正文到通知、日志或埋点。T128 覆盖 API、证据/引用 allowlist、风险优先、A/B 与授权 fence、409、owner/from/deep-link 和生命周期竞态。CLI build 不替代 Android/iOS 真机无障碍签收。
+
+## B09b 今日首页真实数据摘要
+
+今日页只调用五项既有本人 API：风险前三条未读、今日用药打卡、通知未读数、最近一条建议、以及患者 IANA 时区当日的六类趋势聚合。风险优先展示；建议卡按服务端返回状态直显（包括已归档），不将其描述为待处理或有效。每卡独立加载/空/错误/重试；刷新失败保留已载入数据，首次失败不折算为零/无数据。心情授权缺失与授权下空桶分别呈现。趋势原样展示后端聚合，不在客户端生成结论；不请求逐条记录详情。

@@ -83,7 +83,7 @@ describe('authentication component and page contracts', () => {
     expect(profilePage).toContain('conflictReview')
     expect(profilePage).toContain('clearStoredSession()')
     expect(profilePage).not.toMatch(/v-model="[^\"]*patient_id|id="profile-patient-id"/)
-    expect(homePage).toContain("router?.navigate('recordDiet')")
+    expect(homePage).toContain("route: 'recordDiet'")
     expect(profilePage).toContain('logoutPromptOpen')
   })
 
@@ -115,9 +115,10 @@ describe('authentication component and page contracts', () => {
     const today = read('src/pages/tabs/today/index.vue')
     const records = read('src/pages/tabs/records/index.vue')
     expect(status).toContain("'loading' | 'empty' | 'error' | 'unavailable'")
-    expect(today).toContain('summary-status')
+    expect(today).toContain('advice-status')
     expect(today).toContain('medication-status')
-    expect(today).toContain('diet-status')
+    expect(today).toContain('todayTrendMetrics')
+    expect(read('src/api/todayDashboardView.ts')).toContain("key: 'diet'")
     expect(today).toContain('trend-status')
     for (const route of ['recordDiet', 'recordBowel', 'recordSymptoms', 'recordMood', 'recordActivity']) {
       expect(today).toContain(`route: '${route}'`)

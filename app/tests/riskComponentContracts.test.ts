@@ -24,12 +24,14 @@ describe('F10 risk UI contract', () => {
   })
 
   it('loads the real unread risk card and never maps request failure to no risk', () => {
-    expect(today).toContain('riskApi.list({ limit: 20, unread_only: true })')
+    expect(today).toContain('riskApi.list({ limit: 3, unread_only: true })')
     expect(today).toContain('加载失败不代表没有风险')
     expect(today).toContain('router?.navigateRiskAlertDetail(item.id)')
     expect(today).toContain('today-risk-status')
     expect(today).toContain('item.recommended_action')
-    expect(today).toContain("onShow(() => { if (!authorized.value) router?.requireAuthentication('today'); else { void loadTodayMedication(); void loadTodayRisk(); void loadNotificationCount() } })")
+    expect(today).toContain("onShow(() => {")
+    expect(today).toContain('void loadTodayMedication(current)')
+    expect(today).toContain('void loadTodayRisk(current)')
   })
 
   it('refreshes the same list filter when returning from detail without duplicate initial fetch or losing cached cards on error', () => {

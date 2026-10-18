@@ -63,6 +63,6 @@ describe('F06 protected medication workspace UI contract', () => {
     expect(page).toContain('max-width: 430px')
     expect(page).toContain('env(safe-area-inset-bottom')
     expect(page).not.toContain('假数据')
-    expect(today).toContain('用药计划')
+    expect(today).toContain('本人计划的今日打卡状态')
   })
 })
