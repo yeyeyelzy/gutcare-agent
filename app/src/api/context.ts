@@ -26,6 +26,7 @@ import type { AdviceApi } from './adviceApi'
 import type { MedicalDocumentsApi } from './medicalDocumentsApi'
 import type { MedicalDocumentPreviewAdapter } from './medicalDocumentPreview'
 import type { MedicalFactConflictsApi } from './medicalFactConflictsApi'
+import type { RecordImagesApi } from './recordImagesApi'
 
 export const requestClientKey: InjectionKey<RequestClient> = Symbol('gutcare-request-client')
 export const sessionServiceKey: InjectionKey<SessionService> = Symbol('gutcare-session-service')
@@ -47,6 +48,7 @@ export const adviceApiKey: InjectionKey<AdviceApi> = Symbol('gutcare-advice-api'
 export const medicalDocumentsApiKey: InjectionKey<MedicalDocumentsApi> = Symbol('gutcare-medical-documents-api')
 export const medicalDocumentPreviewKey: InjectionKey<MedicalDocumentPreviewAdapter> = Symbol('gutcare-medical-document-preview')
 export const medicalFactConflictsApiKey: InjectionKey<MedicalFactConflictsApi> = Symbol('gutcare-medical-fact-conflicts-api')
+export const recordImagesApiKey: InjectionKey<RecordImagesApi> = Symbol('gutcare-record-images-api')
 export const medicationApiKey: InjectionKey<MedicationApi> = Symbol('gutcare-medication-api')
 export const riskApiKey: InjectionKey<RiskApi> = Symbol('gutcare-risk-api')
 export const notificationApiKey: InjectionKey<NotificationApi> = Symbol('gutcare-notification-api')

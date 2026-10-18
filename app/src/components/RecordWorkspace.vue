@@ -57,6 +57,7 @@
             </view>
           </template>
         </view>
+        <RecordImageSection v-if="kind === 'diet' || kind === 'bowel'" :kind="kind === 'diet' ? 'diet' : 'stool'" :record-id="currentRecord.id" :record-version="currentRecord.record_version" :image-set-version="currentRecord.image_set_version" @changed="updateRecordImageVersions" @refresh="openRecord(currentRecord.id)" />
         <view v-if="problemMessage" class="problem-card" role="alert"><text>{{ problemMessage }}</text><text v-if="requestId" class="request-id">请求编号：{{ requestId }}</text><button v-if="conflict" class="inline-action" data-testid="conflict-reload-detail" @click="openRecord(currentRecord.id)">重新载入最新记录</button></view>
         <view class="actions"><GcButton label="编辑" test-id="record-edit" @click="startEdit" /><GcButton label="删除记录" variant="danger" test-id="record-delete" @click="deletePrompt = true" /></view>
       </template>
@@ -123,6 +124,7 @@ import type { RecordWorkspaceRouteName } from '../navigation/routes'
 import { useAuthStore } from '../stores/auth'
 import DashboardDataStatus from './DashboardDataStatus.vue'
 import GcButton from './GcButton.vue'
+import RecordImageSection from './RecordImageSection.vue'
 
 const props = defineProps<{ kind: 'diet' | 'bowel' | 'symptom'; recordType: RecordType; routeName: RecordWorkspaceRouteName }>()
 const auth = useAuthStore()
@@ -320,6 +322,10 @@ function summarize(record: HealthRecord): string {
   return items || '症状记录'
 }
 function statusLabel(record: HealthRecord) { return (record.payload as { symptom_status?: string }).symptom_status === 'relieved' ? '已缓解' : '仍持续' }
+function updateRecordImageVersions(recordVersion: number, imageSetVersion: number) {
+  if (!currentRecord.value) return
+  currentRecord.value = { ...currentRecord.value, record_version: recordVersion, image_set_version: imageSetVersion }
+}
 </script>
 
 <style lang="scss" scoped>

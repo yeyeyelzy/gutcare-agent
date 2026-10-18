@@ -33,6 +33,7 @@ import { AdviceApi } from './adviceApi'
 import { MedicalDocumentsApi } from './medicalDocumentsApi'
 import { MedicalDocumentPreviewAdapter, nativeMedicalPreviewPlatform } from './medicalDocumentPreview'
 import { MedicalFactConflictsApi } from './medicalFactConflictsApi'
+import { RecordImagesApi } from './recordImagesApi'
 
 const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, { allowLocalHttp: import.meta.env.DEV })
 
@@ -80,6 +81,7 @@ export function createAppServices(pinia: Pinia) {
   const adviceApi = new AdviceApi(requestClient)
   const medicalDocumentsApi = new MedicalDocumentsApi(requestClient)
   const medicalFactConflictsApi = new MedicalFactConflictsApi(requestClient)
+  const recordImagesApi = new RecordImagesApi(requestClient)
   const medicalDocumentPreview = new MedicalDocumentPreviewAdapter(nativeMedicalPreviewPlatform, apiBaseUrl)
   const medicationApi = new MedicationApi(requestClient)
   const riskApi = new RiskApi(requestClient)
@@ -108,6 +110,7 @@ export function createAppServices(pinia: Pinia) {
     adviceApi,
     medicalDocumentsApi,
     medicalFactConflictsApi,
+    recordImagesApi,
     medicalDocumentPreview,
     medicationApi,
     riskApi,
