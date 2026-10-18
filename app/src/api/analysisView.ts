@@ -1,4 +1,4 @@
-import type { AnalysisTask, AnalysisTaskPage, AnalysisTaskRequest } from './openapiTypes'
+import type { AnalysisResultEvidence, AnalysisTask, AnalysisTaskPage, AnalysisTaskRequest } from './openapiTypes'
 import { buildTrendRange } from './trendView'
 
 export interface AnalysisListState {
@@ -63,5 +63,45 @@ export function analysisStatusLabel(value: AnalysisTask['status']): string {
 }
 
 export function analysisErrorLabel(value: string | null): string {
-  return value ? `服务端错误代码：${value}` : '服务端未提供错误代码。'
+  // The backend may persist an agent-provided code; do not reveal arbitrary values.
+  return value ? '服务端提供了任务说明；请以当前任务状态和允许的操作为准。' : '服务端未提供可展示的错误代码。'
+}
+
+export type AnalysisTaskActions = { canCancel: boolean; canRetry: boolean; needsNewTask: boolean; shouldPoll: boolean }
+
+export function analysisTaskActions(status: AnalysisTask['status']): AnalysisTaskActions {
+  return {
+    canCancel: status === 'pending' || status === 'processing',
+    canRetry: status === 'failed',
+    needsNewTask: status === 'needs_input',
+    shouldPoll: status === 'pending' || status === 'processing',
+  }
+}
+
+export function analysisEvidenceCanNavigate(evidence: AnalysisResultEvidence): boolean {
+  return analysisEvidenceLocatorLabel(evidence) !== null
+}
+
+const ANALYSIS_EVIDENCE_LOCATOR_LABELS: Partial<Record<AnalysisResultEvidence['source_type'], string>> = {
+  confirmed_medical_fact: '已确认医疗事实',
+  diet_record: '饮食记录',
+  stool_record: '排便记录',
+  symptom_record: '症状记录',
+  mood_record: '心情记录',
+  medication_plan: '用药计划',
+  medication_checkin: '用药打卡',
+  risk_alert: '风险提示',
+}
+
+/** Return only a controlled label; never render a raw locator/path/URL from the service. */
+export function analysisEvidenceLocatorLabel(evidence: AnalysisResultEvidence): string | null {
+  if (evidence.source_deleted || !isSupportedAnalysisEvidenceType(evidence.source_type)) return null
+  const label = ANALYSIS_EVIDENCE_LOCATOR_LABELS[evidence.source_type]
+  const locator = typeof evidence.locator === 'string' ? /^([a-z_]+):([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i.exec(evidence.locator) : null
+  if (!label || !locator || locator[1]?.toLowerCase() !== evidence.source_type || locator[2]?.toLowerCase() !== evidence.source_id.toLowerCase()) return null
+  return `${label} · 已验证来源定位`
+}
+
+function isSupportedAnalysisEvidenceType(value: unknown): value is AnalysisResultEvidence['source_type'] {
+  return typeof value === 'string' && Object.hasOwn(ANALYSIS_EVIDENCE_LOCATOR_LABELS, value)
 }

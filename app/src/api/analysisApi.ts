@@ -55,7 +55,7 @@ export class AnalysisApi {
       method: 'POST', path: `/analysis-tasks/${encodeURIComponent(id)}/retry`, idempotencyKey,
     })
     const location = response.headers?.Location ?? response.headers?.location ?? ''
-    if (response.status !== 202 || !isTaskLocation(location, response.data.id)) {
+    if (response.status !== 202 || !isTaskLocation(location, response.data.id) || response.data.retry_of !== id) {
       throw new Error('服务响应缺少有效的分析任务 Location。')
     }
     return { task: response.data, location }

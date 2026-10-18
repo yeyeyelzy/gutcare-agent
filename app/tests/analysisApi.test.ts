@@ -32,4 +32,23 @@ describe('AnalysisApi', () => {
     const api = new AnalysisApi({ requestWithMetadata } as unknown as RequestClient)
     await expect(api.create(body, 'analysis-test-idem-002')).rejects.toThrow('Location')
   })
+
+  it('retries a failed task with an idempotency key and validates Location plus retry_of', async () => {
+    const retried = { ...task, id: '00000000-0000-4000-8000-000000000002', status: 'pending' as const, attempt: 2, retry_of: id }
+    const requestWithMetadata = vi.fn().mockResolvedValue({ status: 202, data: retried, headers: { Location: `/api/v1/analysis-tasks/${retried.id}` } })
+    const api = new AnalysisApi({ requestWithMetadata } as unknown as RequestClient)
+    await expect(api.retry(id, 'analysis-retry-idem-001')).resolves.toEqual({ task: retried, location: `/api/v1/analysis-tasks/${retried.id}` })
+    expect(requestWithMetadata).toHaveBeenCalledWith({ method: 'POST', path: `/analysis-tasks/${id}/retry`, idempotencyKey: 'analysis-retry-idem-001' })
+    const wrongParent = { ...retried, retry_of: '00000000-0000-4000-8000-000000000099' }
+    const invalidApi = new AnalysisApi({ requestWithMetadata: vi.fn().mockResolvedValue({ status: 202, data: wrongParent, headers: { Location: `/analysis-tasks/${retried.id}` } }) } as unknown as RequestClient)
+    await expect(invalidApi.retry(id, 'analysis-retry-idem-002')).rejects.toThrow('Location')
+  })
+
+  it('uses POST for explicit cancellation and leaves the response status authoritative', async () => {
+    const cancelled = { ...task, status: 'cancelled' as const }
+    const request = vi.fn().mockResolvedValue(cancelled)
+    const api = new AnalysisApi({ request } as unknown as RequestClient)
+    await expect(api.cancel(id)).resolves.toEqual(cancelled)
+    expect(request).toHaveBeenCalledWith({ method: 'POST', path: `/analysis-tasks/${id}/cancel` })
+  })
 })

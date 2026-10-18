@@ -4,6 +4,7 @@ import { APP_ROUTES, canRenderRoute, decideRouteAccess, parseReturnTo, PLACEHOLD
 import type { AuthState } from '../src/stores/auth'
 import { createPinia, setActivePinia } from 'pinia'
 import { useRegistrationDraftStore } from '../src/stores/registrationDraft'
+import type { AnalysisResultEvidence } from '../src/api/openapiTypes'
 
 function makeNavigator() {
   return { navigateTo: vi.fn(), redirectTo: vi.fn(), reLaunch: vi.fn(), navigateBack: vi.fn() }
@@ -46,6 +47,22 @@ describe('named route registry and protected navigation', () => {
     expect(navigator.navigateTo).toHaveBeenCalledTimes(3)
     expect(APP_ROUTES.history.path).toBe('/pages/history/index')
     expect(routeNameFromUrl(APP_ROUTES.history.path)).toBe('history')
+  })
+
+  it('maps analysis evidence through fixed routes and refuses deleted, invalid, or unsupported sources', () => {
+    const navigator = makeNavigator()
+    const router = new AppRouter(navigator, () => 'authenticated')
+    const evidence = (source_type: AnalysisResultEvidence['source_type'], source_deleted = false): AnalysisResultEvidence => ({ source_type, source_id: '00000000-0000-4000-8000-000000000001', source_version: 3, locator: 'section-1', source_deleted })
+    expect(router.navigateAnalysisEvidence(evidence('diet_record'), 'analysis')).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenLastCalledWith(`${APP_ROUTES.recordDiet.path}?id=00000000-0000-4000-8000-000000000001&owner=analysis`)
+    expect(router.navigateAnalysisEvidence(evidence('risk_alert'), 'me')).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenLastCalledWith(`${APP_ROUTES.riskAlertDetail.path}?alert_id=00000000-0000-4000-8000-000000000001`)
+    expect(router.navigateAnalysisEvidence(evidence('diet_record', true), 'analysis')).toBe(false)
+    expect(router.navigateAnalysisEvidence({ ...evidence('diet_record'), source_id: 'not-a-uuid' }, 'analysis')).toBe(false)
+    expect(router.navigateAnalysisEvidence({ ...evidence('diet_record'), source_type: 'unrecognized' } as unknown as AnalysisResultEvidence, 'analysis')).toBe(false)
+    expect(navigator.navigateTo).toHaveBeenCalledTimes(2)
+    expect(APP_ROUTES.analysisReports.path).toContain('/pages/analysis/history?owner=analysis&results=1')
+    expect(routeNameFromUrl(APP_ROUTES.analysisReports.path)).toBe('analysisReports')
   })
 
   it('clears authenticated return targets and reLaunches a public deletion progress route after acceptance', () => {

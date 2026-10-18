@@ -1,5 +1,6 @@
 import { APP_ROUTES, APP_TABS, decideRouteAccess, isRegistrationFlowRoute, isUuid, parseReturnTo, routeNameFromUrl } from './routes'
 import type { AppRouteName, AppTabName, ReturnToTarget } from './routes'
+import type { AnalysisResultEvidence } from '../api/openapiTypes'
 import type { AuthState } from '../stores/auth'
 
 export interface Navigator {
@@ -128,6 +129,26 @@ export class AppRouter {
       return true
     }
     this.navigator.navigateTo(`${APP_ROUTES[name].path}?id=${encodeURIComponent(id)}`)
+    return true
+  }
+
+  navigateAnalysisEvidence(evidence: AnalysisResultEvidence, owner: AppTabName): boolean {
+    if (evidence.source_deleted || !isUuid(evidence.source_id)) return false
+    const routes: Partial<Record<AnalysisResultEvidence['source_type'], AppRouteName>> = {
+      confirmed_medical_fact: 'healthArchive',
+      diet_record: 'recordDiet',
+      stool_record: 'recordBowel',
+      symptom_record: 'recordSymptoms',
+      mood_record: 'recordMood',
+      medication_plan: 'medications',
+      medication_checkin: 'medications',
+      risk_alert: 'riskAlertDetail',
+    }
+    const route = routes[evidence.source_type]
+    if (!route || !this.authorize(route)) return false
+    if (route === 'riskAlertDetail') return this.navigateRiskAlertDetail(evidence.source_id)
+    if (route === 'medications' || route === 'healthArchive') return this.navigate(route)
+    this.navigator.navigateTo(`${APP_ROUTES[route].path}?id=${encodeURIComponent(evidence.source_id)}&owner=${owner === 'me' ? 'me' : 'analysis'}`)
     return true
   }
 

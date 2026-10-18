@@ -22,18 +22,19 @@ describe('F08 analysis page component contracts', () => {
     expect(page).not.toContain("router?.navigate('analysisHistory')")
   })
 
-  it('clearly labels preview as non-final, uses server preview values, and does not expose raw results', () => {
+  it('clearly labels preview as non-final and renders only the structured result allowlist', () => {
     expect(page).toContain('预览只反映当前时点，不保证与稍后创建的任务快照一致。')
     expect(page).toContain('preview.mood_record_count_in_range')
     expect(page).toContain('preview.mood_record_count_eligible')
     expect(page).toContain('preview.mood_record_count_excluded_by_consent')
     expect(page).toContain('同一授权栅栏内重新检查授权与记录')
-    expect(page).toContain('task.result ?')
-    expect(page).not.toContain('task.result.summary')
-    expect(page).not.toContain('task.result.observations')
-    expect(page).not.toContain('task.prompt')
-    expect(page).not.toContain('task.result.')
-    expect(page).toContain('任务详情不展示 prompt、模型原始输出、报告正文或证据内容。')
+    for (const allowed of ['task.result.summary', 'task.result.observations', 'task.result.evidence', 'task.result.uncertainties', 'task.result.missing_data']) expect(page).toContain(allowed)
+    for (const forbidden of ['task.callback_id', 'task.prompt', 'task.raw_output', 'task.result.callback_id', 'task.result.raw_output', 'task.result.report_url']) expect(page).not.toContain(forbidden)
+    expect(page).toContain("task.result.schema_version === '1.0'")
+    expect(page).toContain('这是对记录的整理与分析，不是诊断或处方')
+    expect(page).toContain('来源已删除，无法跳转。')
+    expect(page).toContain('analysisEvidenceLocatorLabel(item)')
+    expect(page).not.toContain('{{ item.locator }}')
   })
 
   it('checks response generation and visibility after each asynchronous request before updating state', () => {
@@ -42,7 +43,7 @@ describe('F08 analysis page component contracts', () => {
       ['async function createTask()', 'async function loadList(', 'await api.create(', 'router?.navigateAnalysisTaskDetail('],
       ['async function loadList(', 'async function loadMore()', 'await api.list(', 'tasks.value = page.items'],
       ['async function loadMore()', 'async function loadDetail()', 'await api.list(', 'appendAnalysisPage('],
-      ['async function loadDetail()', 'function setAnalysisType(', 'await api.get(', 'task.value = result'],
+      ['async function loadDetail()', 'function confirmCancel()', 'await api.get(', 'task.value = result'],
     ] as const
     for (const [start, end, awaitNeedle, mutationNeedle] of checks) {
       const section = page.slice(page.indexOf(start), page.indexOf(end))
@@ -53,7 +54,8 @@ describe('F08 analysis page component contracts', () => {
       expect(guard).toBeGreaterThan(awaited)
       expect(mutation).toBeGreaterThan(guard)
     }
-    expect(page).toContain('onHide(() => { visible.value = false; generation += 1; busy.value = false; operation.value = \'\' })')
+    expect(page).toContain('onHide(() => { visible.value = false; generation += 1; stopPolling(); busy.value = false; operation.value = \'\' })')
+    expect(page).toContain('onUnload(() => { visible.value = false; generation += 1; stopPolling() })')
     expect(page).toContain('firstShow.shouldRefresh()')
   })
 
@@ -65,5 +67,26 @@ describe('F08 analysis page component contracts', () => {
     expect(page).toContain('failAnalysisAppend(')
     expect(page).toContain('tasks.value = failed.items; cursor.value = failed.cursor')
     expect(page).toContain('analysis-more-retry')
+  })
+
+  it('gates actions by backend state, confirms cancel/retry, and avoids fake progress', () => {
+    expect(page).toContain("task.status === 'pending' || task.status === 'processing'")
+    expect(page).toContain("task.status === 'failed'")
+    expect(page).toContain('此任务已结束。补充或确认相关记录后，请新建分析任务；当前任务不能重试。')
+    expect(page).toContain("uni.showModal({ title: '取消分析任务？'")
+    expect(page).toContain("uni.showModal({ title: '重试分析任务？'")
+    expect(page).toContain('analysisTaskActions(status).shouldPoll')
+    expect(page).toContain('setTimeout(() => { pollTimer = null')
+    expect(page).toContain("error.code === 'CONSENT_REQUIRED'")
+    expect(page).toContain('analysis-retry-settings')
+    const cancel = page.slice(page.indexOf('async function cancelTask()'), page.indexOf('function confirmRetry()'))
+    const retry = page.slice(page.indexOf('async function retryTask()'), page.indexOf('function schedulePolling('))
+    for (const section of [cancel, retry]) {
+      expect(section.indexOf('await api.')).toBeGreaterThanOrEqual(0)
+      expect(section.indexOf('if (!isCurrent(requestGeneration)) return')).toBeGreaterThan(section.indexOf('await api.'))
+    }
+    expect(retry).toContain('createIdempotencyKey()')
+    expect(retry).toContain('retryIdempotencyKey.value')
+    expect(page).not.toMatch(/progress(?:-percent)?\s*[:=]/i)
   })
 })

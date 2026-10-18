@@ -109,4 +109,10 @@ UTS 插件需由 DCloud 支持的 HBuilderX 原生构建链处理；DCloud 文�
 
 受保护 `/analysis/new`、`/analysis/history` 与 `/analysis/task/:id` 分别提供预览/创建、稳定游标历史和任务状态详情。请求与响应 DTO 由 `contracts/openapi/gutcare-v1.yaml` 生成；创建为单飞并带 `Idempotency-Key`，仅接受 `202` 且校验 `Location` 指向同一任务 ID。预览仅为当时统计，不承诺创建快照完全一致；任务快照和 mood 纳入/排除由服务端授权 fence 决定。
 
-综合分析时间范围允许两端都省略或两端都提供，periodic 必须提供两端；显式时间按 UTC 半开区间 `[from,to)`。历史分页 cursor 是不透明值，服务端以 HMAC `patient_scope` 绑定患者且不在载荷中放原始 patient UUID；cursor 仅进入请求参数，不写日志。详情只显示后端状态、attempt/retry_of、输入摘要、错误码和结果存在性，不显示报告正文、prompt、原始模型输出或 evidence。基础页面不提供 cancel/retry UI，不调用 Agent，也不传 `patient_id`。APP T126 覆盖客户端 API、表单、分页、生命周期和深链；后端 T66–T71、T111–T112 仍是独立证据。Android/iOS CLI build 不替代真机视觉/无障碍签收。
+综合分析时间范围允许两端都省略或两端都提供，periodic 必须提供两端；显式时间按 UTC 半开区间 `[from,to)`。历史分页 cursor 是不透明值，服务端以 HMAC `patient_scope` 绑定患者且不在载荷中放原始 patient UUID；cursor 仅进入请求参数，不写日志。B08a基础阶段详情只显示后端状态、attempt/retry_of、输入摘要、错误码和结果存在性，不显示结果正文或 evidence；B08b扩展见下节。页面不调用 Agent，也不传 `patient_id`。APP T126 覆盖客户端 API、表单、分页、生命周期和深链；后端 T66–T71、T111–T112 仍是独立证据。Android/iOS CLI build 不替代真机视觉/无障碍签收。
+
+## B08b F08 取消、重试与结构化结果
+
+详情页仅在 pending/processing 显示二次确认取消，仅 failed 显示二次确认重试；`needs_input` 是终态并引导补齐后新建任务。重试带 Idempotency-Key，成功必须核验 202、Location 与 `retry_of` 后打开服务端新任务，失败不覆盖当前状态、不自动重提。非终态每15秒刷新，页面隐藏停止、显示恢复时刷新；错误保留最后状态，不制造进度。partial 与 succeeded 分开标识。
+
+结果仅展示生成 DTO `AnalysisResult` schema_version `1.0` 的 summary、observations、evidence、uncertainties、missing_data。证据通过 source_type 固定映射；已删除来源隐藏 locator 且不跳转，未知/不支持来源不跳转。错误码只显示通用安全映射；不显示 callback_id、prompt、模型原始输出、报告正文/URL 或 mood note。结果明确不是诊断或处方。“报告与结果”入口指向任务历史，结构化内容从任务详情进入。APP T127 覆盖状态矩阵、动作、轮询生命周期与结果白名单；服务端能力仍以 T66–T71、T111–T112 为准。
