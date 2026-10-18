@@ -256,3 +256,9 @@ G1 实现验收标准：OpenAPI 与 Agent contract 通过 schema 检查；后端
 任务详情仅按服务端状态开放操作：pending/processing 可二次确认取消，failed 可二次确认重试；needs_input 明示为终态并引导补齐后另建任务，其他终态不轮询。非终态仅页面可见时定时刷新，离页停止并使旧响应失效；刷新错误保留最后已知状态。重试成功须通过 202/Location/retry_of 校验后进入新任务。
 
 结果仅渲染生成 AnalysisResult 1.0 白名单；evidence 以固定映射访问已注册记录/用药/风险页。source_deleted 不显示 locator 且不可跳；未知或无效来源不跳。error_code 不直接回显，界面明确结果不是诊断或处方。`analysisReports` 入口映射任务历史，结构化结果通过详情访问；不做假报告页。
+
+### F02c 已确认检验事实冲突（ADR-0018 补充页面）
+
+健康档案提供固定“待核对冲突”入口，列表默认 `open`，状态筛选为 `open/resolved/invalidated/all`，完整遵循后端返回顺序（当前服务端按 `created_at DESC`，无分页），禁止前端排序或风险分级。详情只呈现允许的检验字段/值/单位/采样日、版本和来源文档 ID；来源按钮使用固定 medical-document detail 路由。不显示 excerpt、报告正文、原始 Agent 输出或对象存储地址。
+
+页面唯一动作是二次确认 `keep_both`，仅保留两条独立事实；不得选择正确值、择优、合并、删除或评价严重性。409 读取最新详情并提示患者重新确认。该页面由 ADR-0018 驱动补充，未冻结对应原型页面，沿用 GutCare 页面系统，不声称 95% 原型截图验收。

@@ -18,6 +18,7 @@ export class MemoryReturnToStore {
   private adviceTarget: { id: string; owner: 'analysis' | 'me'; from: 'list' | 'history' | 'external' | 'notification'; notificationId: string | null } | null = null
   private adviceNotificationReturn: string | null = null
   private medicalDocumentTarget: string | null = null
+  private medicalFactConflictTarget: string | null = null
 
   save(value: unknown): void {
     this.value = parseReturnTo(value)
@@ -36,6 +37,7 @@ export class MemoryReturnToStore {
     this.adviceTarget = null
     this.adviceNotificationReturn = null
     this.medicalDocumentTarget = null
+    this.medicalFactConflictTarget = null
   }
 
   saveNotificationTarget(type: 'analysis_task' | 'advice', id: string): void {
@@ -78,6 +80,12 @@ export class MemoryReturnToStore {
     this.medicalDocumentTarget = null
     return isUuid(value) ? value : null
   }
+  saveMedicalFactConflictTarget(id: string): void { this.medicalFactConflictTarget = isUuid(id) ? id : null }
+  takeMedicalFactConflictTarget(): string | null {
+    const value = this.medicalFactConflictTarget
+    this.medicalFactConflictTarget = null
+    return isUuid(value) ? value : null
+  }
 }
 
 export class AppRouter {
@@ -111,6 +119,16 @@ export class AppRouter {
       return false
     }
     this.navigator.navigateTo(`${APP_ROUTES.medicalDocumentDetail.path}?document_id=${encodeURIComponent(id)}`)
+    return true
+  }
+
+  navigateMedicalFactConflictDetail(id: string): boolean {
+    if (!isUuid(id)) return false
+    if (!this.authorize('medicalFactConflictDetail')) {
+      this.returnToStore.saveMedicalFactConflictTarget(id)
+      return false
+    }
+    this.navigator.navigateTo(`${APP_ROUTES.medicalFactConflictDetail.path}?conflict_id=${encodeURIComponent(id)}`)
     return true
   }
 
@@ -278,6 +296,12 @@ export class AppRouter {
       this.returnToStore.take()
       return
     }
+    const medicalFactConflictTarget = this.returnToStore.takeMedicalFactConflictTarget()
+    if (medicalFactConflictTarget) {
+      this.navigator.reLaunch(`${APP_ROUTES.medicalFactConflictDetail.path}?conflict_id=${encodeURIComponent(medicalFactConflictTarget)}`)
+      this.returnToStore.take()
+      return
+    }
     const adviceTarget = this.returnToStore.takeAdviceTarget()
     if (adviceTarget) {
       if (adviceTarget.from === 'notification' && adviceTarget.notificationId) {
@@ -345,6 +369,11 @@ export class AppRouter {
       const query = new URLSearchParams(url.split('?')[1]?.split('#')[0] ?? '')
       const documentId = query.get('document_id')
       if (isUuid(documentId)) this.returnToStore.saveMedicalDocumentTarget(documentId)
+    }
+    if (name === 'medicalFactConflictDetail' && this.getAuthState() !== 'authenticated') {
+      const query = new URLSearchParams(url.split('?')[1]?.split('#')[0] ?? '')
+      const conflictId = query.get('conflict_id')
+      if (isUuid(conflictId)) this.returnToStore.saveMedicalFactConflictTarget(conflictId)
     }
     if (name === 'adviceDetail' && this.getAuthState() !== 'authenticated') {
       const query = new URLSearchParams(url.split('?')[1]?.split('#')[0] ?? '')

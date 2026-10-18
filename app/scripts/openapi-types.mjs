@@ -101,6 +101,9 @@ const requiredOperationIds = new Set([
   'deleteMedicalDocument',
   'listMedicalDocumentCandidates',
   'decideMedicalFieldCandidate',
+  'listMedicalFactConflicts',
+  'getMedicalFactConflict',
+  'resolveMedicalFactConflict',
   'createFileDownloadGrant',
 ])
 const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])

@@ -15,6 +15,8 @@ export const APP_ROUTES = {
   profile: { path: '/pages/profile/index', access: 'authenticated', returnToAllowed: true },
   healthArchive: { path: '/pages/records/health-archive/index', access: 'authenticated', returnToAllowed: true },
   medicalDocumentDetail: { path: '/pages/records/medical-documents/detail', access: 'authenticated', returnToAllowed: true },
+  medicalFactConflicts: { path: '/pages/records/medical-fact-conflicts/index', access: 'authenticated', returnToAllowed: true },
+  medicalFactConflictDetail: { path: '/pages/records/medical-fact-conflicts/detail', access: 'authenticated', returnToAllowed: true },
   privacyCenter: { path: '/pages/privacy/center', access: 'authenticated', returnToAllowed: true },
   privacyExports: { path: '/pages/privacy/exports', access: 'authenticated', returnToAllowed: true },
   accountDeletionConfirm: { path: '/pages/privacy/deletion-confirm', access: 'authenticated', returnToAllowed: false },
@@ -70,7 +72,7 @@ export function mapNotificationTarget(target: { type: string; id: string } | nul
   }
   return { kind: 'unavailable' }
 }
-export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'accountDeletionProgress' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'healthArchive' | 'medicalDocumentDetail' | 'privacyCenter' | 'privacyExports' | 'accountDeletionConfirm' | 'placeholder' | 'history' | 'trends' | 'analysisTrends' | 'analysisNew' | 'analysisHistory' | 'analysisTaskDetail' | 'analysisReports' | 'analysisAdvice' | 'advice' | 'adviceDetail' | RecordWorkspaceRouteName | MoodWorkspaceRouteName | ActivityWorkspaceRouteName | MedicationWorkspaceRouteName | RiskRouteName | NotificationRouteName>
+export type PlaceholderRouteName = Exclude<AppRouteName, 'launch' | 'login' | 'register' | 'registerProfile' | 'emailVerification' | 'forgotPassword' | 'resetPassword' | 'profileError' | 'accountDeletionProgress' | 'today' | 'records' | 'analysis' | 'me' | 'profile' | 'healthArchive' | 'medicalDocumentDetail' | 'medicalFactConflicts' | 'medicalFactConflictDetail' | 'privacyCenter' | 'privacyExports' | 'accountDeletionConfirm' | 'placeholder' | 'history' | 'trends' | 'analysisTrends' | 'analysisNew' | 'analysisHistory' | 'analysisTaskDetail' | 'analysisReports' | 'analysisAdvice' | 'advice' | 'adviceDetail' | RecordWorkspaceRouteName | MoodWorkspaceRouteName | ActivityWorkspaceRouteName | MedicationWorkspaceRouteName | RiskRouteName | NotificationRouteName>
 export type ProtectedRouteName = {
   [Name in AppRouteName]: typeof APP_ROUTES[Name]['access'] extends 'authenticated' ? Name : never
 }[AppRouteName]

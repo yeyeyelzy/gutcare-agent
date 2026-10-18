@@ -66,6 +66,25 @@ describe('named route registry and protected navigation', () => {
     expect(navigator.navigateTo).toHaveBeenLastCalledWith(`${APP_ROUTES.medicalDocumentDetail.path}?document_id=${id}`)
   })
 
+  it('protects F02c conflict deep links and resumes only the validated conflict identifier after authentication', () => {
+    const navigator = makeNavigator()
+    let state: AuthState = 'anonymous'
+    const router = new AppRouter(navigator, () => state)
+    const id = '00000000-0000-4000-8000-000000000088'
+    expect(routeNameFromUrl(`${APP_ROUTES.medicalFactConflictDetail.path}?conflict_id=${id}`)).toBe('medicalFactConflictDetail')
+    expect(router.guardUrl(`${APP_ROUTES.medicalFactConflictDetail.path}?conflict_id=${id}`)).toBe(false)
+    expect(router.returnToStore.takeMedicalFactConflictTarget()).toBe(id)
+    expect(router.navigateMedicalFactConflictDetail('not-a-uuid')).toBe(false)
+    state = 'authenticated'
+    router.returnToStore.saveMedicalFactConflictTarget(id)
+    router.afterAuthentication()
+    expect(navigator.reLaunch).toHaveBeenLastCalledWith(`${APP_ROUTES.medicalFactConflictDetail.path}?conflict_id=${id}`)
+    expect(router.navigateMedicalFactConflictDetail(id)).toBe(true)
+    expect(navigator.navigateTo).toHaveBeenLastCalledWith(`${APP_ROUTES.medicalFactConflictDetail.path}?conflict_id=${id}`)
+    expect(APP_ROUTES.medicalFactConflicts.access).toBe('authenticated')
+    expect(APP_ROUTES.medicalFactConflictDetail.access).toBe('authenticated')
+  })
+
   it('maps analysis evidence through fixed routes and refuses deleted, invalid, or unsupported sources', () => {
     const navigator = makeNavigator()
     const router = new AppRouter(navigator, () => 'authenticated')
