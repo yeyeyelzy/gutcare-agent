@@ -85,6 +85,8 @@ F11 历史时间线作为记录 Tab 下的受保护二级页面，从记录分�
 
 F11 趋势作为受保护二级页面注册在 `/pages/trends/index`，分析与我的入口分别绑定 `owner=analysis` 与 `owner=me`，返回来源栈或所属根 Tab。日期输入基于账户 IANA 时区生成带时区 UTC 半开范围，支持快速范围、自定义日期和日/周粒度；切换范围或粒度重新请求服务端聚合。页面分别呈现 activity、stool、symptom、diet confirmed categories、medication checkins 和 mood 六类结果，不在客户端合并或重算。mood `availability=consent_required` 显示缺少的健康/心情处理授权及隐私中心入口，不得显示成 0；`available` 空 buckets 才表示已授权无记录。标题限定为患者自评/记录统计；不显示 mood note/emotion_tags，不生成诊断、病因、因果、饮食或运动建议。加载、空、授权不可用、接口错误和离线状态必须分开；刷新失败保留旧值并显错，离页请求响应不得回填。
 
+F03/F04 图片操作留在对应记录详情/编辑流程内，不新建独立顶级导航页。上传前说明敏感图片用途；关联后显示私有缩略图/访问状态。发起识别前展示对应 purpose-specific 告知全文/要点及第三方处理披露，需患者当次明确确认；拒绝、撤回、Agent 不可用均回到可手动编辑记录态。识别状态与逐项候选呈现在当前记录详情，候选逐项接受/编辑/拒绝；页面不可把模型候选显示成已确认食物/Bristol。来源图片删除或版本冲突时清除候选细节并重新读取最新记录；授权撤回后关闭任务页面内的图片/候选能力。饮食最多十图，排便最多一图。
+
 F09 建议工作区由分析与“我的”入口分别进入 `/pages/advice/analysis`、`/pages/advice/index`，详情 `/pages/advice/detail` 保留 `ownerTab` 与来源语义；历史 target 进入受保护建议详情并以 `from=history` 返回来源栈。站内通知 target 使用已实现的建议详情，但 `from=notification` 仅在路由器内存持有由通知详情页发出的有效通知 UUID 时生效；顶部和系统返回均 `redirectTo` 该通知详情，若无受控 UUID 则回通知列表。通知 target 不接受任意 URL 或外部 query 指定的返回地址；直接深链仍退回 owner Tab。风险优先上下文若存在，必须在建议前方以图形+文本提示并固定跳转 F10；`read`/`reevaluated` 不得解释为风险解除或安全。建议读、归档、反馈均为显式操作；409 不自动覆盖或重提。证据只显示已验证的受控来源标签，locator 不原样展示；知识 citation 只展示无凭证 HTTPS 域名，不自动打开、不输出原始 URL。建议正文不进入通知、日志或埋点；不得显示 mood note/emotion_tags。
 
 ## 3. 入口、返回和不合理跳转修正

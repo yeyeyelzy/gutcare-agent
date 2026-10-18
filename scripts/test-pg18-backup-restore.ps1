@@ -253,20 +253,29 @@ print(sum(1 for v in r.get('Versions',[]) if v['Key']=='privacy-restore-replay/t
         "(SELECT count(*) FROM health.activity_record WHERE activity_type='walking' AND duration_minutes=30), " +
         "(SELECT count(*) FROM health.mood_record WHERE patient_id='$moodPatientId' AND mood_level=4 " +
         "AND jsonb_array_length(emotion_tags)=2 AND emotion_tags->>0='calm' " +
-        "AND emotion_tags->>1='content' AND note='synthetic restore evidence')"
+        "AND emotion_tags->>1='content' AND note='synthetic restore evidence'), " +
+        "(SELECT count(*) FROM health.diet_record_image) + " +
+        "(SELECT count(*) FROM health.stool_record_image), " +
+        "(SELECT count(*) FROM health.record_image_disclosure), " +
+        "(SELECT count(*) FROM analysis.record_image_recognition_request), " +
+        "(SELECT count(*) FROM analysis.record_image_candidate), " +
+        "(SELECT count(*) FROM analysis.record_image_decision), " +
+        "(SELECT count(*) FROM integration.file_deletion_job WHERE file_object_id IS NOT NULL)"
     $evidence = (& $docker.Source compose -f $composeFile -p $project exec -T $service `
         psql -U gutcare_bootstrap -d $restoreDb -At -v ON_ERROR_STOP=1 -c $evidenceSql) -join ''
     if ($LASTEXITCODE -ne 0) { throw 'Restored data/constraint query failed.' }
     $fields = $evidence.Trim().Split('|')
-    if ($fields.Count -ne 19 -or [int]$fields[0] -lt 1 -or [int]$fields[1] -lt 1 `
+    if ($fields.Count -ne 25 -or [int]$fields[0] -lt 1 -or [int]$fields[1] -lt 1 `
         -or [int]$fields[2] -lt 1 -or [int]$fields[3] -lt 2 `
         -or [int]$fields[4] -lt 1 -or [int]$fields[5] -lt 1 `
         -or [int]$fields[6] -lt [int]$fields[5] -or [int]$fields[7] -ne 0 `
         -or [int]$fields[8] -ne 1 -or [int]$fields[9] -lt 1 -or [int]$fields[10] -lt 1 `
         -or [int]$fields[11] -lt 1 -or [int]$fields[12] -lt 1 `
         -or [int]$fields[13] -lt 1 -or [int]$fields[14] -ne 10 -or [int]$fields[15] -lt 1 `
-        -or [int]$fields[16] -lt 1 -or [int]$fields[17] -lt 1 -or [int]$fields[18] -ne 1) {
-        throw "Restored F06 row/constraint evidence is incomplete: $evidence"
+        -or [int]$fields[16] -lt 1 -or [int]$fields[17] -lt 1 -or [int]$fields[18] -ne 1 `
+        -or [int]$fields[19] -lt 2 -or [int]$fields[20] -lt 3 -or [int]$fields[21] -lt 3 `
+        -or [int]$fields[22] -lt 3 -or [int]$fields[23] -lt 2 -or [int]$fields[24] -lt 10) {
+        throw "Restored row/constraint inventory is incomplete: $evidence"
     }
 
     $query = (& $docker.Source compose -f $composeFile -p $project exec -T $service `
@@ -275,7 +284,7 @@ print(sum(1 for v in r.get('Versions',[]) if v['Key']=='privacy-restore-replay/t
     if ($LASTEXITCODE -ne 0 -or [int]$query.Trim() -lt 1) {
         throw 'Restored application query did not return medication plans.'
     }
-    Write-Output "PostgreSQL 18 backup/restore rehearsal passed: revision=$revision, medication_plans=$($fields[0]), tombstones=$($fields[1]), idempotency_rows=$($fields[2]), ownership_constraints=$($fields[3]), analysis_tasks=$($fields[4]), snapshots=$($fields[5]), valid_snapshot_hashes=$($fields[6]), mood_summary_mismatches=$($fields[7]), h2_mood_snapshot_tasks=$($fields[8]), advice=$($fields[9]), advice_evidence=$($fields[10]), advice_callbacks=$($fields[11]), advice_feedback=$($fields[12]), advice_feedback_events=$($fields[13]), forced_rls_tables=$($fields[14]), notification_outbox=$($fields[15]), patient_notifications=$($fields[16]), mood_records=$($fields[18])."
+    Write-Output "PostgreSQL 18 backup/restore rehearsal passed: revision=$revision, medication_plans=$($fields[0]), tombstones=$($fields[1]), idempotency_rows=$($fields[2]), ownership_constraints=$($fields[3]), analysis_tasks=$($fields[4]), snapshots=$($fields[5]), valid_snapshot_hashes=$($fields[6]), mood_summary_mismatches=$($fields[7]), h2_mood_snapshot_tasks=$($fields[8]), advice=$($fields[9]), advice_evidence=$($fields[10]), advice_callbacks=$($fields[11]), advice_feedback=$($fields[12]), advice_feedback_events=$($fields[13]), forced_rls_tables=$($fields[14]), notification_outbox=$($fields[15]), patient_notifications=$($fields[16]), mood_records=$($fields[18]), record_image_attachments=$($fields[19]), record_image_disclosures=$($fields[20]), recognition_requests=$($fields[21]), recognition_candidates=$($fields[22]), recognition_decisions=$($fields[23]), queued_file_deletions=$($fields[24])."
     Write-Output 'PostgreSQL 18 backup/restore rehearsal command completed successfully.'
 }
 finally {

@@ -255,6 +255,59 @@ paths:
                     code: ADVICE_NOT_APPLICABLE
                     request_id: 00000000-0000-0000-0000-000000000000
         '422': {$ref: '#/components/responses/Problem'}
+  /record-image-recognition/requests:
+    post:
+      operationId: dispatchRecordImageRecognition
+      summary: 业务 Worker 派发已领取的记录图片识别请求
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 8, maxLength: 128}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageRecognitionDispatch'}}}}
+      responses: {'202': {description: Agent 已幂等接收}, '401': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}, '503': {$ref: '#/components/responses/Problem'}}
+  /agent/record-image-recognition/claim:
+    post:
+      operationId: claimRecordImageRecognitionRequest
+      summary: 业务 Worker 原子领取一个 pending 或租约过期请求；Agent 不得调用
+      servers: [{url: https://business.internal.invalid/internal/v1}]
+      responses:
+        '200':
+          description: 请求或 null；领取采用 SKIP LOCKED 并发语义，lease 五分钟
+          content:
+            application/json:
+              schema: {type: object, required: [request], properties: {request: {oneOf: [{$ref: '#/components/schemas/RecordImageRecognitionDispatch'}, {type: 'null'}]}}}
+        '401': {$ref: '#/components/responses/Problem'}
+  /agent/record-image-recognition/requests/{request_id}/input:
+    get:
+      operationId: getRecordImageRecognitionInput
+      summary: 业务后端托管；读取绑定 request 的最小结构化字段与短时单图能力
+      servers: [{url: https://business.internal.invalid/internal/v1}]
+      parameters: [{name: request_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {'200': {description: 当前授权、来源版本与任务状态校验通过后的冻结输入, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageRecognitionInput'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}}
+  /agent/record-image-recognition/images/{capability}:
+    get:
+      operationId: readRecordImageRecognitionImage
+      summary: 业务后端托管的一次性 task+attachment 短时图像能力；不可重放或跨任务访问
+      servers: [{url: https://business.internal.invalid/internal/v1}]
+      parameters: [{name: capability, in: path, required: true, schema: {type: string, minLength: 32, maxLength: 256}}]
+      responses: {'200': {description: 私有 JPEG/PNG 流；gateway 必须再次核验 request、附件、版本、授权与状态, content: {image/jpeg: {schema: {type: string, format: binary}}, image/png: {schema: {type: string, format: binary}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}}
+  /agent/record-image-recognition/requests/{request_id}/candidates:
+    post:
+      operationId: submitRecordImageRecognitionCandidates
+      summary: 提交受限图像候选；只保存候选，不改患者事实/风险/F08
+      servers: [{url: https://business.internal.invalid/internal/v1}]
+      parameters: [{name: request_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageCandidateSubmission'}}}}
+      responses: {'204': {description: 候选已校验并幂等保存}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}}
+  /agent/record-image-recognition/requests/{request_id}/fail:
+    post:
+      operationId: failRecordImageRecognition
+      summary: 提交任务级受控最终失败码
+      servers: [{url: https://business.internal.invalid/internal/v1}]
+      parameters: [{name: request_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageRecognitionFailure'}}}}
+      responses: {'204': {description: 失败已幂等记录}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}}
 components:
   securitySchemes:
     serviceBearer: {type: http, scheme: bearer}
@@ -271,6 +324,90 @@ components:
         application/problem+json:
           schema: {$ref: '#/components/schemas/Problem'}
   schemas:
+    RecordImageRecognitionDispatch:
+      type: object
+      additionalProperties: false
+      required: [request_id, recognition_type, attempt, retry_of_request_id, schema_version]
+      properties:
+        request_id: {type: string, format: uuid}
+        recognition_type: {type: string, enum: [diet_image_recognition, stool_image_recognition]}
+        attempt: {type: integer, minimum: 1}
+        retry_of_request_id: {type: [string, 'null'], format: uuid, description: Parent request for an explicit patient retry; null for initial attempts.}
+        schema_version: {const: '1.0'}
+      example: {request_id: '019a0000-0000-7000-8000-000000000021', recognition_type: diet_image_recognition, attempt: 1, retry_of_request_id: null, schema_version: '1.0'}
+    RecordImageRecognitionInput:
+      type: object
+      additionalProperties: false
+      required: [request_id, recognition_type, record_id, record_version, image_set_version, attempt, retry_of_request_id, schema_version, attachments]
+      properties:
+        request_id: {type: string, format: uuid}
+        recognition_type: {type: string, enum: [diet_image_recognition, stool_image_recognition]}
+        record_id: {type: string, format: uuid}
+        record_version: {type: integer, minimum: 1}
+        image_set_version: {type: integer, minimum: 1}
+        attempt: {type: integer, minimum: 1}
+        retry_of_request_id: {type: [string, 'null'], format: uuid}
+        schema_version: {const: '1.0'}
+        context: {type: object, additionalProperties: false, properties: {occurred_at: {type: string, format: date-time}, meal_type: {type: [string, 'null']}, bristol_type: {type: [integer, 'null'], minimum: 1, maximum: 7}}}
+        attachments:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items: {type: object, additionalProperties: false, required: [attachment_id, file_version, content_type, image_capability], properties: {attachment_id: {type: string, format: uuid}, file_version: {type: integer, minimum: 1}, content_type: {type: string, enum: [image/jpeg, image/png]}, image_capability: {type: string, minLength: 32, maxLength: 256, description: Request and attachment scoped, one-time, short-lived opaque capability; do not log or retain}}}
+    RecordImageCandidateSubmission:
+      type: object
+      additionalProperties: false
+      required: [callback_id, record_version, image_set_version, schema_version, images]
+      properties:
+        callback_id: {type: string, format: uuid}
+        record_version: {type: integer, minimum: 1}
+        image_set_version: {type: integer, minimum: 1}
+        schema_version: {const: '1.0'}
+        images:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items: {type: object, additionalProperties: false, required: [attachment_id, image_quality, candidates], properties: {attachment_id: {type: string, format: uuid}, image_quality: {type: string, enum: [usable, unusable, uncertain]}, reason_code: {type: [string, 'null'], enum: [low_image_quality, unsupported_image, no_visible_food, no_reliable_stool_type, null]}, candidates: {type: array, maxItems: 50, items: {$ref: '#/components/schemas/RecordImageRecognitionCandidate'}}}}
+      example: {callback_id: '019a0000-0000-7000-8000-000000000041', record_version: 3, image_set_version: 2, schema_version: '1.0', images: [{attachment_id: '019a0000-0000-7000-8000-000000000022', image_quality: usable, reason_code: null, candidates: [{candidate_id: '019a0000-0000-7000-8000-000000000031', attachment_id: '019a0000-0000-7000-8000-000000000022', candidate_group_key: '019a0000-0000-7000-8000-000000000071', candidate_type: food_name, value: 米饭, confidence_band: medium, uncertainty_code: mixed_food, image_region: [0.1, 0.2, 0.8, 0.9]}, {candidate_id: '019a0000-0000-7000-8000-000000000032', attachment_id: '019a0000-0000-7000-8000-000000000022', candidate_group_key: '019a0000-0000-7000-8000-000000000071', candidate_type: food_category, value: grain_staple, confidence_band: medium, uncertainty_code: mixed_food, image_region: [0.1, 0.2, 0.8, 0.9]}, {candidate_id: '019a0000-0000-7000-8000-000000000035', attachment_id: '019a0000-0000-7000-8000-000000000022', candidate_group_key: '019a0000-0000-7000-8000-000000000072', candidate_type: food_name, value: 西红柿, confidence_band: low, uncertainty_code: partially_occluded}]}, {attachment_id: '019a0000-0000-7000-8000-000000000023', image_quality: usable, reason_code: null, candidates: [{candidate_id: '019a0000-0000-7000-8000-000000000033', attachment_id: '019a0000-0000-7000-8000-000000000023', candidate_group_key: '019a0000-0000-7000-8000-000000000071', candidate_type: portion_description, value: 一小碗, confidence_band: low, uncertainty_code: partially_occluded}]}]}
+    RecordImageRecognitionCandidate:
+      oneOf: [{$ref: '#/components/schemas/DietRecordImageCandidate'}, {$ref: '#/components/schemas/StoolRecordImageCandidate'}]
+    DietRecordImageCandidate:
+      type: object
+      additionalProperties: false
+      required: [candidate_id, attachment_id, candidate_group_key, candidate_type, value, confidence_band, uncertainty_code]
+      properties:
+        candidate_id: {type: string, format: uuid}
+        attachment_id: {type: string, format: uuid}
+        candidate_group_key: {type: string, format: uuid, description: Opaque and scoped to this request; reuse only when explicitly grouping fields for one food item across attachments. Never infer groups from content or merge across requests.}
+        candidate_type: {type: string, enum: [food_name, food_category, portion_description]}
+        value: {type: string, minLength: 1, maxLength: 160, description: food_category must use the controlled category codes.}
+        confidence_band: {type: string, enum: [low, medium, high]}
+        uncertainty_code: {type: string, enum: [partially_occluded, mixed_food, low_light, ambiguous_shape, image_quality, other]}
+        image_region: {type: [array, 'null'], minItems: 4, maxItems: 4, items: {type: number, minimum: 0, maximum: 1}}
+      allOf:
+        - if: {properties: {candidate_type: {const: food_category}}, required: [candidate_type]}
+          then: {properties: {value: {type: string, enum: [grain_staple, vegetable, fruit, meat, seafood, dairy, egg, legume, snack, beverage, mixed_dish, other]}}}
+      example: {candidate_id: '019a0000-0000-7000-8000-000000000031', attachment_id: '019a0000-0000-7000-8000-000000000022', candidate_group_key: '019a0000-0000-7000-8000-000000000071', candidate_type: food_name, value: 米饭, confidence_band: medium, uncertainty_code: mixed_food, image_region: [0.1, 0.2, 0.8, 0.9]}
+    StoolRecordImageCandidate:
+      type: object
+      additionalProperties: false
+      required: [candidate_id, attachment_id, candidate_type, value, confidence_band, uncertainty_code]
+      properties:
+        candidate_id: {type: string, format: uuid}
+        attachment_id: {type: string, format: uuid}
+        candidate_type: {const: bristol_type}
+        value: {type: integer, minimum: 1, maximum: 7}
+        confidence_band: {type: string, enum: [low, medium, high]}
+        uncertainty_code: {type: string, enum: [partially_occluded, mixed_food, low_light, ambiguous_shape, image_quality, other]}
+        image_region: {type: [array, 'null'], minItems: 4, maxItems: 4, items: {type: number, minimum: 0, maximum: 1}}
+      example: {candidate_id: '019a0000-0000-7000-8000-000000000034', attachment_id: '019a0000-0000-7000-8000-000000000024', candidate_type: bristol_type, value: 4, confidence_band: medium, uncertainty_code: ambiguous_shape}
+    RecordImageRecognitionFailure:
+      type: object
+      additionalProperties: false
+      required: [callback_id, error_code]
+      properties:
+        callback_id: {type: string, format: uuid}
+        error_code: {type: string, enum: [agent_unavailable, timeout, invalid_image, internal_processing_error]}
     AnalysisFailure:
       type: object
       additionalProperties: false

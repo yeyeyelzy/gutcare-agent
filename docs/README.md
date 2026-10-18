@@ -11,15 +11,16 @@
 已采纳 ADR-0017：F02 解析结果 outcome 与 A03 疾病专属建议适用性，见 `ADR/0017-f02-parse-outcomes-and-applicability.md`。
 已采纳 ADR-0018：F02 已确认检验结果的保守冲突管理，见 `ADR/0018-f02-confirmed-lab-result-conflicts.md`。
 已采纳 ADR-0019：F14 心情记录、两项独立授权及受控 F08 快照输入，见 `ADR/0019-f14-mood-records-and-consent.md`。
-已采纳 ADR-0020：注册告知单一来源、生产 fail-closed 与登录后资料引导，见 `ADR/0020-registration-notice-source-and-profile-bootstrap.md`；仓库注册及心情授权开发/测试告知制品分别见 `../contracts/consent/registration-notices.json` 与 `../contracts/consent/consent-notices.json`，均不是生产法律文案。
+已采纳 ADR-0020：注册告知单一来源、生产 fail-closed 与登录后资料引导，见 `ADR/0020-registration-notice-source-and-profile-bootstrap.md`；仓库注册、心情授权及 F03/F04 purpose-specific 图像识别开发/测试告知制品分别见 `../contracts/consent/registration-notices.json`、`../contracts/consent/consent-notices.json` 和 `../contracts/consent/record-image-recognition-notices.json`，均不是生产法律文案。
+已采纳 ADR-0021：F03/F04 记录图片附件与独立识别候选闭环，含 Diet request-local 候选分组、名称先决事实落点、类型化 FK 附件快照、显式患者 retry 和 Stool Bristol-only 候选，见 `ADR/0021-f03-f04-image-recognition-lifecycle.md`；契约已冻结，尚未实现。
 APP 22 页原型事实、导航规范、视觉验收与编码前 G1 数据契约门禁见 `UI原型审查与页面导航规范.md`。
 源码输入哈希、视觉令牌、资产隔离导入、静态跳转缺陷及 GcAvatar 几何基线见 `UI源码基线与导入规范.md`。
 认证公开页面和组件化交付跟踪见 `前端开发与前后端联调计划.md` 的 B01-2 小节及 `需求追踪矩阵.md`。
 F02 的表/状态/API/隐私/测试追踪增补见 `F02-文件与医疗档案实现补充.md`。
 后端完成性与验收证据归档见 `后端交付验收报告.md`；该报告区分已实现证据、独立验收状态与外部依赖。
 
-> 基线版本：V1.5（ADR-0019/G1 契约增补）
-> 冻结日期：2026-10-17
+> 基线版本：V1.8（ADR-0021 类型化附件快照与显式 retry 增补）
+> 冻结日期：2026-10-18
 > 工作目录：`D:\GutCare_Agent`
 
 ## 1. 文档用途

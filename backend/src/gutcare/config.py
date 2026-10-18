@@ -26,6 +26,18 @@ class Settings(BaseSettings):
             "PRIVACY__CONSENT_NOTICES_PATH", "PRIVACY_CONSENT_NOTICES_PATH", "consent_notices_path"
         ),
     )
+    record_image_disclosures_path: Path | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "PRIVACY__RECORD_IMAGE_DISCLOSURES_PATH",
+            "PRIVACY_RECORD_IMAGE_DISCLOSURES_PATH",
+            "record_image_disclosures_path",
+        ),
+    )
+    diet_image_recognition_policy_version: str | None = None
+    diet_image_recognition_summary_hash: str | None = None
+    stool_image_recognition_policy_version: str | None = None
+    stool_image_recognition_summary_hash: str | None = None
     service_name: str = Field(
         default="gutcare-business-api",
         min_length=1,

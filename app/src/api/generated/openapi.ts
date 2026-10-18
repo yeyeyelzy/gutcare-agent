@@ -1152,6 +1152,150 @@ export interface paths {
         patch: operations["updateMedicationCheckin"];
         trace?: never;
     };
+    "/dietary-records/{record_id}/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listDietRecordImages"];
+        put?: never;
+        post: operations["attachDietRecordImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stool-records/{record_id}/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listStoolRecordImages"];
+        put?: never;
+        post: operations["attachStoolRecordImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/record-images/{image_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteRecordImage"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dietary-records/{record_id}/image-recognition-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createDietImageRecognitionRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stool-records/{record_id}/image-recognition-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createStoolImageRecognitionRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/record-image-recognition-disclosures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRecordImageRecognitionDisclosure"];
+        put?: never;
+        post: operations["acknowledgeRecordImageRecognitionDisclosure"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/record-image-recognition-requests/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRecordImageRecognitionRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/record-image-recognition-requests/{request_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retryRecordImageRecognitionRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/record-image-candidates/{candidate_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["decideRecordImageCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1528,6 +1672,283 @@ export interface components {
             /** Format: date-time */
             expires_at: string;
         };
+        /**
+         * @example {
+         *       "file_object_id": "019a0000-0000-7000-8000-000000000051",
+         *       "record_version": 3,
+         *       "image_set_version": 1,
+         *       "position": 1
+         *     }
+         */
+        DietRecordImageAttach: {
+            /**
+             * Format: uuid
+             * @description 已完成 clean 的同患者 F02 file object；服务端按 route 验证 diet_image/stool_image purpose
+             */
+            file_object_id: string;
+            record_version: number;
+            image_set_version: number;
+            position: number;
+        };
+        /**
+         * @example {
+         *       "file_object_id": "019a0000-0000-7000-8000-000000000052",
+         *       "record_version": 2,
+         *       "image_set_version": 0,
+         *       "position": 0
+         *     }
+         */
+        StoolRecordImageAttach: {
+            /**
+             * Format: uuid
+             * @description 已完成 clean 的同患者 F02 file object，purpose 必须为 stool_image
+             */
+            file_object_id: string;
+            record_version: number;
+            image_set_version: number;
+            /** @constant */
+            position: 0;
+        };
+        RecordImageAttachment: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            record_id: string;
+            position: number;
+            record_version: number;
+            image_set_version: number;
+            /** @enum {string} */
+            file_status: "available";
+            /** Format: date-time */
+            created_at: string;
+        };
+        /**
+         * @example {
+         *       "record_version": 3,
+         *       "image_set_version": 2,
+         *       "disclosure_token": "opaque-one-time-token-value-0123456789"
+         *     }
+         */
+        RecordImageRecognitionCreate: {
+            record_version: number;
+            image_set_version: number;
+            /** @description One-time service-issued token; never log or persist plaintext */
+            disclosure_token: string;
+        };
+        RecordImageDisclosureAcknowledgment: {
+            /** Format: uuid */
+            record_id: string;
+            /** @enum {string} */
+            purpose: "diet_image_recognition" | "stool_image_recognition";
+            record_version: number;
+            image_set_version: number;
+            /** @description Current enabled version returned by the service notice endpoint; caller attests the complete purpose-specific notice was shown and accepted */
+            policy_version: string;
+            /** @constant */
+            acknowledged: true;
+        };
+        RecordImageDisclosureToken: {
+            /** @description One-time five-minute token; retain only in request memory and never log */
+            disclosure_token: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        RecordImageDisclosure: {
+            /** @enum {string} */
+            purpose: "diet_image_recognition" | "stool_image_recognition";
+            enabled: boolean;
+            policy_version: string | null;
+            summary: string | null;
+            purpose_text: string | null;
+            data_scope: string | null;
+            recipient: string | null;
+            retention: string | null;
+            withdrawal_effect: string | null;
+        };
+        /**
+         * @example {
+         *       "id": "019a0000-0000-7000-8000-000000000021",
+         *       "recognition_type": "diet_image_recognition",
+         *       "status": "candidates_ready",
+         *       "record_version": 3,
+         *       "image_set_version": 2,
+         *       "decision_record_version": 3,
+         *       "attempt": 1,
+         *       "retry_of_request_id": null,
+         *       "candidates": [
+         *         {
+         *           "id": "019a0000-0000-7000-8000-000000000031",
+         *           "candidate_version": 1,
+         *           "attachment_id": "019a0000-0000-7000-8000-000000000022",
+         *           "candidate_group_key": "019a0000-0000-7000-8000-000000000071",
+         *           "candidate_type": "food_name",
+         *           "value": "米饭",
+         *           "confidence_band": "medium",
+         *           "uncertainty_code": "mixed_food",
+         *           "image_region": [
+         *             0.1,
+         *             0.2,
+         *             0.8,
+         *             0.9
+         *           ],
+         *           "status": "pending"
+         *         },
+         *         {
+         *           "id": "019a0000-0000-7000-8000-000000000032",
+         *           "candidate_version": 1,
+         *           "attachment_id": "019a0000-0000-7000-8000-000000000022",
+         *           "candidate_group_key": "019a0000-0000-7000-8000-000000000071",
+         *           "candidate_type": "food_category",
+         *           "value": "grain_staple",
+         *           "confidence_band": "medium",
+         *           "uncertainty_code": "mixed_food",
+         *           "image_region": [
+         *             0.1,
+         *             0.2,
+         *             0.8,
+         *             0.9
+         *           ],
+         *           "status": "pending"
+         *         },
+         *         {
+         *           "id": "019a0000-0000-7000-8000-000000000033",
+         *           "candidate_version": 1,
+         *           "attachment_id": "019a0000-0000-7000-8000-000000000023",
+         *           "candidate_group_key": "019a0000-0000-7000-8000-000000000071",
+         *           "candidate_type": "portion_description",
+         *           "value": "一小碗",
+         *           "confidence_band": "low",
+         *           "uncertainty_code": "partially_occluded",
+         *           "status": "pending"
+         *         },
+         *         {
+         *           "id": "019a0000-0000-7000-8000-000000000035",
+         *           "candidate_version": 1,
+         *           "attachment_id": "019a0000-0000-7000-8000-000000000022",
+         *           "candidate_group_key": "019a0000-0000-7000-8000-000000000072",
+         *           "candidate_type": "food_name",
+         *           "value": "西红柿",
+         *           "confidence_band": "low",
+         *           "uncertainty_code": "partially_occluded",
+         *           "status": "pending"
+         *         }
+         *       ],
+         *       "created_at": "2026-10-18T08:30:00Z",
+         *       "updated_at": "2026-10-18T08:30:00Z"
+         *     }
+         */
+        RecordImageRecognitionRequest: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            recognition_type: "diet_image_recognition" | "stool_image_recognition";
+            /** @enum {string} */
+            status: "pending" | "processing" | "candidates_ready" | "no_candidates" | "failed" | "cancelled" | "invalidated";
+            /** @enum {string|null} */
+            reason_code?: "low_image_quality" | "unsupported_image" | "no_visible_food" | "no_reliable_stool_type" | "agent_unavailable" | null;
+            record_version: number;
+            image_set_version: number;
+            /** @description Current parent record version expected by the next patient candidate decision */
+            decision_record_version: number;
+            attempt: number;
+            /** Format: uuid */
+            retry_of_request_id: string | null;
+            candidates: components["schemas"]["RecordImageCandidate"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        RecordImageCandidate: components["schemas"]["DietRecordImageCandidate"] | components["schemas"]["StoolRecordImageCandidate"];
+        /**
+         * @example {
+         *       "id": "019a0000-0000-7000-8000-000000000031",
+         *       "candidate_version": 1,
+         *       "attachment_id": "019a0000-0000-7000-8000-000000000022",
+         *       "candidate_group_key": "019a0000-0000-7000-8000-000000000071",
+         *       "candidate_type": "food_name",
+         *       "value": "米饭",
+         *       "confidence_band": "medium",
+         *       "uncertainty_code": "mixed_food",
+         *       "image_region": [
+         *         0.1,
+         *         0.2,
+         *         0.8,
+         *         0.9
+         *       ],
+         *       "status": "pending"
+         *     }
+         */
+        DietRecordImageCandidate: {
+            /** Format: uuid */
+            id: string;
+            candidate_version: number;
+            /** Format: uuid */
+            attachment_id: string;
+            /**
+             * Format: uuid
+             * @description Request-local opaque group identifier. Same key across attachments only when explicitly returned for the same item; never infer or merge across requests.
+             */
+            candidate_group_key: string;
+            /** @enum {string} */
+            candidate_type: "food_name" | "food_category" | "portion_description";
+            /** @description food_category uses the existing controlled category codes; null only after a patient decision redacts the candidate value. */
+            value: string | null;
+            /** @enum {string} */
+            confidence_band: "low" | "medium" | "high";
+            /** @enum {string} */
+            uncertainty_code: "partially_occluded" | "mixed_food" | "low_light" | "ambiguous_shape" | "image_quality" | "other";
+            image_region?: number[] | null;
+            /** @enum {string} */
+            status: "pending" | "accepted" | "edited" | "rejected" | "invalidated";
+        } & unknown;
+        /**
+         * @example {
+         *       "id": "019a0000-0000-7000-8000-000000000034",
+         *       "candidate_version": 1,
+         *       "attachment_id": "019a0000-0000-7000-8000-000000000024",
+         *       "candidate_type": "bristol_type",
+         *       "value": 4,
+         *       "confidence_band": "medium",
+         *       "uncertainty_code": "ambiguous_shape",
+         *       "status": "pending"
+         *     }
+         */
+        StoolRecordImageCandidate: {
+            /** Format: uuid */
+            id: string;
+            candidate_version: number;
+            /** Format: uuid */
+            attachment_id: string;
+            /** @constant */
+            candidate_type: "bristol_type";
+            /** @description Redacted to null after a patient decision. */
+            value: number | null;
+            /** @enum {string} */
+            confidence_band: "low" | "medium" | "high";
+            /** @enum {string} */
+            uncertainty_code: "partially_occluded" | "mixed_food" | "low_light" | "ambiguous_shape" | "image_quality" | "other";
+            image_region?: number[] | null;
+            /** @enum {string} */
+            status: "pending" | "accepted" | "edited" | "rejected" | "invalidated";
+        };
+        /**
+         * @example {
+         *       "candidate_version": 1,
+         *       "record_version": 3,
+         *       "image_set_version": 2,
+         *       "action": "accept"
+         *     }
+         */
+        RecordImageCandidateDecision: {
+            candidate_version: number;
+            record_version: number;
+            image_set_version: number;
+            /** @enum {string} */
+            action: "accept" | "edit" | "reject";
+            /** @description Required only for edit; food_category accepts only the controlled category codes */
+            corrected_value?: string | number;
+        };
         /** @description 路径 record_type 是 payload 的判别字段：diet-records 使用 DietRecordPayload，stool-records 使用 StoolRecordPayload，symptom-records 使用 SymptomRecordPayload。未知字段、其他记录类型字段和客户端指定 patient_id/source_type/确认状态均拒绝。创建必须带 Idempotency-Key。 */
         RecordWrite: {
             /** Format: date-time */
@@ -1544,11 +1965,6 @@ export interface components {
         DietRecordPayload: {
             /** @enum {string|null} */
             meal_type?: "breakfast" | "lunch" | "dinner" | "snack" | "other" | null;
-            /**
-             * Format: uuid
-             * @description 可选的已完成且通过扫描的 F02 diet_image 文件对象；需同患者且有当前数据处理及敏感图片授权
-             */
-            image_object_id?: string | null;
             text_description?: string | null;
             items?: {
                 name: string;
@@ -1561,11 +1977,6 @@ export interface components {
         };
         StoolRecordPayload: {
             bristol_type?: number | null;
-            /**
-             * Format: uuid
-             * @description 可选的已完成且通过扫描的 F02 stool_image 文件对象；需同患者且有当前数据处理及敏感图片授权
-             */
-            image_object_id?: string | null;
             color_code?: string | null;
             /** @description 患者自述，不代表图像诊断 */
             blood_reported?: boolean | null;
@@ -1598,6 +2009,8 @@ export interface components {
             /** Format: uuid */
             id: string;
             record_version: number;
+            /** @description F03/F04 attachment set version; zero means no attachment change yet */
+            image_set_version: number;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -5147,6 +5560,365 @@ export interface operations {
             401: components["responses"]["Problem"];
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    listDietRecordImages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: components["parameters"]["RecordId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Diet image attachments (up to ten) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordImageAttachment"][];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    attachDietRecordImage: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                record_id: components["parameters"]["RecordId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DietRecordImageAttach"];
+            };
+        };
+        responses: {
+            /** @description Attached image */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordImageAttachment"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    listStoolRecordImages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: components["parameters"]["RecordId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stool image attachment (zero or one) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordImageAttachment"][];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    attachStoolRecordImage: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                record_id: components["parameters"]["RecordId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoolRecordImageAttach"];
+            };
+        };
+        responses: {
+            /** @description Attached image */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordImageAttachment"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    deleteRecordImage: {
+        parameters: {
+            query: {
+                record_version: number;
+                image_set_version: number;
+            };
+            header?: never;
+            path: {
+                image_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Image access revoked; file enters existing seven-day deletion lifecycle */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+        };
+    };
+    createDietImageRecognitionRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                record_id: components["parameters"]["RecordId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordImageRecognitionCreate"];
+            };
+        };
+        responses: {
+            /** @description Recognition queued; candidate values are not patient facts */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordImageRecognitionRequest"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    createStoolImageRecognitionRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                record_id: components["parameters"]["RecordId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordImageRecognitionCreate"];
+            };
+        };
+        responses: {
+            /** @description Recognition queued; candidate values are not patient facts */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordImageRecognitionRequest"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    getRecordImageRecognitionDisclosure: {
+        parameters: {
+            query: {
+                purpose: "diet_image_recognition" | "stool_image_recognition";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current purpose-specific notice; production returns enabled=false if no signed notice is configured */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordImageDisclosure"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    acknowledgeRecordImageRecognitionDisclosure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordImageDisclosureAcknowledgment"];
+            };
+        };
+        responses: {
+            /** @description One-time five-minute disclosure token bound to patient */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordImageDisclosureToken"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    getRecordImageRecognitionRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request state and item candidates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordImageRecognitionRequest"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    retryRecordImageRecognitionRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordImageRecognitionCreate"];
+            };
+        };
+        responses: {
+            /** @description New request created from current source state; retry_of_request_id identifies the terminal parent */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordImageRecognitionRequest"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            /** @description RFC 9457; codes include RECORD_IMAGE_RETRY_NOT_ALLOWED (parent nonterminal/already retried/active child) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    decideRecordImageCandidate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordImageCandidateDecision"];
+            };
+        };
+        responses: {
+            /** @description One candidate decision recorded; replay is idempotent */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            /** @description Version/idempotency conflict or food field dependency not met; dependency failure has no state or fact side effects and leaves the candidate pending. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             422: components["responses"]["Problem"];
         };
     };

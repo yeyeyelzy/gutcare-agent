@@ -17,6 +17,7 @@ from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as local_time
 from io import BytesIO
+from pathlib import Path
 from threading import Barrier, Event
 from typing import Any
 from uuid import UUID, uuid4
@@ -968,7 +969,7 @@ def test_migrations_round_trip_all_revisions(database: Any) -> None:
             )
             assert (
                 db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0026_h3b_mood_privacy_lifecycle"
+                == "0027_f03_f04_recognition"
             )
             assert db.scalar(text("SELECT to_regclass('health.mood_record') IS NOT NULL"))
             assert (
@@ -1033,7 +1034,7 @@ def test_migrations_round_trip_all_revisions(database: Any) -> None:
             )
             assert (
                 db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0026_h3b_mood_privacy_lifecycle"
+                == "0027_f03_f04_recognition"
             )
             assert db.scalar(text("SELECT to_regclass('health.mood_record') IS NOT NULL"))
             assert (
@@ -1832,6 +1833,7 @@ def test_f03_f05_postgres_rls_composite_ownership_and_rule_review_gate(database:
                     diet_record_id=UUID(created_b["id"]),
                     patient_id=patient_a,
                     name="cross-patient synthetic item",
+                    item_position=0,
                 )
             )
 
@@ -3997,6 +3999,732 @@ def test_f13_receipt_export_wrapped_dek_and_versioned_delete_replay(
         worker_engine.dispose()
 
 
+def test_f03_f04_image_recognition_real_object_consent_callback_and_decision(
+    database: Any,
+) -> None:
+    """T133-T140: controlled image lifecycle with real PG, MinIO, and ClamAV."""
+    endpoint = os.environ.get("GUTCARE_TEST_S3_ENDPOINT")
+    clamav_host = os.environ.get("GUTCARE_TEST_CLAMAV_HOST")
+    if not endpoint or not clamav_host:
+        pytest.skip("F03/F04 integration requires private MinIO and ClamAV services.")
+    app_engine, migrator_engine = database
+    app_url, _ = _integration_urls()
+    worker_url = app_url.set(
+        username="gutcare_analysis_worker",
+        password=os.environ["GUTCARE_TEST_ANALYSIS_WORKER_PASSWORD"],
+    )
+    worker_engine = _engine(worker_url, "gutcare-record-image-worker-integration")
+    bucket = os.environ.get("GUTCARE_TEST_S3_BUCKET", "gutcare-files-integration")
+    access_key = os.environ.get("GUTCARE_TEST_S3_ACCESS_KEY", "gutcare_test_storage")
+    secret_key = os.environ.get("GUTCARE_TEST_S3_SECRET_KEY", "gutcare-test-storage-only")
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name="us-east-1",
+    )
+    try:
+        s3.create_bucket(Bucket=bucket)
+    except Exception as error:
+        if "BucketAlready" not in str(error):
+            raise
+
+    notice_path = (
+        Path(__file__).resolve().parents[3]
+        / "contracts/consent/record-image-recognition-notices.json"
+    )
+    notice_artifact = json.loads(notice_path.read_text(encoding="utf-8"))
+    notices = {item["purpose"]: item for item in notice_artifact["purpose_disclosures"]}
+    settings = Settings(
+        env="test",
+        database_url=app_engine.url.render_as_string(hide_password=False),
+        analysis_worker_database_url=worker_url.render_as_string(hide_password=False),
+        object_storage_endpoint=endpoint,
+        object_storage_access_key=access_key,
+        object_storage_secret_key=secret_key,
+        object_storage_bucket=bucket,
+        clamav_host=clamav_host,
+        clamav_port=int(os.environ.get("GUTCARE_TEST_CLAMAV_PORT", "13310")),
+        files_capability_secret="integration-image-capability-secret-32chars",
+        agent_service_token="integration-record-image-agent-token-32chars",
+        record_image_disclosures_path=notice_path,
+        diet_image_recognition_policy_version=notices["diet_image_recognition"]["policy_version"],
+        diet_image_recognition_summary_hash=notices["diet_image_recognition"]["summary_sha256"],
+        stool_image_recognition_policy_version=notices["stool_image_recognition"]["policy_version"],
+        stool_image_recognition_summary_hash=notices["stool_image_recognition"]["summary_sha256"],
+    )
+    app = create_app(settings=settings)
+    user_a, patient_a = _seed_patient(app_engine, nickname="image-owner-a")
+    user_b, patient_b = _seed_patient(app_engine, nickname="image-owner-b")
+    context_a = AuthContext(user_a, uuid4())
+    app.dependency_overrides[current_auth_context] = lambda: context_a
+    with _sessions(app_engine).begin() as db:
+        db.execute(text("SELECT set_config('app.patient_id',:p,true)"), {"p": str(patient_a)})
+        for consent_type in ("health_data_processing", "sensitive_image", "third_party_ai"):
+            db.add(
+                PatientConsent(
+                    patient_id=patient_a,
+                    consent_type=consent_type,
+                    document_version="integration-v1",
+                    granted=True,
+                    decided_at=utc_now(),
+                    metadata_json={"notice_summary_hash": "a" * 64},
+                )
+            )
+
+    from PIL import Image
+
+    image_buffer = BytesIO()
+    Image.new("RGB", (8, 8), (17, 36, 55)).save(image_buffer, format="JPEG")
+    image_bytes = image_buffer.getvalue()
+    client = TestClient(app)
+    agent_headers = {"Authorization": f"Bearer {settings.agent_service_token}"}
+
+    def uploaded(purpose: str, suffix: str) -> UUID:
+        service = app.state.file_service
+        upload, capability = service.create_upload(
+            context_a,
+            purpose=purpose,
+            file_name=f"synthetic-{suffix}.jpg",
+            content_type="image/jpeg",
+            size_bytes=len(image_bytes),
+            idempotency_key=f"image-{suffix}-upload-001",
+        )
+        service.accept_upload(context_a, capability, image_bytes, "image/jpeg")
+        return service.complete_upload(context_a, upload.upload_id).id
+
+    def current_versions(record_id: UUID, record_table: str) -> tuple[int, int]:
+        with _sessions(migrator_engine)() as db:
+            db.execute(text("SELECT set_config('app.patient_id',:p,true)"), {"p": str(patient_a)})
+            versions = db.execute(
+                text(
+                    f"SELECT record_version,image_set_version FROM health.{record_table} WHERE id=:r"
+                ),
+                {"r": record_id},
+            ).one()
+            return int(versions[0]), int(versions[1])
+
+    def disclose(record_id: UUID, purpose: str, record_table: str) -> tuple[int, int, str]:
+        record_version, image_set_version = current_versions(record_id, record_table)
+        response = client.post(
+            "/api/v1/record-image-recognition-disclosures",
+            json={
+                "record_id": str(record_id),
+                "purpose": purpose,
+                "record_version": record_version,
+                "image_set_version": image_set_version,
+                "policy_version": notices[purpose]["policy_version"],
+                "acknowledged": True,
+            },
+        )
+        assert response.status_code == 201, response.text
+        return record_version, image_set_version, response.json()["token"]
+
+    try:
+        diet = app.state.record_service.create(
+            context_a,
+            "diet-records",
+            utc_now(),
+            {"text_description": "synthetic meal"},
+            "image-diet-record-001",
+        )
+        diet_id = UUID(diet["id"])
+        diet_file_ids = [uploaded("diet_image", f"diet-{i}") for i in range(11)]
+        diet_images: list[dict[str, Any]] = []
+        record_version = int(diet["record_version"])
+        image_set_version = 1
+        for file_id in diet_file_ids[:10]:
+            response = client.post(
+                f"/api/v1/dietary-records/{diet_id}/images",
+                headers={"Idempotency-Key": f"diet-attach-{file_id}"},
+                json={
+                    "file_object_id": str(file_id),
+                    "record_version": record_version,
+                    "image_set_version": image_set_version,
+                },
+            )
+            assert response.status_code == 201, response.text
+            diet_images.append(response.json())
+            record_version = response.json()["record_version"]
+            image_set_version = response.json()["image_set_version"]
+        assert [item["position"] for item in diet_images] == list(range(10))
+        over_limit = client.post(
+            f"/api/v1/dietary-records/{diet_id}/images",
+            headers={"Idempotency-Key": "diet-attachment-eleven-001"},
+            json={
+                "file_object_id": str(diet_file_ids[10]),
+                "record_version": record_version,
+                "image_set_version": image_set_version,
+            },
+        )
+        assert over_limit.status_code == 409
+        # A completed, clean diet-purpose upload is not linkable to stool records.
+        stool = app.state.record_service.create(
+            context_a, "stool-records", utc_now(), {}, "image-stool-record-001"
+        )
+        stool_id = UUID(stool["id"])
+        mismatch = client.post(
+            f"/api/v1/stool-records/{stool_id}/images",
+            headers={"Idempotency-Key": "stool-purpose-mismatch-001"},
+            json={
+                "file_object_id": str(diet_file_ids[0]),
+                "record_version": stool["record_version"],
+                "image_set_version": 1,
+            },
+        )
+        assert mismatch.status_code == 404
+
+        diet_rv, diet_iv, disclosure_token = disclose(
+            diet_id, "diet_image_recognition", "diet_record"
+        )
+        request_response = client.post(
+            f"/api/v1/dietary-records/{diet_id}/image-recognition-requests",
+            headers={"Idempotency-Key": "diet-recognition-create-001"},
+            json={
+                "record_version": diet_rv,
+                "image_set_version": diet_iv,
+                "disclosure_token": disclosure_token,
+            },
+        )
+        assert request_response.status_code == 202, request_response.text
+        request_id = UUID(request_response.json()["id"])
+        replay = client.post(
+            f"/api/v1/dietary-records/{diet_id}/image-recognition-requests",
+            headers={"Idempotency-Key": "diet-recognition-create-001"},
+            json={
+                "record_version": diet_rv,
+                "image_set_version": diet_iv,
+                "disclosure_token": disclosure_token,
+            },
+        )
+        assert replay.json()["id"] == str(request_id)
+        claim_response = client.post(
+            "/internal/v1/agent/record-image-recognition/claim", headers=agent_headers
+        )
+        assert claim_response.status_code == 200 and claim_response.json()["request"][
+            "request_id"
+        ] == str(request_id)
+        input_response = client.get(
+            f"/internal/v1/agent/record-image-recognition/requests/{request_id}/input",
+            headers=agent_headers,
+        )
+        assert input_response.status_code == 200
+        frozen = input_response.json()
+        assert len(frozen["attachments"]) == 10
+        read_url = f"/internal/v1/agent/record-image-recognition/images/{frozen['attachments'][0]['image_capability']}"
+        read_response = client.get(read_url, headers=agent_headers)
+        assert read_response.status_code == 200 and read_response.content == image_bytes
+        assert client.get(read_url, headers=agent_headers).status_code == 404
+
+        group_a, group_b = uuid4(), uuid4()
+        diet_candidates = [
+            {
+                "candidate_id": str(uuid4()),
+                "attachment_id": frozen["attachments"][0]["attachment_id"],
+                "candidate_group_key": str(group_a),
+                "candidate_type": "food_name",
+                "value": "rice",
+                "confidence_band": "high",
+                "uncertainty_code": "other",
+            },
+            {
+                "candidate_id": str(uuid4()),
+                "attachment_id": frozen["attachments"][0]["attachment_id"],
+                "candidate_group_key": str(group_a),
+                "candidate_type": "food_category",
+                "value": "grain_staple",
+                "confidence_band": "medium",
+                "uncertainty_code": "other",
+            },
+            {
+                "candidate_id": str(uuid4()),
+                "attachment_id": frozen["attachments"][0]["attachment_id"],
+                "candidate_group_key": str(group_a),
+                "candidate_type": "portion_description",
+                "value": "small bowl",
+                "confidence_band": "low",
+                "uncertainty_code": "mixed_food",
+            },
+            {
+                "candidate_id": str(uuid4()),
+                "attachment_id": frozen["attachments"][0]["attachment_id"],
+                "candidate_group_key": str(group_b),
+                "candidate_type": "food_name",
+                "value": "soup",
+                "confidence_band": "low",
+                "uncertainty_code": "other",
+            },
+            {
+                "candidate_id": str(uuid4()),
+                "attachment_id": frozen["attachments"][0]["attachment_id"],
+                "candidate_group_key": str(group_b),
+                "candidate_type": "food_category",
+                "value": "vegetable",
+                "confidence_band": "low",
+                "uncertainty_code": "other",
+            },
+        ]
+        callback = {
+            "callback_id": str(uuid4()),
+            "record_version": diet_rv,
+            "image_set_version": diet_iv,
+            "schema_version": "1.0",
+            "images": [
+                {
+                    "attachment_id": frozen["attachments"][0]["attachment_id"],
+                    "image_quality": "usable",
+                    "candidates": diet_candidates,
+                },
+                *[
+                    {
+                        "attachment_id": item["attachment_id"],
+                        "image_quality": "uncertain",
+                        "candidates": [],
+                    }
+                    for item in frozen["attachments"][1:]
+                ],
+            ],
+        }
+        callback_url = (
+            f"/internal/v1/agent/record-image-recognition/requests/{request_id}/candidates"
+        )
+        assert client.post(callback_url, headers=agent_headers, json=callback).status_code == 204
+        assert client.post(callback_url, headers=agent_headers, json=callback).status_code == 204
+        changed_callback = json.loads(json.dumps(callback))
+        changed_callback["images"][0]["candidates"][0]["value"] = "changed"
+        assert (
+            client.post(callback_url, headers=agent_headers, json=changed_callback).status_code
+            == 409
+        )
+        analysis_task, _created = AnalysisService(_sessions(app_engine)).create(
+            context_a,
+            {
+                "analysis_type": "comprehensive_health_analysis",
+                "requested_from": None,
+                "requested_to": None,
+            },
+            "image-candidate-snapshot-exclusion-001",
+        )
+        with _sessions(app_engine)() as db:
+            db.execute(text("SELECT set_config('app.patient_id',:p,true)"), {"p": str(patient_a)})
+            snapshot_payload = db.scalar(
+                text(
+                    "SELECT snapshot_payload::text FROM analysis.task_input_snapshot WHERE task_id=:id AND patient_id=:p"
+                ),
+                {"id": UUID(analysis_task["id"]), "p": patient_a},
+            )
+        assert snapshot_payload is not None and "rice" not in snapshot_payload
+        status = client.get(f"/api/v1/record-image-recognition-requests/{request_id}").json()
+        candidate_by = {
+            item["candidate_type"] + str(item.get("candidate_group_key")): item
+            for item in status["candidates"]
+        }
+        category_a = candidate_by["food_category" + str(group_a)]
+        name_a = candidate_by["food_name" + str(group_a)]
+        portion_a = candidate_by["portion_description" + str(group_a)]
+        name_b = candidate_by["food_name" + str(group_b)]
+        category_b = candidate_by["food_category" + str(group_b)]
+
+        def decide(
+            candidate: dict[str, Any], action: str, version: int, key: str, value: Any = None
+        ) -> Any:
+            body: dict[str, Any] = {
+                "action": action,
+                "candidate_version": candidate["candidate_version"],
+                "record_version": version,
+                "image_set_version": diet_iv,
+            }
+            if value is not None:
+                body["corrected_value"] = value
+            return client.post(
+                f"/api/v1/record-image-candidates/{candidate['id']}/decision",
+                headers={"Idempotency-Key": key},
+                json=body,
+            )
+
+        dependency = decide(category_a, "accept", diet_rv, "diet-category-too-early-001")
+        assert dependency.status_code == 409 and dependency.json()["type"].endswith(
+            "candidate_dependency_unmet"
+        )
+        assert decide(name_a, "accept", diet_rv, "diet-name-accept-001").status_code == 204
+        diet_rv += 1
+        assert decide(category_a, "accept", diet_rv, "diet-category-accept-002").status_code == 204
+        diet_rv += 1
+        assert (
+            decide(portion_a, "edit", diet_rv, "diet-portion-edit-003", "half bowl").status_code
+            == 204
+        )
+        diet_rv += 1
+        assert decide(name_b, "reject", diet_rv, "diet-name-reject-004").status_code == 204
+        with _sessions(app_engine)() as db:
+            db.execute(text("SELECT set_config('app.patient_id',:p,true)"), {"p": str(patient_a)})
+            items = (
+                db.execute(
+                    text(
+                        "SELECT name,category_code,amount_text,confirmed_by_patient FROM health.diet_item WHERE patient_id=:p AND diet_record_id=:r ORDER BY item_position"
+                    ),
+                    {"p": patient_a, "r": diet_id},
+                )
+                .mappings()
+                .all()
+            )
+            rejected_sibling = db.execute(
+                text(
+                    "SELECT status,value,locator FROM analysis.record_image_candidate WHERE id=:id"
+                ),
+                {"id": UUID(category_b["id"])},
+            ).one()
+        assert len(items) == 1 and dict(items[0]) == {
+            "name": "rice",
+            "category_code": "grain_staple",
+            "amount_text": "half bowl",
+            "confirmed_by_patient": True,
+        }
+        assert (
+            rejected_sibling.status == "invalidated"
+            and rejected_sibling.value is None
+            and rejected_sibling.locator is None
+        )
+        # Patient B cannot discover request A; patient CRUD/manual fallback stays available.
+        app.dependency_overrides[current_auth_context] = lambda: AuthContext(user_b, uuid4())
+        assert (
+            client.get(f"/api/v1/record-image-recognition-requests/{request_id}").status_code == 404
+        )
+        app.dependency_overrides[current_auth_context] = lambda: context_a
+        manual = app.state.record_service.create(
+            context_a,
+            "diet-records",
+            utc_now(),
+            {"text_description": "manual fallback"},
+            "image-manual-fallback-001",
+        )
+        assert manual["id"]
+
+        # Stool is single-image and Bristol-only; then revoke consent while a
+        # second task is processing to prove capabilities/candidates fail closed.
+        stool_file = uploaded("stool_image", "stool-one")
+        stool_version = int(stool["record_version"])
+        stool_image_response = client.post(
+            f"/api/v1/stool-records/{stool_id}/images",
+            headers={"Idempotency-Key": "stool-attach-one-001"},
+            json={
+                "file_object_id": str(stool_file),
+                "record_version": stool_version,
+                "image_set_version": 1,
+            },
+        )
+        assert stool_image_response.status_code == 201
+        diet_attachment_id = UUID(diet_images[0]["id"])
+        stool_attachment_id = UUID(stool_image_response.json()["id"])
+
+        def assert_request_attachment_rejected(
+            patient_id: UUID,
+            position: int,
+            file_version: int,
+            diet_attachment: UUID | None,
+            stool_attachment: UUID | None,
+            sqlstate: str,
+        ) -> None:
+            with pytest.raises(DBAPIError) as raised:
+                with _sessions(migrator_engine).begin() as db:
+                    db.execute(
+                        text("SELECT set_config('app.patient_id',:p,true)"),
+                        {"p": str(patient_a)},
+                    )
+                    db.execute(
+                        text("""INSERT INTO analysis.record_image_request_attachment(
+                        request_id,patient_id,position,file_version,diet_attachment_id,stool_attachment_id
+                        ) VALUES (:request,:patient,:position,:version,:diet,:stool)"""),
+                        {
+                            "request": request_id,
+                            "patient": patient_id,
+                            "position": position,
+                            "version": file_version,
+                            "diet": diet_attachment,
+                            "stool": stool_attachment,
+                        },
+                    )
+            assert getattr(raised.value.orig, "sqlstate", None) == sqlstate
+
+        # Composite patient ownership, request-kind trigger, and frozen version
+        # checks are enforced by PostgreSQL rather than relying on API validation.
+        assert_request_attachment_rejected(patient_b, 90, 1, diet_attachment_id, None, "23503")
+        assert_request_attachment_rejected(patient_a, 90, 1, None, stool_attachment_id, "23514")
+        assert_request_attachment_rejected(patient_a, 90, 2, diet_attachment_id, None, "23514")
+        second_stool_file = uploaded("stool_image", "stool-two")
+        stool_over_limit = client.post(
+            f"/api/v1/stool-records/{stool_id}/images",
+            headers={"Idempotency-Key": "stool-attach-two-001"},
+            json={
+                "file_object_id": str(second_stool_file),
+                "record_version": stool_image_response.json()["record_version"],
+                "image_set_version": stool_image_response.json()["image_set_version"],
+            },
+        )
+        assert stool_over_limit.status_code == 409
+        stool_rv, stool_iv, stool_disclosure = disclose(
+            stool_id, "stool_image_recognition", "stool_record"
+        )
+        stool_request_response = client.post(
+            f"/api/v1/stool-records/{stool_id}/image-recognition-requests",
+            headers={"Idempotency-Key": "stool-recognition-create-001"},
+            json={
+                "record_version": stool_rv,
+                "image_set_version": stool_iv,
+                "disclosure_token": stool_disclosure,
+            },
+        )
+        assert stool_request_response.status_code == 202
+        stool_request_id = UUID(stool_request_response.json()["id"])
+        stool_claim = client.post(
+            "/internal/v1/agent/record-image-recognition/claim", headers=agent_headers
+        ).json()["request"]
+        assert stool_claim["request_id"] == str(stool_request_id)
+        stool_input = client.get(
+            f"/internal/v1/agent/record-image-recognition/requests/{stool_request_id}/input",
+            headers=agent_headers,
+        ).json()
+        assert len(stool_input["attachments"]) == 1
+        stool_attachment_id = stool_input["attachments"][0]["attachment_id"]
+        stool_callback = {
+            "callback_id": str(uuid4()),
+            "record_version": stool_rv,
+            "image_set_version": stool_iv,
+            "schema_version": "1.0",
+            "images": [
+                {
+                    "attachment_id": stool_attachment_id,
+                    "image_quality": "usable",
+                    "candidates": [
+                        {
+                            "candidate_id": str(uuid4()),
+                            "attachment_id": stool_attachment_id,
+                            "candidate_type": "bristol_type",
+                            "value": 4,
+                            "confidence_band": "medium",
+                            "uncertainty_code": "other",
+                        }
+                    ],
+                }
+            ],
+        }
+        stool_callback_url = (
+            f"/internal/v1/agent/record-image-recognition/requests/{stool_request_id}/candidates"
+        )
+        assert (
+            client.post(stool_callback_url, headers=agent_headers, json=stool_callback).status_code
+            == 204
+        )
+        stool_candidate_id = UUID(stool_callback["images"][0]["candidates"][0]["candidate_id"])
+        stool_decision = client.post(
+            f"/api/v1/record-image-candidates/{stool_candidate_id}/decision",
+            headers={"Idempotency-Key": "stool-bristol-accept-001"},
+            json={
+                "action": "accept",
+                "candidate_version": 1,
+                "record_version": stool_rv,
+                "image_set_version": stool_iv,
+            },
+        )
+        assert stool_decision.status_code == 204
+        with _sessions(app_engine)() as db:
+            db.execute(text("SELECT set_config('app.patient_id',:p,true)"), {"p": str(patient_a)})
+            assert (
+                db.scalar(
+                    text("SELECT bristol_type FROM health.stool_record WHERE id=:id"),
+                    {"id": stool_id},
+                )
+                == 4
+            )
+
+        # A terminal failure can be explicitly retried with a new disclosure;
+        # retries use a new request/snapshot and preserve their parent.
+        revoke_diet = app.state.record_service.create(
+            context_a,
+            "diet-records",
+            utc_now(),
+            {"text_description": "synthetic meal for revocation"},
+            "image-diet-revoke-record-001",
+        )
+        revoke_diet_id = UUID(revoke_diet["id"])
+        revoke_file_id = uploaded("diet_image", "diet-revoke")
+        revoke_record_version, revoke_image_set_version = current_versions(
+            revoke_diet_id, "diet_record"
+        )
+        revoke_attach = client.post(
+            f"/api/v1/dietary-records/{revoke_diet_id}/images",
+            headers={"Idempotency-Key": "diet-revoke-attach-001"},
+            json={
+                "file_object_id": str(revoke_file_id),
+                "record_version": revoke_record_version,
+                "image_set_version": revoke_image_set_version,
+            },
+        )
+        assert revoke_attach.status_code == 201, revoke_attach.text
+        diet_rv, diet_iv, revoke_disclosure = disclose(
+            revoke_diet_id, "diet_image_recognition", "diet_record"
+        )
+        revoke_request = client.post(
+            f"/api/v1/dietary-records/{revoke_diet_id}/image-recognition-requests",
+            headers={"Idempotency-Key": "diet-recognition-revoke-001"},
+            json={
+                "record_version": diet_rv,
+                "image_set_version": diet_iv,
+                "disclosure_token": revoke_disclosure,
+            },
+        )
+        assert revoke_request.status_code == 202, revoke_request.text
+        parent_request_id = UUID(revoke_request.json()["id"])
+        parent_claim = client.post(
+            "/internal/v1/agent/record-image-recognition/claim", headers=agent_headers
+        ).json()["request"]
+        assert parent_claim["request_id"] == str(parent_request_id)
+        parent_input = client.get(
+            f"/internal/v1/agent/record-image-recognition/requests/{parent_request_id}/input",
+            headers=agent_headers,
+        ).json()
+        parent_capability = parent_input["attachments"][0]["image_capability"]
+        parent_fail = client.post(
+            f"/internal/v1/agent/record-image-recognition/requests/{parent_request_id}/fail",
+            headers=agent_headers,
+            json={"callback_id": str(uuid4()), "error_code": "agent_unavailable"},
+        )
+        assert parent_fail.status_code == 204
+        assert (
+            client.get(
+                f"/internal/v1/agent/record-image-recognition/images/{parent_capability}",
+                headers=agent_headers,
+            ).status_code
+            == 404
+        )
+
+        retry_record_version, retry_image_set_version, retry_disclosure = disclose(
+            revoke_diet_id, "diet_image_recognition", "diet_record"
+        )
+        retry_body = {
+            "record_version": retry_record_version,
+            "image_set_version": retry_image_set_version,
+            "disclosure_token": retry_disclosure,
+        }
+        retry_headers = {"Idempotency-Key": "diet-recognition-retry-001"}
+        retry_response = client.post(
+            f"/api/v1/record-image-recognition-requests/{parent_request_id}/retry",
+            headers=retry_headers,
+            json=retry_body,
+        )
+        assert retry_response.status_code == 202, retry_response.text
+        retry_dto = retry_response.json()
+        retry_request_id = UUID(retry_dto["id"])
+        assert retry_dto["attempt"] == 2
+        assert retry_dto["retry_of_request_id"] == str(parent_request_id)
+        assert client.post(
+            f"/api/v1/record-image-recognition-requests/{parent_request_id}/retry",
+            headers=retry_headers,
+            json=retry_body,
+        ).json()["id"] == str(retry_request_id)
+        changed_retry = {**retry_body, "disclosure_token": "x" * 48}
+        assert (
+            client.post(
+                f"/api/v1/record-image-recognition-requests/{parent_request_id}/retry",
+                headers=retry_headers,
+                json=changed_retry,
+            ).json()["code"]
+            == "IDEMPOTENCY_CONFLICT"
+        )
+        assert (
+            client.post(
+                f"/api/v1/record-image-recognition-requests/{parent_request_id}/retry",
+                headers={"Idempotency-Key": "diet-recognition-retry-alt-001"},
+                json=retry_body,
+            ).status_code
+            == 409
+        )
+        with _sessions(migrator_engine)() as db:
+            parent_state, parent_attempt, parent_retry = db.execute(
+                text("""SELECT status,attempt,retry_of_request_id
+                FROM analysis.record_image_recognition_request WHERE id=:id"""),
+                {"id": parent_request_id},
+            ).one()
+            child_attempt, child_parent = db.execute(
+                text("""SELECT attempt,retry_of_request_id
+                FROM analysis.record_image_recognition_request WHERE id=:id"""),
+                {"id": retry_request_id},
+            ).one()
+            assert (parent_state, parent_attempt, parent_retry) == ("failed", 1, None)
+            assert (child_attempt, child_parent) == (2, parent_request_id)
+            assert (
+                db.scalar(
+                    text(
+                        "SELECT count(*) FROM analysis.record_image_request_attachment WHERE request_id=:id"
+                    ),
+                    {"id": retry_request_id},
+                )
+                == 1
+            )
+
+        active_rv, active_iv, active_disclosure = disclose(
+            revoke_diet_id, "diet_image_recognition", "diet_record"
+        )
+        active_conflict = client.post(
+            f"/api/v1/dietary-records/{revoke_diet_id}/image-recognition-requests",
+            headers={"Idempotency-Key": "diet-recognition-active-conflict-001"},
+            json={
+                "record_version": active_rv,
+                "image_set_version": active_iv,
+                "disclosure_token": active_disclosure,
+            },
+        )
+        assert active_conflict.status_code == 409
+        assert active_conflict.json()["code"] == "RECORD_IMAGE_REQUEST_ACTIVE"
+
+        # The active retry also fails closed when a required consent is revoked.
+        retry_claim = client.post(
+            "/internal/v1/agent/record-image-recognition/claim", headers=agent_headers
+        ).json()["request"]
+        assert retry_claim["request_id"] == str(retry_request_id)
+        retry_input = client.get(
+            f"/internal/v1/agent/record-image-recognition/requests/{retry_request_id}/input",
+            headers=agent_headers,
+        ).json()
+        capability = retry_input["attachments"][0]["image_capability"]
+        app.state.auth_service.record_consent(context_a, "third_party_ai", "integration-v1", False)
+        assert (
+            client.get(
+                f"/internal/v1/agent/record-image-recognition/images/{capability}",
+                headers=agent_headers,
+            ).status_code
+            == 404
+        )
+        with _sessions(migrator_engine)() as db:
+            retry_status = db.scalar(
+                text("SELECT status FROM analysis.record_image_recognition_request WHERE id=:id"),
+                {"id": retry_request_id},
+            )
+            assert retry_status == "cancelled"
+
+        # Record deletion queues the original ten files for seven-day cleanup.
+        diet_rv, _diet_iv = current_versions(diet_id, "diet_record")
+        app.state.record_service.delete(context_a, "diet-records", diet_id, diet_rv)
+        with _sessions(migrator_engine)() as db:
+            db.execute(text("SELECT set_config('app.patient_id',:p,true)"), {"p": str(patient_a)})
+            queued = int(
+                db.scalar(
+                    text(
+                        "SELECT count(*) FROM integration.file_deletion_job WHERE patient_id=:p AND file_object_id = ANY(:ids)"
+                    ),
+                    {"p": patient_a, "ids": diet_file_ids[:10]},
+                )
+            )
+        assert queued == 10
+        with worker_engine.begin() as db:
+            with pytest.raises(DBAPIError):
+                db.execute(text("SELECT * FROM health.diet_record LIMIT 1"))
+    finally:
+        client.close()
+        worker_engine.dispose()
+
+
 def test_f08_postgres18_analysis_cursor_is_stable_opaque_and_patient_bound(database: Any) -> None:
     """T126 backend integration: stable pages and opaque, patient-bound cursors."""
     app_engine, _migrator_engine = database
@@ -4126,6 +4854,7 @@ def test_f07_f11_postgres18_activity_history_and_aggregates(database: Any) -> No
                     diet_record_id=diet.id,
                     patient_id=patient_a,
                     name="合成乳制品",
+                    item_position=0,
                     category_code="dairy",
                     confirmed_by_patient=True,
                 ),
@@ -4133,6 +4862,7 @@ def test_f07_f11_postgres18_activity_history_and_aggregates(database: Any) -> No
                     diet_record_id=diet.id,
                     patient_id=patient_a,
                     name="未确认候选",
+                    item_position=1,
                     category_code="other",
                     confirmed_by_patient=False,
                 ),

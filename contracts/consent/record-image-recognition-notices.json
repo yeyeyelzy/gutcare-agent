@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "artifact_classification": "development_test_only",
+  "legal_approval_status": "not_approved_for_production",
+  "locale": "zh-CN",
+  "canonicalization": "UTF-8 without BOM; summary normalized to LF before SHA-256",
+  "purpose_disclosures": [
+    {
+      "purpose": "diet_image_recognition",
+      "policy_version": "test-only-diet-image-v2",
+      "enabled": true,
+      "summary": "本测试构建仅用合成图片验证饮食图像识别流程。患者每次发起饮食图片识别前会看到本用途告知并单独确认；所选饮食图片及本次记录的最少必要字段将经业务后端的短时任务能力提供给当前配置的第三方智能服务，生成待患者逐项确认的食物名称、受控类别和粗略份量候选。服务不估算精确热量或营养素，不诊断、不推断过敏原、病因或风险。拒绝、撤回或服务不可用不影响手动记录。图片及未确认候选按工程设计在请求结束后不可再由 Agent 读取，删除流程按既有七天期限物理清理。该文案未经法律审核，不得用于生产。",
+      "summary_sha256": "201772595b593891b96e98abc2bc29f1d89fa960051eaa9414399092818acefa",
+      "purpose_text": "仅在 development/test 环境验证患者单次发起的饮食图片识别。",
+      "data_scope": "患者所选的本次饮食图片、记录发生时间及餐次；不含其他记录、自由 prompt 或历史图片。",
+      "recipient": "业务后端和部署配置指定的第三方智能服务；Agent 仅通过本次 request 的短时单图能力读取。",
+      "retention": "候选结果保留至患者决定、记录/图片删除或授权撤回；图片对象删除沿既有七天期限完成。",
+      "withdrawal_effect": "本次可拒绝；撤回任一所需授权会取消在途识别、关闭图片能力并清除未确认候选；手工记录不受影响。"
+    },
+    {
+      "purpose": "stool_image_recognition",
+      "policy_version": "test-only-stool-image-v2",
+      "enabled": true,
+      "summary": "本测试构建仅用合成图片验证排便图像识别流程。患者每次发起排便图片识别前会看到本用途告知并单独确认；所选单张排便图片及本次记录的最少必要字段将经业务后端的短时任务能力提供给当前配置的第三方智能服务，生成待患者逐项确认的可能 Bristol 类型候选。服务不判断/推断出血、疾病、诊断、严重性或风险。拒绝、撤回或服务不可用不影响手动记录。图片及未确认候选按工程设计在请求结束后不可再由 Agent 读取，删除流程按既有七天期限物理清理。该文案未经法律审核，不得用于生产。",
+      "summary_sha256": "12245ce86d857e422dc2f0d5b9bfc2ebfebe4a523b72180b22d45aa57e2ebc1e",
+      "purpose_text": "仅在 development/test 环境验证患者单次发起的排便图片识别。",
+      "data_scope": "患者所选的一张排便图片、记录发生时间及手动 Bristol 值（若有）；不含其他记录、自由 prompt 或历史图片。",
+      "recipient": "业务后端和部署配置指定的第三方智能服务；Agent 仅通过本次 request 的短时单图能力读取。",
+      "retention": "候选结果保留至患者决定、记录/图片删除或授权撤回；图片对象删除沿既有七天期限完成。",
+      "withdrawal_effect": "本次可拒绝；撤回任一所需授权会取消在途识别、关闭图片能力并清除未确认候选；手工记录不受影响。"
+    }
+  ]
+}

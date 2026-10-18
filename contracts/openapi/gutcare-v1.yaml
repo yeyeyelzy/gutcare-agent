@@ -1513,6 +1513,99 @@ paths:
       parameters: [{name: checkin_id, in: path, required: true, schema: {type: string, format: uuid}}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationCheckinUpdate'}}}}
       responses: {'200': {description: Updated checkin, content: {application/json: {schema: {$ref: '#/components/schemas/MedicationCheckin'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}}
+  /dietary-records/{record_id}/images:
+    get:
+      tags: [Records]
+      operationId: listDietRecordImages
+      parameters: [{$ref: '#/components/parameters/RecordId'}]
+      responses: {'200': {description: Diet image attachments (up to ten), content: {application/json: {schema: {type: array, maxItems: 10, items: {$ref: '#/components/schemas/RecordImageAttachment'}}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}}
+    post:
+      tags: [Records]
+      operationId: attachDietRecordImage
+      parameters: [{$ref: '#/components/parameters/RecordId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DietRecordImageAttach'}}}}
+      responses: {'201': {description: Attached image, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageAttachment'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}}
+  /stool-records/{record_id}/images:
+    get:
+      tags: [Records]
+      operationId: listStoolRecordImages
+      parameters: [{$ref: '#/components/parameters/RecordId'}]
+      responses: {'200': {description: Stool image attachment (zero or one), content: {application/json: {schema: {type: array, maxItems: 1, items: {$ref: '#/components/schemas/RecordImageAttachment'}}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}}
+    post:
+      tags: [Records]
+      operationId: attachStoolRecordImage
+      parameters: [{$ref: '#/components/parameters/RecordId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StoolRecordImageAttach'}}}}
+      responses: {'201': {description: Attached image, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageAttachment'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}}
+  /record-images/{image_id}:
+    delete:
+      tags: [Records]
+      operationId: deleteRecordImage
+      parameters: [{name: image_id, in: path, required: true, schema: {type: string, format: uuid}}, {name: record_version, in: query, required: true, schema: {type: integer, minimum: 1}}, {name: image_set_version, in: query, required: true, schema: {type: integer, minimum: 1}}]
+      responses: {'204': {description: Image access revoked; file enters existing seven-day deletion lifecycle}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}}
+  /dietary-records/{record_id}/image-recognition-requests:
+    post:
+      tags: [Records]
+      operationId: createDietImageRecognitionRequest
+      parameters: [{$ref: '#/components/parameters/RecordId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageRecognitionCreate'}}}}
+      responses: {'202': {description: Recognition queued; candidate values are not patient facts, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageRecognitionRequest'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}, '503': {$ref: '#/components/responses/Problem'}}
+  /stool-records/{record_id}/image-recognition-requests:
+    post:
+      tags: [Records]
+      operationId: createStoolImageRecognitionRequest
+      parameters: [{$ref: '#/components/parameters/RecordId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageRecognitionCreate'}}}}
+      responses: {'202': {description: Recognition queued; candidate values are not patient facts, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageRecognitionRequest'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}, '503': {$ref: '#/components/responses/Problem'}}
+  /record-image-recognition-disclosures:
+    get:
+      tags: [Records]
+      operationId: getRecordImageRecognitionDisclosure
+      parameters: [{name: purpose, in: query, required: true, schema: {type: string, enum: [diet_image_recognition, stool_image_recognition]}}]
+      responses: {'200': {description: Current purpose-specific notice; production returns enabled=false if no signed notice is configured, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageDisclosure'}}}}, '401': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}}
+    post:
+      tags: [Records]
+      operationId: acknowledgeRecordImageRecognitionDisclosure
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageDisclosureAcknowledgment'}}}}
+      responses: {'201': {description: One-time five-minute disclosure token bound to patient, record, purpose and versions; plaintext is returned once, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageDisclosureToken'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}, '422': {$ref: '#/components/responses/Problem'}}
+  /record-image-recognition-requests/{request_id}:
+    get:
+      tags: [Records]
+      operationId: getRecordImageRecognitionRequest
+      parameters: [{name: request_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {'200': {description: Request state and item candidates, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageRecognitionRequest'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}}
+  /record-image-recognition-requests/{request_id}/retry:
+    post:
+      tags: [Records]
+      operationId: retryRecordImageRecognitionRequest
+      parameters: [{name: request_id, in: path, required: true, schema: {type: string, format: uuid}}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageRecognitionCreate'}}}}
+      responses:
+        '202': {description: New request created from current source state; retry_of_request_id identifies the terminal parent, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageRecognitionRequest'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {description: RFC 9457; codes include RECORD_IMAGE_RETRY_NOT_ALLOWED (parent nonterminal/already retried/active child), RECORD_VERSION_CONFLICT, CONSENT_REQUIRED, and IDEMPOTENCY_CONFLICT; no retry is created, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+        '422': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
+  /record-image-candidates/{candidate_id}/decision:
+    post:
+      tags: [Records]
+      operationId: decideRecordImageCandidate
+      parameters: [{name: candidate_id, in: path, required: true, schema: {type: string, format: uuid}}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RecordImageCandidateDecision'}}}}
+      responses:
+        '204': {description: One candidate decision recorded; replay is idempotent}
+        '401': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409':
+          description: Version/idempotency conflict or food field dependency not met; dependency failure has no state or fact side effects and leaves the candidate pending.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+              examples:
+                candidateDependencyUnmet:
+                  value: {type: 'https://gutcare.invalid/problems/candidate_dependency_unmet', title: Candidate dependency unmet, status: 409, detail: Confirm or edit this group's food_name first., instance: /api/v1/record-image-candidates/019a0000-0000-7000-8000-000000000032/decision, code: candidate_dependency_unmet, request_id: '00000000-0000-4000-8000-000000000409'}
+        '422': {$ref: '#/components/responses/Problem'}
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
@@ -1987,6 +2080,149 @@ components:
       properties:
         download_url: {type: string, format: uri, pattern: '^https://[^/]+/uploads/'}
         expires_at: {type: string, format: date-time}
+    DietRecordImageAttach:
+      type: object
+      additionalProperties: false
+      required: [file_object_id, record_version, image_set_version, position]
+      properties:
+        file_object_id: {type: string, format: uuid, description: 已完成 clean 的同患者 F02 file object；服务端按 route 验证 diet_image/stool_image purpose}
+        record_version: {type: integer, minimum: 1}
+        image_set_version: {type: integer, minimum: 0}
+        position: {type: integer, minimum: 0, maximum: 9}
+      example: {file_object_id: '019a0000-0000-7000-8000-000000000051', record_version: 3, image_set_version: 1, position: 1}
+    StoolRecordImageAttach:
+      type: object
+      additionalProperties: false
+      required: [file_object_id, record_version, image_set_version, position]
+      properties:
+        file_object_id: {type: string, format: uuid, description: 已完成 clean 的同患者 F02 file object，purpose 必须为 stool_image}
+        record_version: {type: integer, minimum: 1}
+        image_set_version: {type: integer, minimum: 0}
+        position: {const: 0}
+      example: {file_object_id: '019a0000-0000-7000-8000-000000000052', record_version: 2, image_set_version: 0, position: 0}
+    RecordImageAttachment:
+      type: object
+      additionalProperties: false
+      required: [id, record_id, position, record_version, image_set_version, file_status, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        record_id: {type: string, format: uuid}
+        position: {type: integer, minimum: 0, maximum: 9}
+        record_version: {type: integer, minimum: 1}
+        image_set_version: {type: integer, minimum: 1}
+        file_status: {type: string, enum: [available]}
+        created_at: {type: string, format: date-time}
+    RecordImageRecognitionCreate:
+      type: object
+      additionalProperties: false
+      required: [record_version, image_set_version, disclosure_token]
+      properties:
+        record_version: {type: integer, minimum: 1}
+        image_set_version: {type: integer, minimum: 1}
+        disclosure_token: {type: string, minLength: 32, maxLength: 256, description: One-time service-issued token; never log or persist plaintext}
+      example: {record_version: 3, image_set_version: 2, disclosure_token: 'opaque-one-time-token-value-0123456789'}
+    RecordImageDisclosureAcknowledgment:
+      type: object
+      additionalProperties: false
+      required: [record_id, purpose, record_version, image_set_version, policy_version, acknowledged]
+      properties:
+        record_id: {type: string, format: uuid}
+        purpose: {type: string, enum: [diet_image_recognition, stool_image_recognition]}
+        record_version: {type: integer, minimum: 1}
+        image_set_version: {type: integer, minimum: 1}
+        policy_version: {type: string, minLength: 1, maxLength: 64, description: Current enabled version returned by the service notice endpoint; caller attests the complete purpose-specific notice was shown and accepted}
+        acknowledged: {const: true}
+      examples:
+        diet:
+          value: {record_id: '019a0000-0000-7000-8000-000000000011', purpose: diet_image_recognition, record_version: 3, image_set_version: 2, policy_version: test-only-diet-image-v2, acknowledged: true}
+        stool:
+          value: {record_id: '019a0000-0000-7000-8000-000000000012', purpose: stool_image_recognition, record_version: 3, image_set_version: 1, policy_version: test-only-stool-image-v2, acknowledged: true}
+    RecordImageDisclosureToken:
+      type: object
+      additionalProperties: false
+      required: [disclosure_token, expires_at]
+      properties:
+        disclosure_token: {type: string, minLength: 32, maxLength: 256, description: One-time five-minute token; retain only in request memory and never log}
+        expires_at: {type: string, format: date-time}
+    RecordImageDisclosure:
+      type: object
+      additionalProperties: false
+      required: [purpose, enabled, policy_version, summary, purpose_text, data_scope, recipient, retention, withdrawal_effect]
+      properties:
+        purpose: {type: string, enum: [diet_image_recognition, stool_image_recognition]}
+        enabled: {type: boolean}
+        policy_version: {type: [string, 'null']}
+        summary: {type: [string, 'null'], maxLength: 1200}
+        purpose_text: {type: [string, 'null'], maxLength: 500}
+        data_scope: {type: [string, 'null'], maxLength: 500}
+        recipient: {type: [string, 'null'], maxLength: 500}
+        retention: {type: [string, 'null'], maxLength: 500}
+        withdrawal_effect: {type: [string, 'null'], maxLength: 500}
+    RecordImageRecognitionRequest:
+      type: object
+      additionalProperties: false
+      required: [id, recognition_type, status, record_version, image_set_version, decision_record_version, attempt, retry_of_request_id, candidates, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        recognition_type: {type: string, enum: [diet_image_recognition, stool_image_recognition]}
+        status: {type: string, enum: [pending, processing, candidates_ready, no_candidates, failed, cancelled, invalidated]}
+        reason_code: {type: [string, 'null'], enum: [low_image_quality, unsupported_image, no_visible_food, no_reliable_stool_type, agent_unavailable, null]}
+        record_version: {type: integer, minimum: 1}
+        image_set_version: {type: integer, minimum: 1}
+        decision_record_version: {type: integer, minimum: 1, description: Current parent record version expected by the next patient candidate decision}
+        attempt: {type: integer, minimum: 1}
+        retry_of_request_id: {type: [string, 'null'], format: uuid}
+        candidates: {type: array, maxItems: 50, items: {$ref: '#/components/schemas/RecordImageCandidate'}}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      example: {id: '019a0000-0000-7000-8000-000000000021', recognition_type: diet_image_recognition, status: candidates_ready, record_version: 3, image_set_version: 2, decision_record_version: 3, attempt: 1, retry_of_request_id: null, candidates: [{id: '019a0000-0000-7000-8000-000000000031', candidate_version: 1, attachment_id: '019a0000-0000-7000-8000-000000000022', candidate_group_key: '019a0000-0000-7000-8000-000000000071', candidate_type: food_name, value: 米饭, confidence_band: medium, uncertainty_code: mixed_food, image_region: [0.1, 0.2, 0.8, 0.9], status: pending}, {id: '019a0000-0000-7000-8000-000000000032', candidate_version: 1, attachment_id: '019a0000-0000-7000-8000-000000000022', candidate_group_key: '019a0000-0000-7000-8000-000000000071', candidate_type: food_category, value: grain_staple, confidence_band: medium, uncertainty_code: mixed_food, image_region: [0.1, 0.2, 0.8, 0.9], status: pending}, {id: '019a0000-0000-7000-8000-000000000033', candidate_version: 1, attachment_id: '019a0000-0000-7000-8000-000000000023', candidate_group_key: '019a0000-0000-7000-8000-000000000071', candidate_type: portion_description, value: 一小碗, confidence_band: low, uncertainty_code: partially_occluded, status: pending}, {id: '019a0000-0000-7000-8000-000000000035', candidate_version: 1, attachment_id: '019a0000-0000-7000-8000-000000000022', candidate_group_key: '019a0000-0000-7000-8000-000000000072', candidate_type: food_name, value: 西红柿, confidence_band: low, uncertainty_code: partially_occluded, status: pending}], created_at: '2026-10-18T08:30:00Z', updated_at: '2026-10-18T08:30:00Z'}
+    RecordImageCandidate:
+      oneOf: [{$ref: '#/components/schemas/DietRecordImageCandidate'}, {$ref: '#/components/schemas/StoolRecordImageCandidate'}]
+    DietRecordImageCandidate:
+      type: object
+      additionalProperties: false
+      required: [id, candidate_version, attachment_id, candidate_group_key, candidate_type, value, confidence_band, uncertainty_code, status]
+      properties:
+        id: {type: string, format: uuid}
+        candidate_version: {type: integer, minimum: 1}
+        attachment_id: {type: string, format: uuid}
+        candidate_group_key: {type: string, format: uuid, description: Request-local opaque group identifier. Same key across attachments only when explicitly returned for the same item; never infer or merge across requests.}
+        candidate_type: {type: string, enum: [food_name, food_category, portion_description]}
+        value: {oneOf: [{type: string, minLength: 1, maxLength: 160}, {type: 'null'}], description: food_category uses the existing controlled category codes; null only after a patient decision redacts the candidate value.}
+        confidence_band: {type: string, enum: [low, medium, high]}
+        uncertainty_code: {type: string, enum: [partially_occluded, mixed_food, low_light, ambiguous_shape, image_quality, other]}
+        image_region: {type: [array, 'null'], minItems: 4, maxItems: 4, items: {type: number, minimum: 0, maximum: 1}}
+        status: {type: string, enum: [pending, accepted, edited, rejected, invalidated]}
+      allOf:
+        - if: {properties: {candidate_type: {const: food_category}}, required: [candidate_type]}
+          then: {properties: {value: {oneOf: [{type: string, enum: [grain_staple, vegetable, fruit, meat, seafood, dairy, egg, legume, snack, beverage, mixed_dish, other]}, {type: 'null'}]}}}
+      example: {id: '019a0000-0000-7000-8000-000000000031', candidate_version: 1, attachment_id: '019a0000-0000-7000-8000-000000000022', candidate_group_key: '019a0000-0000-7000-8000-000000000071', candidate_type: food_name, value: 米饭, confidence_band: medium, uncertainty_code: mixed_food, image_region: [0.1, 0.2, 0.8, 0.9], status: pending}
+    StoolRecordImageCandidate:
+      type: object
+      additionalProperties: false
+      required: [id, candidate_version, attachment_id, candidate_type, value, confidence_band, uncertainty_code, status]
+      properties:
+        id: {type: string, format: uuid}
+        candidate_version: {type: integer, minimum: 1}
+        attachment_id: {type: string, format: uuid}
+        candidate_type: {const: bristol_type}
+        value: {oneOf: [{type: integer, minimum: 1, maximum: 7}, {type: 'null'}], description: Redacted to null after a patient decision.}
+        confidence_band: {type: string, enum: [low, medium, high]}
+        uncertainty_code: {type: string, enum: [partially_occluded, mixed_food, low_light, ambiguous_shape, image_quality, other]}
+        image_region: {type: [array, 'null'], minItems: 4, maxItems: 4, items: {type: number, minimum: 0, maximum: 1}}
+        status: {type: string, enum: [pending, accepted, edited, rejected, invalidated]}
+      example: {id: '019a0000-0000-7000-8000-000000000034', candidate_version: 1, attachment_id: '019a0000-0000-7000-8000-000000000024', candidate_type: bristol_type, value: 4, confidence_band: medium, uncertainty_code: ambiguous_shape, status: pending}
+    RecordImageCandidateDecision:
+      type: object
+      additionalProperties: false
+      required: [candidate_version, record_version, image_set_version, action]
+      properties:
+        candidate_version: {type: integer, minimum: 1}
+        record_version: {type: integer, minimum: 1}
+        image_set_version: {type: integer, minimum: 1}
+        action: {type: string, enum: [accept, edit, reject]}
+        corrected_value: {oneOf: [{type: string, minLength: 1, maxLength: 160}, {type: integer, minimum: 1, maximum: 7}], description: Required only for edit; food_category accepts only the controlled category codes, diet name/portion accept bounded text, and Stool accepts Bristol integer 1-7; server validates against candidate_type.}
+      example: {candidate_version: 1, record_version: 3, image_set_version: 2, action: accept}
     RecordWrite:
       type: object
       additionalProperties: false
@@ -2014,7 +2250,6 @@ components:
       additionalProperties: false
       properties:
         meal_type: {type: [string, 'null'], enum: [breakfast, lunch, dinner, snack, other, null]}
-        image_object_id: {type: [string, 'null'], format: uuid, description: 可选的已完成且通过扫描的 F02 diet_image 文件对象；需同患者且有当前数据处理及敏感图片授权}
         text_description: {type: [string, 'null'], maxLength: 4000}
         items:
           type: array
@@ -2035,7 +2270,6 @@ components:
       additionalProperties: false
       properties:
         bristol_type: {type: [integer, 'null'], minimum: 1, maximum: 7}
-        image_object_id: {type: [string, 'null'], format: uuid, description: 可选的已完成且通过扫描的 F02 stool_image 文件对象；需同患者且有当前数据处理及敏感图片授权}
         color_code: {type: [string, 'null'], maxLength: 32}
         blood_reported: {type: [boolean, 'null'], description: 患者自述，不代表图像诊断}
         urgency_level: {type: [integer, 'null'], minimum: 0, maximum: 10}
@@ -2068,10 +2302,11 @@ components:
       allOf:
         - {$ref: '#/components/schemas/RecordWrite'}
         - type: object
-          required: [id, record_version, created_at, updated_at]
+          required: [id, record_version, image_set_version, created_at, updated_at]
           properties:
             id: {type: string, format: uuid}
             record_version: {type: integer, minimum: 1}
+            image_set_version: {type: integer, minimum: 0, description: F03/F04 attachment set version; zero means no attachment change yet}
             created_at: {type: string, format: date-time}
             updated_at: {type: string, format: date-time}
     RecordPage:

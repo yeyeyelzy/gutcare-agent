@@ -27,6 +27,11 @@ from gutcare.files.scanner import ClamAvScanner
 from gutcare.files.service import FileService
 from gutcare.files.storage import S3ObjectStorage
 from gutcare.records.api import risk_router, router as records_router
+from gutcare.records.image_api import router as record_image_router
+from gutcare.records.image_worker import (
+    RecordImageWorkerService,
+    worker_router as record_image_worker_router,
+)
 from gutcare.records.service import RecordService
 from gutcare.medication.api import router as medication_router
 from gutcare.medication.service import MedicationService
@@ -164,6 +169,7 @@ def create_app(
     application.state.medication_service = None
     application.state.analysis_service = None
     application.state.analysis_worker_service = None
+    application.state.record_image_worker_service = None
     application.state.advice_service = None
     application.state.advice_worker_service = None
     application.state.notification_service = None
@@ -172,6 +178,7 @@ def create_app(
     application.state.privacy_service = None
     application.state.database_engine = None
     privacy_storage = None
+    analysis_worker_sessions = None
     if resolved_settings.database_url is not None:
         database_url = str(resolved_settings.database_url)
         if database_url.startswith("postgresql://"):
@@ -246,13 +253,11 @@ def create_app(
                     "postgresql://", "postgresql+psycopg://", 1
                 )
             worker_engine = create_engine(worker_database_url, pool_pre_ping=True)
+            analysis_worker_sessions = sessionmaker(worker_engine, expire_on_commit=False)
             application.state.analysis_worker_service = AnalysisService(
-                sessionmaker(worker_engine, expire_on_commit=False),
-                resolved_settings.jwt_signing_key,
+                analysis_worker_sessions, resolved_settings.jwt_signing_key
             )
-            application.state.advice_worker_service = AdviceService(
-                sessionmaker(worker_engine, expire_on_commit=False)
-            )
+            application.state.advice_worker_service = AdviceService(analysis_worker_sessions)
         rate_limiter = None
         if resolved_settings.redis_url:
             rate_limiter = RedisRateLimiter(Redis.from_url(resolved_settings.redis_url))
@@ -283,6 +288,10 @@ def create_app(
                 resolved_settings.object_storage_bucket,
                 resolved_settings.files_capability_secret,
             )
+    if analysis_worker_sessions is not None and application.state.file_service is not None:
+        application.state.record_image_worker_service = RecordImageWorkerService(
+            analysis_worker_sessions, application.state.file_service._storage
+        )
     application.add_middleware(
         RequestIdMiddleware,
         service_name=resolved_settings.service_name,
@@ -297,9 +306,11 @@ def create_app(
     application.include_router(agent_router)
     application.include_router(gateway_router)
     application.include_router(risk_router)
+    application.include_router(record_image_router)
     application.include_router(medication_router)
     application.include_router(analysis_router)
     application.include_router(analysis_agent_router)
+    application.include_router(record_image_worker_router)
     application.include_router(advice_router)
     application.include_router(advice_agent_router)
     application.include_router(notifications_router)

@@ -14,7 +14,7 @@ from gutcare.privacy.service import (
     PrivacyService,
     _validate_export_size,
 )
-from gutcare.privacy.worker import DELETE_PHASES, scan_export_zip
+from gutcare.privacy.worker import DELETE_PHASES, PrivacyWorker, scan_export_zip
 from gutcare.shared.errors import Problem
 
 
@@ -52,9 +52,53 @@ def test_deletion_ledger_has_ordered_phases_and_preserves_global_rules() -> None
     assert "health.patient_notification" in tables
     assert "analysis.analysis_task" in tables
     assert "health.medical_document" in tables
+    ordered = list(DELETE_PHASES["purge_health"])
+    assert (
+        ordered.index("analysis.record_image_decision")
+        < ordered.index("analysis.record_image_candidate")
+        < ordered.index("analysis.record_image_recognition_request")
+    )
+    assert ordered.index("health.diet_record_image") < ordered.index("health.file_object")
+    assert ordered.index("health.stool_record_image") < ordered.index("health.file_object")
     assert "health.mood_record" in tables
     assert "privacy.mood_purge_queue" in tables
     assert "safety.risk_rule" not in tables
+
+
+def test_diet_and_stool_export_categories_query_record_image_decisions_and_attachments() -> None:
+    class EmptyResult:
+        def mappings(self) -> "EmptyResult":
+            return self
+
+        def all(self) -> list[object]:
+            return []
+
+    class QueryRecorder:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        def execute(self, statement: object, _params: object = None) -> EmptyResult:
+            self.queries.append(str(statement))
+            return EmptyResult()
+
+    class NoStorage:
+        pass
+
+    db = QueryRecorder()
+    worker = PrivacyWorker(None, NoStorage(), "bucket", b"x" * 32)  # type: ignore[arg-type]
+    diet_data, diet_attachments = worker._export_payload(db, uuid4(), ["diet"])  # type: ignore[arg-type]
+    assert "diet_image_decisions" in diet_data
+    assert "diet_record_images" in diet_data
+    assert not diet_attachments
+    assert any("analysis.record_image_decision" in sql for sql in db.queries)
+    assert any("health.diet_record_image" in sql for sql in db.queries)
+
+    db.queries.clear()
+    stool_data, stool_attachments = worker._export_payload(db, uuid4(), ["stool"])  # type: ignore[arg-type]
+    assert "stool_image_decisions" in stool_data
+    assert "stool_record_images" in stool_data
+    assert not stool_attachments
+    assert any("health.stool_record_image" in sql for sql in db.queries)
 
 
 def test_mood_is_an_explicit_export_category() -> None:

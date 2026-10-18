@@ -1,4 +1,5 @@
 """Application services for upload, medical archive and private download flows."""
+# ruff: noqa: E501
 
 from __future__ import annotations
 
@@ -2064,6 +2065,18 @@ class FileService:
                 text(
                     "DELETE FROM health.upload_session "
                     "WHERE file_object_id = :file_id AND patient_id = :patient_id"
+                ),
+                {"file_id": file_id, "patient_id": patient_id},
+            )
+            db.execute(
+                text(
+                    "DELETE FROM health.diet_record_image WHERE file_object_id=:file_id AND patient_id=:patient_id"
+                ),
+                {"file_id": file_id, "patient_id": patient_id},
+            )
+            db.execute(
+                text(
+                    "DELETE FROM health.stool_record_image WHERE file_object_id=:file_id AND patient_id=:patient_id"
                 ),
                 {"file_id": file_id, "patient_id": patient_id},
             )

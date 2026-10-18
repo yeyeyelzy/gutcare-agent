@@ -40,6 +40,16 @@ DELETE_PHASES = {
         "analysis.analysis_task",
     ),
     "purge_health": (
+        "analysis.record_image_decision",
+        "analysis.record_image_candidate",
+        "analysis.record_image_capability",
+        "analysis.record_image_dispatch_outbox",
+        "health.diet_item",
+        "analysis.record_image_recognition_request",
+        "health.record_image_idempotency",
+        "health.record_image_disclosure",
+        "health.diet_record_image",
+        "health.stool_record_image",
         "health.medical_candidate_decision_idempotency",
         "health.medical_candidate_decision",
         "health.medical_fact_conflict_member",
@@ -520,14 +530,22 @@ class PrivacyWorker:
                 ),
                 (
                     "diet_items",
-                    "SELECT diet_record_id,name,category_code,amount_text,source_type,confirmed_by_patient FROM health.diet_item WHERE patient_id=:patient ORDER BY diet_record_id,id",
+                    "SELECT diet_record_id,name,item_position,category_code,amount_text,source_type,confirmed_by_patient FROM health.diet_item WHERE patient_id=:patient ORDER BY diet_record_id,item_position",
+                ),
+                (
+                    "diet_image_decisions",
+                    "SELECT r.record_id,d.candidate_id,d.action,d.candidate_type,d.source_state,d.created_at FROM analysis.record_image_decision d JOIN analysis.record_image_recognition_request r ON r.id=d.request_id AND r.patient_id=d.patient_id WHERE d.patient_id=:patient AND r.recognition_type='diet_image_recognition' ORDER BY d.created_at,d.id",
                 ),
             ],
             "stool": [
                 (
                     "stool_records",
                     "SELECT id,occurred_at,bristol_type,color_code,blood_reported,payload,source_type,confirmation_status,record_version,created_at,updated_at FROM health.stool_record WHERE patient_id=:patient AND deleted_at IS NULL ORDER BY occurred_at,id",
-                )
+                ),
+                (
+                    "stool_image_decisions",
+                    "SELECT r.record_id,d.candidate_id,d.action,d.candidate_type,d.source_state,d.created_at FROM analysis.record_image_decision d JOIN analysis.record_image_recognition_request r ON r.id=d.request_id AND r.patient_id=d.patient_id WHERE d.patient_id=:patient AND r.recognition_type='stool_image_recognition' ORDER BY d.created_at,d.id",
+                ),
             ],
             "symptoms": [
                 (
@@ -598,6 +616,58 @@ class PrivacyWorker:
             for dataset_name, sql in query_map[category]:
                 rows = db.execute(text(sql), {"patient": patient_id}).mappings().all()
                 datasets[dataset_name] = [dict(row) for row in rows]
+                if dataset_name == f"{category}_records" and category in {"diet", "stool"}:
+                    attachment_table = f"{category}_record_image"
+                    image_rows = (
+                        db.execute(
+                            text(
+                                f"SELECT a.id,a.record_id,a.file_object_id,a.position,a.created_at,f.bucket_name,f.object_key,f.original_name,f.size_bytes FROM health.{attachment_table} a JOIN health.file_object f ON f.id=a.file_object_id AND f.patient_id=a.patient_id JOIN health.{attachment_table.removesuffix('_record_image')}_record r ON r.id=a.record_id AND r.patient_id=a.patient_id WHERE a.patient_id=:patient AND a.deleted_at IS NULL AND r.deleted_at IS NULL AND f.storage_status='available' AND f.scan_status='clean' ORDER BY a.record_id,a.position,a.id"
+                            ),
+                            {"patient": patient_id},
+                        )
+                        .mappings()
+                        .all()
+                    )
+                    datasets[f"{category}_record_images"] = [
+                        {
+                            "id": str(item["id"]),
+                            "record_id": str(item["record_id"]),
+                            "file_object_id": str(item["file_object_id"]),
+                            "position": item["position"],
+                            "created_at": item["created_at"],
+                        }
+                        for item in image_rows
+                    ]
+                    for item in image_rows:
+                        raw_name = re.sub(r"[^A-Za-z0-9._-]", "_", str(item["original_name"]))[:128]
+                        try:
+                            actual_size, _content_type = self._storage.head_object(
+                                str(item["bucket_name"]), str(item["object_key"])
+                            )
+                            remaining = MAX_EXPORT_BYTES - attachment_bytes
+                            if actual_size < 0 or actual_size > remaining:
+                                raise ValueError("Export attachment limit exceeded")
+                            limited_reader = getattr(self._storage, "read_object_limited", None)
+                            contents = (
+                                limited_reader(
+                                    str(item["bucket_name"]), str(item["object_key"]), remaining
+                                )
+                                if limited_reader is not None
+                                else self._storage.read_object(
+                                    str(item["bucket_name"]), str(item["object_key"])
+                                )
+                            )
+                            if len(contents) > remaining or len(contents) != actual_size:
+                                raise ValueError("Export attachment limit exceeded")
+                            attachment_bytes += len(contents)
+                            attachments.append(
+                                (
+                                    f"{category}/images/{item['record_id']}_{item['id']}_{raw_name}",
+                                    contents,
+                                )
+                            )
+                        except Exception:
+                            unavailable_file_ids.append(str(item["file_object_id"]))
                 if category == "files":
                     file_rows = (
                         db.execute(

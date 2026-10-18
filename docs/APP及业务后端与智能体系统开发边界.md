@@ -1,6 +1,6 @@
 # GutCare Agent APP 及业务后端与智能体系统开发边界
 
-> 文档版本：V1.1  
+> 文档版本：V1.2
 > 编制日期：2026-10-14  
 > 适用范围：GutCare Agent 移动端 APP 及其配套后端  
 > 参考文档：`设计方案.md`、`详细功能设计.md`、`技术方案.md`、`数据库设计方案.md`
@@ -170,7 +170,7 @@ APP 与业务后端开发方负责面向 APP 的统一业务 API 和所有非模
 | F01 账户与基本资料 | APP 页面、注册登录、账号安全、资料 CRUD、数据隔离 | 无 |
 | F02 医疗档案 | 上传/预览/删除、手动填写、确认纠错、版本和状态 | OCR、报告理解、候选字段抽取 |
 | F03 饮食记录 | 记录 CRUD、图片上传、确认交互、历史查询 | 食物图像识别、候选类别和单餐智能分析 |
-| F04 排便记录 | 记录 CRUD、手动 Bristol 类型、图片上传、确认交互 | 图像质量判断、候选类型及外观辅助分析 |
+| F04 排便记录 | 记录 CRUD、手动 Bristol 类型、图片上传、确认交互 | 图像质量判断及单一 Bristol 1–7 候选；不输出外观标签或分组 key |
 | F05 症状记录 | 表单、存储、修改、查询、确定性风险规则触发 | 自由文本候选症状抽取（如启用） |
 | F06 服药管理 | 计划 CRUD、来源记录、打卡、提醒和统计 | 不生成或调整处方；如参与综合分析则只读取确认数据 |
 | F07 运动记录 | 记录 CRUD、统计与趋势数据 | 跨来源趋势分析中的活动因素解释 |
@@ -216,6 +216,8 @@ APP 与业务后端开发方负责面向 APP 的统一业务 API 和所有非模
 - 智能体返回候选值及置信/不确定信息。
 - APP 与业务后端开发方负责候选值的展示、编辑、确认操作、确认记录和版本更新。
 - 业务后端只把已确认值作为后续个性化分析中的确定事实；未确认值必须带明确标识。
+
+F03/F04 图片识别遵循 ADR-0021：图片使用既有 F02 file upload/gateway 和 `file_object`，绝不创建 `medical_document`；附件集合分别由 diet/stool 表管理，饮食每餐最多10张、排便每条最多1张。request 附件冻结以 `analysis.record_image_request_attachment` 类型化关系表为 canonical，XOR、患者复合 FK、record-type trigger、同 request 内 position/附件唯一性由数据库强制；不同 request/retry 可各自引用同一附件并冻结独立 file_version，不使用 JSONB snapshot。手动 CRUD 不等待 Agent；业务 Worker 唯一 claim，Agent 只读 request-scoped 短时单图能力并提交候选。患者只可对 failed/cancelled/invalidated 且来源仍存在的请求显式 retry；重验三授权、用途告知、当前版本和附件并创建新 request/attempt，旧 request 不可变，不复用 capability/candidates/group。Diet 候选须按 request-local opaque UUID `candidate_group_key` 显式分组；仅名称确认创建非空 DietItem，类别和份量之后仍逐字段确认，不按相似值合并；Stool 仅有 Bristol 候选。患者逐项 accept/edit/reject 后业务端才写患者确认事实。图像候选不估算精确营养，不作诊断/出血/风险推断，不改 F10/F08；GET/export/F08/F11 仅使用确认字段。授权、purpose-specific disclosure、撤回、删除与幂等/version 规则以 ADR-0021 和机器契约为准。
 
 ## 7. 非功能责任
 

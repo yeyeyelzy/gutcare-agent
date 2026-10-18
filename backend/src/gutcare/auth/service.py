@@ -1,4 +1,5 @@
 """Email/password account flows backed by the PostgreSQL business schema."""
+# ruff: noqa: E501
 
 import logging
 import smtplib
@@ -963,7 +964,11 @@ class AuthService:
                     },
                 )
             )
-            if not granted and consent_type in {"health_data_processing", "third_party_ai"}:
+            if not granted and consent_type in {
+                "health_data_processing",
+                "sensitive_image",
+                "third_party_ai",
+            }:
                 db.execute(
                     update(AnalysisTask)
                     .where(
@@ -1003,6 +1008,25 @@ class AuthService:
                         )
                         .values(excerpt=None, source_locator=None, review_status="invalidated")
                     )
+                db.execute(
+                    text("""UPDATE analysis.record_image_recognition_request
+                        SET status='cancelled', lease_until=NULL,
+                            updated_at=:now
+                        WHERE patient_id=:patient_id AND status IN ('pending','processing','candidates_ready')"""),
+                    {"patient_id": profile.id, "now": now},
+                )
+                db.execute(
+                    text("""UPDATE analysis.record_image_candidate
+                        SET status='invalidated', value='null'::jsonb, locator=NULL
+                        WHERE patient_id=:patient_id AND status='pending'"""),
+                    {"patient_id": profile.id},
+                )
+                db.execute(
+                    text(
+                        "DELETE FROM analysis.record_image_capability WHERE patient_id=:patient_id"
+                    ),
+                    {"patient_id": profile.id},
+                )
             elif not granted and consent_type in {"mood_data_processing", "mood_ai_sharing"}:
                 db.execute(
                     text("""UPDATE analysis.analysis_task t

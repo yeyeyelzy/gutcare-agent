@@ -1,4 +1,5 @@
 """Patient scoped record CRUD and deterministic rule evaluation."""
+# ruff: noqa: E501
 
 from __future__ import annotations
 
@@ -12,13 +13,12 @@ from typing import Any
 from uuid import UUID
 
 import structlog
-from sqlalchemy import desc, func, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, sessionmaker
 
-from gutcare.auth.models import PatientConsent, PatientProfile
+from gutcare.auth.models import PatientProfile
 from gutcare.auth.service import AuthContext
-from gutcare.files.models import FileObject, UploadSession
 from gutcare.records.models import (
     AlertEvidence,
     DietItem,
@@ -223,52 +223,39 @@ class RecordService:
         )
 
     @staticmethod
+    def _invalidate_record_image_requests(
+        session: Session, patient_id: UUID, record_id: UUID
+    ) -> None:
+        session.execute(
+            text("""UPDATE analysis.record_image_recognition_request
+                SET status='invalidated', lease_until=NULL,
+                    updated_at=now()
+                WHERE patient_id=:patient_id AND record_id=:record_id
+                  AND status IN ('pending','processing','candidates_ready')"""),
+            {"patient_id": patient_id, "record_id": record_id},
+        )
+        session.execute(
+            text("""UPDATE analysis.record_image_candidate
+                SET status='invalidated', value='null'::jsonb, locator=NULL
+                WHERE patient_id=:patient_id AND status='pending'
+                  AND request_id IN (SELECT id FROM analysis.record_image_recognition_request
+                    WHERE patient_id=:patient_id AND record_id=:record_id)"""),
+            {"patient_id": patient_id, "record_id": record_id},
+        )
+        session.execute(
+            text("""DELETE FROM analysis.record_image_capability
+                WHERE patient_id=:patient_id AND request_id IN
+                  (SELECT id FROM analysis.record_image_recognition_request
+                   WHERE patient_id=:patient_id AND record_id=:record_id)"""),
+            {"patient_id": patient_id, "record_id": record_id},
+        )
+
+    @staticmethod
     def _validate_image(
         session: Session, patient_id: UUID, record_type: str, payload: dict[str, Any]
     ) -> None:
-        image_id = payload.get("image_object_id")
-        if image_id is None:
-            return
-        expected_purpose = {
-            "diet-records": "diet_image",
-            "stool-records": "stool_image",
-        }.get(record_type)
-        if expected_purpose is None:
-            raise Problem(422, "VALIDATION_ERROR", "Images are not accepted for this record type")
-        file_object = session.scalar(
-            select(FileObject).where(
-                FileObject.id == image_id,
-                FileObject.patient_id == patient_id,
-                FileObject.storage_status == "available",
-                FileObject.scan_status == "clean",
-                FileObject.sensitivity == "sensitive_image",
-                FileObject.deleted_at.is_(None),
-            )
-        )
-        upload = session.scalar(
-            select(UploadSession).where(
-                UploadSession.file_object_id == image_id,
-                UploadSession.patient_id == patient_id,
-                UploadSession.purpose == expected_purpose,
-                UploadSession.status == "completed",
-            )
-        )
-        if file_object is None or upload is None:
-            raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
-        for consent_type in ("health_data_processing", "sensitive_image"):
-            decision = session.scalar(
-                select(PatientConsent)
-                .where(
-                    PatientConsent.patient_id == patient_id,
-                    PatientConsent.consent_type == consent_type,
-                )
-                .order_by(desc(PatientConsent.decided_at), desc(PatientConsent.id))
-                .limit(1)
-            )
-            if decision is None or not decision.granted:
-                raise Problem(
-                    409, "CONSENT_REQUIRED", "Required data processing consent is missing"
-                )
+        if "image_object_id" in payload:
+            raise Problem(422, "VALIDATION_ERROR", "Use the record image attachment API")
 
     def _patient_id(self, session: Session, context: AuthContext) -> UUID:
         session.execute(
@@ -343,7 +330,6 @@ class RecordService:
             payload["items"] = items
         for name in (
             "meal_type",
-            "image_object_id",
             "text_description",
             "portion_note",
             "bristol_type",
@@ -370,9 +356,9 @@ class RecordService:
     ) -> list[dict[str, Any]] | None:
         if record_type == "diet-records":
             diet_rows = session.scalars(
-                select(DietItem).where(
-                    DietItem.patient_id == patient_id, DietItem.diet_record_id == obj.id
-                )
+                select(DietItem)
+                .where(DietItem.patient_id == patient_id, DietItem.diet_record_id == obj.id)
+                .order_by(DietItem.item_position)
             ).all()
             return [
                 {
@@ -412,16 +398,19 @@ class RecordService:
     ) -> None:
         if record_type == "diet-records":
             session.query(DietItem).filter_by(patient_id=patient_id, diet_record_id=obj.id).delete()
-            for item in payload.get("items", []):
+            for position, item in enumerate(payload.get("items", [])):
                 session.add(
                     DietItem(
                         diet_record_id=obj.id,
                         patient_id=patient_id,
                         name=item["name"].strip(),
+                        item_position=position,
                         category_code=item.get("category_code"),
                         amount_text=item.get("amount_text"),
                         source_type=item.get("source_type", "patient_manual"),
                         confirmed_by_patient=item.get("confirmed_by_patient", True),
+                        source_recognition_request_id=None,
+                        source_candidate_group_key=None,
                     )
                 )
         elif record_type == "symptom-records":
@@ -538,6 +527,13 @@ class RecordService:
         with self._sessions.begin() as session:
             patient_id = self._patient_id(session, context)
             self._scope(session, patient_id)
+            if record_type in {"diet-records", "stool-records"}:
+                session.execute(
+                    text(
+                        "SELECT pg_advisory_xact_lock_shared(hashtextextended('gutcare.patient-consent-fence:' || :p,0))"
+                    ),
+                    {"p": str(patient_id)},
+                )
             self._validate_image(session, patient_id, record_type, payload)
             session.execute(
                 pg_insert(RecordIdempotency)
@@ -608,14 +604,12 @@ class RecordService:
             if record_type == "diet-records":
                 values.update(
                     meal_type=payload.get("meal_type"),
-                    image_object_id=payload.get("image_object_id"),
                     text_description=payload.get("text_description"),
                     portion_note=payload.get("portion_note"),
                     confirmation_status="confirmed",
                 )
             elif record_type == "stool-records":
                 values.update(
-                    image_object_id=payload.get("image_object_id"),
                     bristol_type=payload.get("bristol_type"),
                     color_code=payload.get("color_code"),
                     blood_reported=payload.get("blood_reported"),
@@ -756,6 +750,13 @@ class RecordService:
         with self._sessions.begin() as session:
             patient_id = self._patient_id(session, context)
             self._scope(session, patient_id)
+            if record_type in {"diet-records", "stool-records"}:
+                session.execute(
+                    text(
+                        "SELECT pg_advisory_xact_lock_shared(hashtextextended('gutcare.patient-consent-fence:' || :p,0))"
+                    ),
+                    {"p": str(patient_id)},
+                )
             cls = TYPES[record_type]
             obj = session.scalar(
                 select(cls)
@@ -766,6 +767,14 @@ class RecordService:
                 raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
             if obj.record_version != version:
                 raise Problem(409, "RECORD_VERSION_CONFLICT", "Record version has changed")
+            if record_type in {"diet-records", "stool-records"}:
+                self._invalidate_record_image_requests(session, patient_id, record_id)
+                session.execute(
+                    text("""UPDATE analysis.record_image_decision SET source_state='source_deleted'
+                        WHERE patient_id=:patient_id AND request_id IN
+                        (SELECT id FROM analysis.record_image_recognition_request WHERE patient_id=:patient_id AND record_id=:record_id)"""),
+                    {"patient_id": patient_id, "record_id": record_id},
+                )
             obj.occurred_at = occurred_at
             self._validate_image(session, patient_id, record_type, payload)
             obj.payload = {
@@ -786,14 +795,12 @@ class RecordService:
                 }
             }
             if record_type == "diet-records":
-                obj.image_object_id = payload.get("image_object_id")
                 obj.meal_type, obj.text_description, obj.portion_note = (
                     payload.get("meal_type"),
                     payload.get("text_description"),
                     payload.get("portion_note"),
                 )
             elif record_type == "stool-records":
-                obj.image_object_id = payload.get("image_object_id")
                 obj.bristol_type, obj.color_code, obj.blood_reported = (
                     payload.get("bristol_type"),
                     payload.get("color_code"),
@@ -839,6 +846,13 @@ class RecordService:
         with self._sessions.begin() as session:
             patient_id = self._patient_id(session, context)
             self._scope(session, patient_id)
+            if record_type in {"diet-records", "stool-records"}:
+                session.execute(
+                    text(
+                        "SELECT pg_advisory_xact_lock_shared(hashtextextended('gutcare.patient-consent-fence:' || :p,0))"
+                    ),
+                    {"p": str(patient_id)},
+                )
             cls = TYPES.get(record_type)
             if cls is None:
                 raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
@@ -851,6 +865,32 @@ class RecordService:
                 raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
             if obj.record_version != version:
                 raise Problem(409, "RECORD_VERSION_CONFLICT", "Record version has changed")
+            if record_type in {"diet-records", "stool-records"}:
+                self._invalidate_record_image_requests(session, patient_id, record_id)
+                table = (
+                    "diet_record_image" if record_type == "diet-records" else "stool_record_image"
+                )
+                session.execute(
+                    text(f"""UPDATE health.file_object f SET deleted_at=now(),storage_status='deleting'
+                        WHERE f.patient_id=:patient_id AND f.id IN (
+                          SELECT file_object_id FROM health.{table}
+                          WHERE patient_id=:patient_id AND record_id=:record_id AND deleted_at IS NULL)"""),
+                    {"patient_id": patient_id, "record_id": record_id},
+                )
+                session.execute(
+                    text(
+                        f"UPDATE health.{table} SET deleted_at=now() WHERE patient_id=:patient_id AND record_id=:record_id AND deleted_at IS NULL"
+                    ),
+                    {"patient_id": patient_id, "record_id": record_id},
+                )
+                session.execute(
+                    text(f"""INSERT INTO integration.file_deletion_job(patient_id,file_object_id,bucket_name,object_key,due_at)
+                        SELECT patient_id,id,bucket_name,object_key,now()+interval '7 days' FROM health.file_object
+                        WHERE patient_id=:patient_id AND storage_status='deleting' AND id IN (
+                          SELECT file_object_id FROM health.{table} WHERE patient_id=:patient_id AND record_id=:record_id)
+                        ON CONFLICT DO NOTHING"""),
+                    {"patient_id": patient_id, "record_id": record_id},
+                )
             obj.deleted_at = _utcnow()
             obj.record_version += 1
             obj.updated_at = _utcnow()

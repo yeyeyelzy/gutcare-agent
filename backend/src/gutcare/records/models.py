@@ -30,16 +30,12 @@ class DietRecord(Base):
     __tablename__ = "diet_record"
     __table_args__ = (
         UniqueConstraint("id", "patient_id", name="uq_diet_record_id_patient"),
-        ForeignKeyConstraint(
-            ["image_object_id", "patient_id"],
-            ["health.file_object.id", "health.file_object.patient_id"],
-        ),
         Index("ix_diet_record_patient_occurred", "patient_id", "occurred_at"),
         {"schema": "health"},
     )
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, server_default=text("uuidv7()"))
     patient_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
-    image_object_id: Mapped[UUID | None] = mapped_column(Uuid)
+    image_set_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     meal_type: Mapped[str | None] = mapped_column(String(24))
     text_description: Mapped[str | None] = mapped_column(Text)
@@ -75,8 +71,11 @@ class DietItem(Base):
     diet_record_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
     patient_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
+    item_position: Mapped[int] = mapped_column(Integer, nullable=False)
     category_code: Mapped[str | None] = mapped_column(String(64))
     amount_text: Mapped[str | None] = mapped_column(String(160))
+    source_recognition_request_id: Mapped[UUID | None] = mapped_column(Uuid)
+    source_candidate_group_key: Mapped[UUID | None] = mapped_column(Uuid)
     source_type: Mapped[str] = mapped_column(
         String(24), nullable=False, server_default="patient_manual"
     )
@@ -89,10 +88,6 @@ class StoolRecord(Base):
     __tablename__ = "stool_record"
     __table_args__ = (
         UniqueConstraint("id", "patient_id", name="uq_stool_record_id_patient"),
-        ForeignKeyConstraint(
-            ["image_object_id", "patient_id"],
-            ["health.file_object.id", "health.file_object.patient_id"],
-        ),
         CheckConstraint(
             "bristol_type IS NULL OR bristol_type BETWEEN 1 AND 7", name="ck_stool_bristol"
         ),
@@ -101,7 +96,7 @@ class StoolRecord(Base):
     )
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, server_default=text("uuidv7()"))
     patient_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
-    image_object_id: Mapped[UUID | None] = mapped_column(Uuid)
+    image_set_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     bristol_type: Mapped[int | None] = mapped_column(SmallInteger)
     color_code: Mapped[str | None] = mapped_column(String(32))

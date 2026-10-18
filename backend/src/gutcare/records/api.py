@@ -86,7 +86,6 @@ class DietItemInput(BaseModel):
 class DietPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     meal_type: str | None = Field(default=None, pattern="^(breakfast|lunch|dinner|snack|other)$")
-    image_object_id: UUID | None = None
     text_description: str | None = Field(default=None, max_length=4000)
     items: list[DietItemInput] = Field(default_factory=list, max_length=50)
     portion_note: str | None = Field(default=None, max_length=160)
@@ -103,7 +102,6 @@ class DietPayload(BaseModel):
 class StoolPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     bristol_type: int | None = Field(default=None, ge=1, le=7)
-    image_object_id: UUID | None = None
     color_code: str | None = Field(default=None, max_length=32)
     blood_reported: bool | None = None
     urgency_level: int | None = Field(default=None, ge=0, le=10)

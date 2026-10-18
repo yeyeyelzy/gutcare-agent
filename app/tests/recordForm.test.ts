@@ -33,7 +33,7 @@ describe('F03-F05 record form contract', () => {
 
   it('round-trips visible values from a server-owned record without using ownership/source fields', () => {
     const value = recordToDraft('diet-records', {
-      id: 'record', occurred_at: '2026-10-14T01:30:00Z', record_version: 2,
+      id: 'record', occurred_at: '2026-10-14T01:30:00Z', record_version: 2, image_set_version: 1,
       created_at: '2026-10-14T01:30:00Z', updated_at: '2026-10-14T01:30:00Z',
       payload: { text_description: '早餐', items: [{ name: '米饭' }] },
     })

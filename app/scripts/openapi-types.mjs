@@ -105,6 +105,18 @@ const requiredOperationIds = new Set([
   'getMedicalFactConflict',
   'resolveMedicalFactConflict',
   'createFileDownloadGrant',
+  'listDietRecordImages',
+  'attachDietRecordImage',
+  'listStoolRecordImages',
+  'attachStoolRecordImage',
+  'deleteRecordImage',
+  'createDietImageRecognitionRequest',
+  'createStoolImageRecognitionRequest',
+  'getRecordImageRecognitionDisclosure',
+  'acknowledgeRecordImageRecognitionDisclosure',
+  'getRecordImageRecognitionRequest',
+  'retryRecordImageRecognitionRequest',
+  'decideRecordImageCandidate',
 ])
 const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
 const foundOperations = new Map()
