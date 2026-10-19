@@ -12,9 +12,10 @@
 已采纳 ADR-0018：F02 已确认检验结果的保守冲突管理，见 `ADR/0018-f02-confirmed-lab-result-conflicts.md`。
 已采纳 ADR-0019：F14 心情记录、两项独立授权及受控 F08 快照输入，见 `ADR/0019-f14-mood-records-and-consent.md`。
 已采纳 ADR-0020：注册告知单一来源、生产 fail-closed 与登录后资料引导，见 `ADR/0020-registration-notice-source-and-profile-bootstrap.md`；仓库注册、心情授权及 F03/F04 purpose-specific 图像识别开发/测试告知制品分别见 `../contracts/consent/registration-notices.json`、`../contracts/consent/consent-notices.json` 和 `../contracts/consent/record-image-recognition-notices.json`，均不是生产法律文案。
-已采纳 ADR-0021：F03/F04 记录图片附件与独立识别候选闭环，含 Diet request-local 候选分组、名称先决事实落点、类型化 FK 附件快照、显式患者 retry 和 Stool Bristol-only 候选，见 `ADR/0021-f03-f04-image-recognition-lifecycle.md`。业务后端与 APP 源码已实现并经独立代码审查；真实 Agent 端到端、production purpose-specific notice 法律签核、Android/iOS 真机 picker/安全区证据均未验收。APP 当前契约不支持记录图片持久预览。
+已采纳 ADR-0021：F03/F04 记录图片附件与独立识别候选闭环，含 Diet request-local 候选分组、名称先决事实落点、类型化 FK 附件快照、显式患者 retry 和 Stool Bristol-only 候选，见 `ADR/0021-f03-f04-image-recognition-lifecycle.md`。该 ADR 的 APP 源码实现与验收状态仅描述旧 `app/` 归档，不构成 Android 原生工程验收；原生迁移遵循 ADR-0022。业务后端边界、真实 Agent 端到端和 production purpose-specific notice 法律签核状态不变。APP 当前契约不支持记录图片持久预览。
 APP 22 页原型事实、导航规范、视觉验收与编码前 G1 数据契约门禁见 `UI原型审查与页面导航规范.md`。
 比赛演示数据离线构建器的输入白名单、执行方式及初始化限制见 `demo-data-tooling.md`。
+实体手机经 Cloudflare Quick Tunnel 的隔离 test/demo-only API 联调步骤、边界与清理方式见 `手机 HTTPS 演示联调指南.md`；不替代正式部署运维手册。
 源码输入哈希、视觉令牌、资产隔离导入、静态跳转缺陷及 GcAvatar 几何基线见 `UI源码基线与导入规范.md`。
 认证公开页面和组件化交付跟踪见 `前端开发与前后端联调计划.md` 的 B01-2 小节及 `需求追踪矩阵.md`。
 F02 的表/状态/API/隐私/测试追踪增补见 `F02-文件与医疗档案实现补充.md`。
@@ -23,6 +24,8 @@ F02 的表/状态/API/隐私/测试追踪增补见 `F02-文件与医疗档案实
 > 基线版本：V1.8（ADR-0021 类型化附件快照与显式 retry 增补）
 > 冻结日期：2026-10-18
 > 工作目录：`D:\GutCare_Agent`
+
+已采纳 ADR-0022：患者端迁移至原生 Android，见 `ADR/0022-原生Android客户端.md`；Android Studio 是唯一客户端开发/验收环境，旧 `app/` 只读归档，当前不做 iOS。
 
 ## 1. 文档用途
 
@@ -50,7 +53,7 @@ F02 的表/状态/API/隐私/测试追踪增补见 `F02-文件与医疗档案实
 
 ## 4. 已冻结的跨文档结论
 
-- 平台：Android/iOS APP；无患者 Web 端。
+- 平台：现阶段仅原生 Android APP；Android Studio 是唯一客户端开发/验收环境；旧 `app/` 只读归档；当前不做 iOS，也无患者 Web 端。具体迁移与阶段门禁以 ADR-0022 和 `Android原生迁移工作准则.md` 为准。
 - P0 登录：邮箱 + 密码；标准 SMTP，开发使用 Mailpit；无手机号/SMS。
 - F14 心情记录使用 `health.mood_record`；独立 `mood_data_processing` 和 `mood_ai_sharing` 授权控制记录处理与智能共享；Agent 快照仅含受控等级/标签/时间，不含备注。
 - F11 心情趋势只对本人结构化 `mood_level` 确定性分桶，不读备注/标签且不依赖 Agent 共享授权；分析预览使用冻结计数字段，任务实际纳入数保存在不可变快照摘要。

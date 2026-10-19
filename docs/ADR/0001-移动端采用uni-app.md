@@ -1,11 +1,11 @@
 # ADR-0001：移动端采用 uni-app
 
-- 状态：Accepted
+- 状态：Superseded（由 ADR-0022 取代）
 - 日期：2026-10-14
 
 ## 决策
 
-患者端采用 uni-app + Vue 3 + TypeScript 构建 Android/iOS APP，不交付患者 H5/Web。Node.js 22 LTS 为固定构建运行时，开发机与 CI 统一。
+历史决策：患者端采用 uni-app + Vue 3 + TypeScript 构建 Android/iOS APP，不交付患者 H5/Web。该决策已由 ADR-0022 取代；`app/` 保留为只读归档，当前唯一活跃客户端为 `android/` 原生工程。Node.js 22 LTS 等仅为旧客户端历史构建基线，不约束 Android 原生工程。
 
 ## 理由与后果
 
