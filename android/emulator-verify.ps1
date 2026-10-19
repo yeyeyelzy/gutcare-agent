@@ -131,36 +131,43 @@ try {
     }
     if (-not $deviceReady) { throw 'Android 37 AVD did not finish booting within 5 minutes.' }
 
-    & $adbExe -s $serial shell settings put system system_locales zh-CN | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not set system locale on the dedicated AVD.' }
-    $localeSetting = (& $adbExe -s $serial shell settings get system system_locales 2>$null | Out-String).Trim()
-    if ($localeSetting -ne 'zh-CN') { throw "Android Settings did not retain zh-CN before reboot (value='$localeSetting')." }
-    & $adbExe -s $serial reboot | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'The AVD could not reboot to apply zh-CN system locale.' }
-    $localeBootDeadline = (Get-Date).AddMinutes(3)
-    $localeBooted = $false
-    while ((Get-Date) -lt $localeBootDeadline) {
-        $devices = & $adbExe devices
-        if ($devices -match [regex]::Escape("$serial`tdevice")) {
-            $boot = & $adbExe -s $serial shell getprop sys.boot_completed 2>$null
-            if ($LASTEXITCODE -eq 0 -and ([string]$boot).Trim() -eq '1') { $localeBooted = $true; break }
+    $actualLocale = ''
+    $maxLocaleAttempts = 3
+    for ($localeAttempt = 1; $localeAttempt -le $maxLocaleAttempts; $localeAttempt++) {
+        $localeSettleDeadline = (Get-Date).AddSeconds(30)
+        while ((Get-Date) -lt $localeSettleDeadline) {
+            $localeSetting = (& $adbExe -s $serial shell settings get system system_locales 2>$null | Out-String).Trim()
+            $localeProperty = (& $adbExe -s $serial shell getprop persist.sys.locale 2>$null | Out-String).Trim()
+            if ($localeSetting -eq 'zh-CN') { $actualLocale = $localeSetting; break }
+            Start-Sleep -Seconds 2
         }
-        Start-Sleep -Seconds 3
+        if ($actualLocale -eq 'zh-CN') { break }
+        if ($localeAttempt -eq $maxLocaleAttempts) { break }
+
+        & $adbExe -s $serial shell settings put system system_locales zh-CN | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Could not reapply zh-CN system locale on attempt $localeAttempt." }
+        $localeSetting = (& $adbExe -s $serial shell settings get system system_locales 2>$null | Out-String).Trim()
+        if ($localeSetting -ne 'zh-CN') { continue }
+
+        & $adbExe -s $serial reboot | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "The AVD could not reboot for locale attempt $localeAttempt." }
+        $localeBootDeadline = (Get-Date).AddMinutes(3)
+        $localeBooted = $false
+        while ((Get-Date) -lt $localeBootDeadline) {
+            $devices = & $adbExe devices
+            if ($devices -match [regex]::Escape("$serial`tdevice")) {
+                $boot = & $adbExe -s $serial shell getprop sys.boot_completed 2>$null
+                if ($LASTEXITCODE -eq 0 -and ([string]$boot).Trim() -eq '1') { $localeBooted = $true; break }
+            }
+            Start-Sleep -Seconds 3
+        }
+        if (-not $localeBooted) { throw "The AVD did not finish rebooting for locale attempt $localeAttempt." }
     }
-    if (-not $localeBooted) { throw 'The AVD did not finish rebooting after setting zh-CN system locale.' }
+    if ($actualLocale -ne 'zh-CN') { throw "System locale did not stabilize at zh-CN after $maxLocaleAttempts attempts (settings='$localeSetting', property='$localeProperty')." }
 
     Invoke-PrivateAdb -s $serial shell settings put system accelerometer_rotation 0
     Invoke-PrivateAdb -s $serial shell settings put system user_rotation 0
     Invoke-PrivateAdb -s $serial shell settings put system font_scale 1.0
-    $actualLocale = ''
-    $localeSettleDeadline = (Get-Date).AddSeconds(45)
-    while ((Get-Date) -lt $localeSettleDeadline) {
-        $localeSetting = (& $adbExe -s $serial shell settings get system system_locales 2>$null | Out-String).Trim()
-        $localeProperty = (& $adbExe -s $serial shell getprop persist.sys.locale 2>$null | Out-String).Trim()
-        if ($localeSetting -eq 'zh-CN') { $actualLocale = $localeSetting; break }
-        Start-Sleep -Seconds 2
-    }
-    if ($actualLocale -ne 'zh-CN') { throw "The AVD locale is '$actualLocale' after reboot, expected zh-CN." }
     $actualFontScale = (& $adbExe -s $serial shell settings get system font_scale 2>$null | Out-String).Trim()
     if ($actualFontScale -ne '1.0') { throw "The AVD font scale is '$actualFontScale', expected 1.0." }
     $existingRMapping = subst | Where-Object { $_ -match '^R:\\: =>' }
@@ -183,6 +190,8 @@ try {
 
     $testStartedAt = Get-Date
     Push-Location 'R:\android'
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     try {
         $gradleOutput = & '.\gradlew.bat' assembleDebug --no-daemon 2>&1
         if ($LASTEXITCODE -ne 0) { throw 'assembleDebug failed.' }
@@ -193,7 +202,10 @@ try {
         $gradleOutput = & '.\gradlew.bat' connectedDebugAndroidTest --no-daemon 2>&1
         $testExitCode = $LASTEXITCODE
     }
-    finally { Pop-Location }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+        Pop-Location
+    }
 
     $resultDir = Join-Path $androidRoot 'app\build\outputs\androidTest-results\connected\debug'
     $xmlFiles = @(Get-ChildItem $resultDir -Filter '*.xml' -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $testStartedAt })
@@ -266,6 +278,7 @@ try {
         image = 'google_apis_playstore;x86_64'
         orientation = 'portrait'
         actual_locale = $actualLocale
+        locale_attempts = $localeAttempt
         font_scale = $actualFontScale
         foreground_package = 'com.gutcare.app'
         foreground_activity = $foregroundActivity
@@ -293,6 +306,7 @@ catch {
             failures = $failureCount
             errors = $errorCount
             actual_locale = if ($actualLocale) { $actualLocale } else { $null }
+            locale_attempts = $localeAttempt
             locale_settings = $localeSetting
             locale_property = $localeProperty
             foreground_package = if ($foregroundActivity) { 'com.gutcare.app' } else { $null }
