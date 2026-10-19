@@ -14,10 +14,13 @@ demo-source*.json
 .mypy_cache/
 .ruff_cache/
 .pnpm-store/
+.kotlin/
 .coverage
 htmlcov/
 __pycache__/
 **/node_modules/
+**/.idea/
+**/.hbuilderx/
 **/.venv/
 /app/dist/
 .runtime/
