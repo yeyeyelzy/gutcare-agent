@@ -23,16 +23,19 @@ import com.gutcare.app.ui.auth.RegistrationDraft
 import com.gutcare.app.ui.auth.UnconnectedAuthWorkflow
 import com.gutcare.app.ui.auth.WelcomeScreen
 import com.gutcare.app.ui.tabs.ProtectedTabShell
+import com.gutcare.app.core.network.RegistrationNoticeSummaries
 
 /**
- * Navigation owns public-flow drafts only in Compose memory. It deliberately has no access to the
- * secure session store: a later core adapter must supply [AppSessionState] after authenticating.
+ * Navigation owns public-flow drafts only in Compose memory. The activity supplies session state
+ * only after cold-start restoration or login has completed profile bootstrap.
  */
 @Composable
 fun GutCareNavHost(
     navController: NavHostController,
     sessionState: AppSessionState = AppSessionState.Public,
     authWorkflow: AuthWorkflow = UnconnectedAuthWorkflow,
+    onLogout: (((AuthOperationState) -> Unit) -> Unit) = {},
+    registrationNoticeSummaries: RegistrationNoticeSummaries? = null,
 ) {
     var registrationDraft by remember { mutableStateOf(RegistrationDraft()) }
     var loginOperation by remember { mutableStateOf<AuthOperationState>(AuthOperationState.Idle) }
@@ -71,7 +74,15 @@ fun GutCareNavHost(
                 operation = loginOperation,
                 onLogin = { email, password ->
                     loginOperation = AuthOperationState.Loading
-                    authWorkflow.login(email, password) { result -> loginOperation = result }
+                    authWorkflow.login(email, password) { result ->
+                        loginOperation = result
+                        if (result is AuthOperationState.Accepted) {
+                            navController.navigate(AppRoute.Today.value) {
+                                popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
                 },
                 onBack = { returnToWelcome() },
                 onRegister = { navigate(AppRoute.RegisterCredentials, clearDraft = true) },
@@ -82,6 +93,7 @@ fun GutCareNavHost(
             RegisterCredentialsScreen(
                 draft = registrationDraft,
                 operation = registrationOperation,
+                privacyNoticeSummary = registrationNoticeSummaries?.privacy,
                 onDraftChange = { registrationDraft = it },
                 onContinue = {
                     if (RoutePolicy.canEnterProfile(registrationDraft)) {
@@ -101,6 +113,7 @@ fun GutCareNavHost(
                 ProfileBootstrapScreen(
                     draft = registrationDraft,
                     operation = registrationOperation,
+                    healthDataNoticeSummary = registrationNoticeSummaries?.healthData,
                     onDraftChange = { registrationDraft = it },
                     onSubmit = {
                         if (AuthValidators.canSubmitRegistration(registrationDraft)) {
@@ -124,6 +137,10 @@ fun GutCareNavHost(
         composable(AppRoute.EmailVerification.value) {
             EmailVerificationScreen(
                 operation = registrationOperation,
+                onVerify = { token ->
+                    registrationOperation = AuthOperationState.Loading
+                    authWorkflow.verifyEmail(token) { result -> registrationOperation = result }
+                },
                 onGoToLogin = { navigate(AppRoute.Login, clearDraft = true) },
                 onBack = { returnToWelcome() },
             )
@@ -150,10 +167,10 @@ fun GutCareNavHost(
                 onGoToLogin = { navigate(AppRoute.Login, clearDraft = true) },
             )
         }
-        composable(AppRoute.Today.value) { ProtectedRoot(sessionState, navController, RootTab.Today) }
-        composable(AppRoute.Records.value) { ProtectedRoot(sessionState, navController, RootTab.Records) }
-        composable(AppRoute.Analysis.value) { ProtectedRoot(sessionState, navController, RootTab.Analysis) }
-        composable(AppRoute.Me.value) { ProtectedRoot(sessionState, navController, RootTab.Me) }
+        composable(AppRoute.Today.value) { ProtectedRoot(sessionState, navController, RootTab.Today, onLogout) }
+        composable(AppRoute.Records.value) { ProtectedRoot(sessionState, navController, RootTab.Records, onLogout) }
+        composable(AppRoute.Analysis.value) { ProtectedRoot(sessionState, navController, RootTab.Analysis, onLogout) }
+        composable(AppRoute.Me.value) { ProtectedRoot(sessionState, navController, RootTab.Me, onLogout) }
     }
 }
 
@@ -162,6 +179,7 @@ private fun ProtectedRoot(
     sessionState: AppSessionState,
     navController: NavHostController,
     selectedTab: RootTab,
+    onLogout: (((AuthOperationState) -> Unit) -> Unit),
 ) {
     if (sessionState !is AppSessionState.Authenticated) {
         LaunchedEffect(Unit) {
@@ -174,6 +192,7 @@ private fun ProtectedRoot(
     }
     ProtectedTabShell(
         selectedTab = selectedTab,
+        onLogout = { onLogout { } },
         onSelectTab = { tab ->
             navController.navigate(tab.route.value) {
                 popUpTo(navController.graph.findStartDestination().id) { saveState = true }

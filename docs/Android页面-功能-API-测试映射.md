@@ -1,13 +1,13 @@
 # Android 页面—功能—API—测试映射
 
-> 状态：静态 UI 基线已提取；本文是 Android 原生页面映射与联调准备，不代表页面实现、真实点击验证或端到端验收。日期：2026-10-19。
+> 状态：静态 UI 基线已提取；Android 原生工程基座及认证运行时接线已实现，T01k Repository/phone-demo 联调与常规模拟器仪器测试已有通过证据，22 个原型页尚未完成迁移。本文记录页面映射、当前实现切片及联调缺口，不代表页面级端到端验收。日期：2026-10-19。
 > 权威来源：`UI原型审查与页面导航规范.md`、`UI源码基线与导入规范.md`、`UI交付与实现规范.md`、`详细功能设计.md`、ADR-0022、`contracts/openapi/gutcare-v1.yaml`、`需求追踪矩阵.md`。
 
 ## 1. 基线与实施边界
 
 ZIP 静态清单见 [`design-reference/android-ui-baseline/manifest.json`](../design-reference/android-ui-baseline/manifest.json)。规范页序号为 01–22，清单 `page` 为 0–21；页面图片原始尺寸宽度均为 1290 px、高度 2693–3971 px（欢迎页 2818 px）。另有一张运动页替代导出 `page18_运动记录_2x.png`，尺寸 860×2170 px，不计入 22 个规范页。文件按页码与识别出的中文标题保留原名。来源哈希和每张图片的字节数、尺寸、SHA-256 均在 manifest；manifest 只写 ZIP 文件名和相对路径，不含用户绝对路径。素材来源/授权尚未确认，`production_allowed=false`；不得导入 APK。
 
-Android 是唯一患者端开发和验收目标。现有 `android/` 是 Kotlin/Compose 导航骨架，目前只有 `home` 路由及欢迎占位文案，没有 22 页路由、真实页面或业务 API 绑定。下表“API 后端状态”说明契约/业务服务是否已有实现证据；“当前 Android 可联调”则按当前骨架判断，不把后端验证、旧 `app/` 代码或静态原型当作 Android 联调证据。
+Android 是唯一患者端开发和验收目标。现有 `android/` 已有 Kotlin/Compose 工程基座、认证运行时、会话/网络基础设施和四个受保护底栏占位页。注册、邮箱验证、登录、refresh 恢复、`GET /patients/me` 引导和退出已连接业务 API；真实运行时不使用 `UnconnectedAuthWorkflow`，它仅是 NavHost 默认/测试回退。注册告知由 Gradle 从 `contracts/consent/registration-notices.json` 生成 Android 资源并在运行时校验。T01k 已在 phone-demo 上真实跑通原生 Repository 注册—邮箱验证—登录—本人资料读取—refresh 后资料刷新—退出链路（1/1），但不经过 Compose 页面；页面级认证 E2E 仍待验收。常规模拟器另有 13/13 instrumentation 通过证据。受保护的今日、记录、分析、我的页面目前只有导航外壳与占位态，22 个原型页面及业务 API 页面绑定尚未完成。下表“API 后端状态”说明契约/业务服务是否已有实现证据；“当前 Android 可联调”不把后端验证、Repository 联调、旧 `app/` 代码或静态原型当作页面级验收证据。
 
 非 Agent 区域始终由 Android + FastAPI 业务后端负责：认证、资料、授权、记录 CRUD、文件与候选生命周期、任务/快照/状态、建议/风险/趋势/通知/隐私。Agent 只从业务后端领取允许的冻结快照并返回受限结果；APP 不直连 Agent、数据库或对象存储。图片候选在患者确认前不是事实。未获专业审核的风险规则只能是 `test_only`。
 
@@ -15,7 +15,7 @@ Android 是唯一患者端开发和验收目标。现有 `android/` 是 Kotlin/C
 
 | 页 | 原图 | 功能 / 非 Agent 与 Agent 边界 | 建议 Android route | 业务 API（APP 只调业务后端） | 关键状态 | 测试追踪 | API 后端状态 / 当前 Android 可联调 |
 |---:|---|---|---|---|---|---|---|
-| 01 | [欢迎页](../design-reference/android-ui-baseline/pages/page00_欢迎页.png) | F01 公开入口；认证与会话归 APP/业务端，无 Agent | `welcome` | 无；进入登录/注册 | 首次启动、已有会话恢复、会话失效 | T01、T01g、T01j；UI-01/02 | 认证后端 verified；Android 否（无页面/API 客户端） |
+| 01 | [欢迎页](../design-reference/android-ui-baseline/pages/page00_欢迎页.png) | F01 公开入口；认证与会话归 APP/业务端，无 Agent | `welcome` | 无；进入登录/注册；冷启动尝试 refresh 并读取 `/patients/me` | 首次启动、已有会话恢复、会话失效 | T01、T01g、T01j、T01k；UI-01/02 | 认证后端 verified；运行时已接线，T01k Repository 链路通过；页面级 E2E 待验收 |
 | 02 | [今日](../design-reference/android-ui-baseline/pages/page01_今日.png) | F01/F06/F09/F10/F11/F12 首页摘要；规则风险由业务端计算，建议内容可来自受限 Agent 任务 | `tabs/today` | `GET /risk-alerts`、`/medication-checkins/today`、`/notifications/unread-count`、`/advice`、`/trends` | 每卡独立加载/空/错误/离线；初次失败不显示 0；风险优先 | T01j、T119–T121、T125、T128–T129；A40–A42；UI-03/06/07 | 后端相关端点 verified；Android 否 |
 | 03 | [饮食记录](../design-reference/android-ui-baseline/pages/page02_饮食记录.png) | F03；记录与确认事实归业务端；识别候选由 Agent 通过独立任务返回，患者逐字段确认 | `records/diet` | `GET/POST /dietary-records`，`GET/PATCH/DELETE /dietary-records/{id}`；附件与识别按 OpenAPI image operations | 列表/编辑加载、空、错误、离线、版本冲突；图片可选；候选 pending/confirmed/invalidated | T07–T10、T116、T133–T140；A08–A11；UI-04 | CRUD 后端 verified；图片链路 implemented、Agent E2E 待验；Android 否 |
 | 04 | [综合分析报告](../design-reference/android-ui-baseline/pages/page03_综合分析报告.png) | F08；业务端持有任务、快照、证据归属和可见性；Agent 仅消费快照并回传结构化结果 | `analysis/task/{taskId}` | `GET /analysis-tasks/{task_id}`；受控取消/重试分别为 `/cancel`、`/retry` | pending/processing/needs_input/succeeded/partial/failed/cancelled；只呈现白名单结果与证据 | T66–T71、T127、T14–T18；A25–A29；UI-05 | 业务后端 verified；Agent 服务/E2E 未交付，Android 否 |
@@ -31,16 +31,20 @@ Android 是唯一患者端开发和验收目标。现有 `android/` 是 Kotlin/C
 | 14 | [发起综合分析](../design-reference/android-ui-baseline/pages/page13_发起综合分析.png) | F08；业务端校验授权、预览、快照和幂等；Agent 分析冻结输入 | `analysis/new` | `GET /analysis-tasks/preview`、`POST /analysis-tasks` | preview 不等于最终快照；范围 UTC 半开；显示服务端 mood in-range/eligible/excluded 数及原因；创建前复验 | T66–T71、T106–T108、T111–T112、T126；A25–A29/A52；UI-05 | 业务后端 verified；Agent 服务/E2E 未验；Android 否 |
 | 15 | [用药计划](../design-reference/android-ui-baseline/pages/page14_用药计划.png) | F06；仅管理患者确认的处方/计划和打卡，不生成药物方案 | `medications` | `/medication-plans`、`/medication-schedules`、`/medication-checkins`、`/medication-checkins/today` | confirmation_status 与 plan_status 独立；pending 不是未服；409 不覆盖 | T52–T59、T119；A19–A22；UI-10 | 后端 verified；Android 否 |
 | 16 | [心情记录](../design-reference/android-ui-baseline/pages/page15_心情记录.png) | F14；CRUD/授权/趋势由业务端；仅任务快照允许字段交 Agent，note 永不进入快照 | `records/mood`、`records/mood/{recordId}/edit` | `/mood-records`、`/mood-records/{id}`、`/patients/me/consents`、`/consent-notices` | health_data_processing + mood_data_processing 控制写入；本人读取/删除仍可用；等级 5..1；授权提示与空数据分开 | T105–T115、T117；A46–A52；UI-04/05/06 | F14 后端子范围 verified；Android 否 |
-| 17 | [开始建档](../design-reference/android-ui-baseline/pages/page16_开始建档.png) | F01 注册前置采集；仅内存草稿；最终一次提交业务后端，无 Agent | `auth/register/profile` | `GET /consent-notices`；齐备后由注册流程 `POST /auth/register` | 未单独同意前不得收集出生年份或发请求；取消/离页清密码草稿；邮箱验证不是已登录 | T01c–T01g、T01i；UI-01/02 | 认证后端 verified；生产法律告知仍阻断发布；Android 否 |
+| 17 | [开始建档](../design-reference/android-ui-baseline/pages/page16_开始建档.png) | F01 注册前置采集；仅内存草稿；最终一次提交业务后端，无 Agent | `auth/register/profile` | 告知从构建资源 `registration-notices.json` 读取；齐备后由注册流程 `POST /auth/register` | 两项独立明确同意后才收集出生年份和提交；取消/离页清密码草稿；邮箱验证不是已登录 | T01c–T01g、T01i、T01k；UI-01/02 | Repository 真实 API 链路通过；未覆盖此页面；页面级 E2E 待验收 |
 | 18 | [历史报告](../design-reference/android-ui-baseline/pages/page17_历史报告.png) | F08/F11；任务历史和不可变输入摘要由业务端保存，Agent 不参与客户端展示 | `analysis/history` | `GET /analysis-tasks`、`GET /analysis-tasks/{task_id}` | 游标/筛选稳定；历史 mood 计数取任务快照，不按当前记录重算；分页错误保留游标 | T66–T71、T111–T112、T126–T127；A40/A52；UI-05 | 业务后端 verified；真实 Agent 结果可能未有；Android 否 |
 | 19 | [运动记录](../design-reference/android-ui-baseline/pages/page18_运动记录.png) | F07；手动活动 CRUD 与统计由业务端，Agent 仅可能消费许可快照 | `records/activity` | `GET/POST /activity-records`、`GET/PATCH/DELETE /activity-records/{id}` | 无数据不等于没有活动；版本冲突/软删/离线 | T20–T21、T87、T118；A23–A24；UI-04 | 后端 verified；Android 否 |
 | 20 | [设置](../design-reference/android-ui-baseline/pages/page19_设置.png) | F13/F12；设置枢纽及授权、通知偏好、注销/导出均由业务端 | `settings`、`privacy/center`、`privacy/consents` | `/patients/me/consents`、`/consent-notices`、`/notifications/preferences`、`/patients/me/account-deletion`、`/privacy/exports` | 授权撤回立即更新能力；注销冻结/进度独立；导出 preview 后需再次确认；下载能力仅内存 | T42–T47、T92–T98、T122–T123、T141–T144；A43–A45；UI-10 | 后端 F13 implemented，注销/导出子范围有验收；Android 否 |
-| 21 | [登录](../design-reference/android-ui-baseline/pages/page20_登录.png) | F01；邮箱认证/会话恢复和资料读取属于 APP + 业务端 | `auth/login` | `POST /auth/login`，refresh/logout；成功后 `GET /patients/me` | 401 不枚举账户；未验证/错误凭据一致；资料 404 清会话并显示一致性错误 | T01、T01a–T01b、T01g–T01i、T49；UI-01/02 | 后端认证 verified；生产告知配置/APP真机另验；Android 否 |
-| 22 | [注册](../design-reference/android-ui-baseline/pages/page21_注册.png) | F01；注册收集邮箱/密码草稿；出生年份与独立健康数据同意在第17页完成后再统一提交 | `auth/register` | `POST /auth/register`（仅第17页完成后调用） | 邮箱 + 密码；confirmation password 仅客户端；隐私与健康处理独立同意；成功后邮箱验证，不直接入首页 | T01c–T01i；UI-01/02 | 后端认证 verified；生产告知签核阻断正式发布；Android 否 |
+| 21 | [登录](../design-reference/android-ui-baseline/pages/page20_登录.png) | F01；邮箱认证/会话恢复和资料读取属于 APP + 业务端 | `auth/login` | `POST /auth/login`；refresh/logout；成功后 `GET /patients/me` | 401 不枚举账户；未验证/错误凭据一致；资料 404 清会话并显示一致性错误 | T01、T01a–T01b、T01g–T01i、T01k、T49；UI-01/02 | Repository 真实 API 链路通过；未覆盖此页面；页面级 E2E 待验收 |
+| 22 | [注册](../design-reference/android-ui-baseline/pages/page21_注册.png) | F01；注册收集邮箱/密码草稿；出生年份与独立健康数据同意在第17页完成后再统一提交 | `auth/register` | `POST /auth/register`（仅两项明确同意且第17页完成后调用） | 邮箱 + 密码；confirmation password 仅客户端；隐私与健康处理独立同意；成功后邮箱验证，不直接入首页 | T01c–T01i、T01k；UI-01/02 | Android 运行时已接线；页面级 E2E 待模拟器验收；Release 注册因生产批准告知制品规范/签核未冻结而 fail-closed |
 
 ### 联调判定
 
-当前 `android/app/src/main/java/.../navigation/GutCareNavHost.kt` 仅注册 `home`，`HomeScreen` 仅有骨架文本；`BusinessApi` 也未形成页面级接入。因此 22/22 页当前都不能从原生 Android 页面与真实业务后端联调。多数业务端点已有 OpenAPI 和后端实现/验收证据，但“服务可用”仍需本机/目标环境启动及真实请求；涉及图像/综合分析/建议的真实智能输出还需要独立 Agent 服务和授权配置。此判断不将旧 `app/` 的验收结果算作 Android 验收。
+认证运行时已通过双 Retrofit 客户端接入业务 API：认证/refresh 使用无 Bearer、无 Authenticator 的客户端；资料/登出使用 Bearer 与 session Authenticator，refresh callback 回到纯认证客户端，避免递归。登录与冷启动恢复均须成功读取 `/patients/me` 才进入受保护导航；资料 404 清除本机会话并显示安全错误。Debug 使用 JSON 构建资源；只有 `development_test_only` 制品可用，因此 Release 注册 fail-closed。生产批准制品的 classification/schema 与签核尚未冻结，Debug 告知也仅可用于合成账户。T01k 已覆盖真实 phone-demo API 链路，但不覆盖页面交互。
+
+四个受保护根 Tab 仍为占位页，22 个原型页面迁移尚未完成。T01k 于 2026-10-19 17:09（Asia/Shanghai）通过 1/1：`android/build/emulator-evidence/phone-demo-auth-20261019-170835-d2e7c4fc/summary.json` 与 `junit-summary.json`。它直接覆盖 Repository、Android 网络栈、Keystore 与本机 phone-demo 真实 API 注册、验证、登录、资料、刷新和退出链路，不经过 Compose 登录/注册页面；页面级 E2E 仍待验收。Agent 仍只在服务端消费冻结快照，真实 Agent E2E 为独立验收项；旧 `app/` 的结果不计入 Android 页面验收。
+
+阶段证据：常规模拟器 `android/build/emulator-evidence/20261019-162823/summary.json` 记录 Android API 37、Google APIs Play Store x86_64 模拟器 instrumentation 13/13 通过、0 失败；T01k phone-demo 专项证据位于 `android/build/emulator-evidence/phone-demo-auth-20261019-170835-d2e7c4fc/`，1/1 通过。当前 JVM HTML 报告 `android/app/build/reports/tests/testDebugUnitTest/index.html` 为 32 项通过、0 失败、0 跳过。证据不代表 22 页验收、认证页面级 E2E、全系统验收或真机验收通过。
 
 ## 3. 原型与契约差异、导航风险
 
@@ -54,7 +58,7 @@ Android 是唯一患者端开发和验收目标。现有 `android/` 是 Kotlin/C
 
 ## 4. 可重复截图叠图与差异验收
 
-本轮通过线按用户要求设为每个可比较页面视觉相似度 **≥90%**。该数值是像素差异分数，不替代功能、无障碍、隐私状态或真机验收；未提供的页面状态不能以理想态截图代替。
+页面视觉相似度目标为每个已实现且可比较页面 **≥90%**。该目标不表示当前 22 页均已达到；它是像素差异分数，不替代功能、无障碍、隐私状态或真机验收；未提供的页面状态不能以理想态截图代替。
 
 1. 固定同一 Android 模拟器型号、分辨率/density、系统字体缩放、主题、语言、状态栏/导航栏、安全区和键盘状态；使用固定合成账号及数据。原图保持只读，记录 Android build、设备 profile、页面 route、状态 fixture 和截图时间。
 2. 把原型与设备截图裁到同一内容边界（状态栏/系统导航栏按基准策略统一保留或一起裁掉），按等比例缩放到共同尺寸，禁止非等比拉伸。将对齐参数记录下来；如需平移，只允许一次人工确认并固化的内容原点偏移。

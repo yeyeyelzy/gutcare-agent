@@ -53,7 +53,7 @@ object AuthCopy {
     const val emailLabel = "邮箱"
     const val passwordLabel = "密码"
     const val passwordConfirmationLabel = "确认密码"
-    const val privacyConsent = "我已阅读测试版隐私说明"
+    const val privacyConsent = "我已阅读并同意以上隐私告知"
     const val healthDataConsent = "我单独同意测试环境处理出生年份及健康记录"
 
     val allVisibleCopy: List<String> = listOf(
@@ -74,6 +74,7 @@ object AuthCopy {
 interface AuthWorkflow {
     fun login(email: String, password: String, onResult: (AuthOperationState) -> Unit)
     fun register(draft: RegistrationDraft, onResult: (AuthOperationState) -> Unit)
+    fun verifyEmail(token: String, onResult: (AuthOperationState) -> Unit)
     fun requestPasswordReset(email: String, onResult: (AuthOperationState) -> Unit)
     fun confirmPasswordReset(token: String, newPassword: String, onResult: (AuthOperationState) -> Unit)
 }
@@ -90,6 +91,10 @@ object UnconnectedAuthWorkflow : AuthWorkflow {
     }
 
     override fun register(draft: RegistrationDraft, onResult: (AuthOperationState) -> Unit) {
+        onResult(AuthOperationState.Error(unavailable))
+    }
+
+    override fun verifyEmail(token: String, onResult: (AuthOperationState) -> Unit) {
         onResult(AuthOperationState.Error(unavailable))
     }
 

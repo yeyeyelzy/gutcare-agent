@@ -52,6 +52,34 @@ class ApiFoundationTest {
         }
     }
 
+    @Test fun bearerInterceptorMatchesVersionedAuthRoutesAndKeepsLogoutAuthenticated() {
+        val server = MockWebServer()
+        repeat(6) { server.enqueue(MockResponse()) }
+        server.start()
+        try {
+            val client = OkHttpClient.Builder().addInterceptor(BearerTokenInterceptor { "session-access" }).build()
+            val routes = listOf(
+                "/api/v1/auth/register",
+                "/api/v1/auth/email/verify",
+                "/api/v1/auth/login",
+                "/api/v1/auth/refresh",
+                "/api/v1/auth/logout",
+                "/api/v1/patients/me",
+            )
+            routes.forEach { path ->
+                client.newCall(Request.Builder().url(server.url(path)).build()).execute().close()
+            }
+            routes.forEachIndexed { index, path ->
+                val request = server.takeRequest()
+                assertEquals(path, request.path)
+                if (index < 4) assertNull(request.getHeader("Authorization"))
+                else assertEquals("Bearer session-access", request.getHeader("Authorization"))
+            }
+        } finally {
+            server.shutdown()
+        }
+    }
+
     @Test fun concurrent401ResponsesShareOneRefresh() {
         val tokens = TestTokens()
         val refreshCount = AtomicInteger()
@@ -115,13 +143,28 @@ class ApiFoundationTest {
             calls.incrementAndGet()
             RefreshResult.Success(RefreshedTokens("access-new", "refresh-new"))
         }
-        assertNull(authenticator.authenticate(null, unauthorized("access-old", "/api/v1/auth/login")))
+        listOf("/api/v1/auth/register", "/api/v1/auth/email/verify", "/api/v1/auth/login", "/api/v1/auth/refresh")
+            .forEach { path -> assertNull(authenticator.authenticate(null, unauthorized("access-old", path))) }
         assertNull(authenticator.authenticate(null, unauthorized(null, "/api/v1/auth/login")))
         assertNull(authenticator.authenticate(null, unauthorized(null)))
         assertNull(authenticator.authenticate(null, unauthorizedHeader("Basic explicit")))
         assertNull(authenticator.authenticate(null, unauthorized("unrecognized-token")))
         assertEquals(0, calls.get())
         assertEquals("access-old", tokens.currentAccessToken())
+    }
+
+    @Test fun expiredLogoutBearerUsesOneRefreshAndRetriesWithRotatedAccess() {
+        val tokens = TestTokens()
+        val refreshCount = AtomicInteger()
+        val authenticator = SessionAuthenticator(tokens) {
+            refreshCount.incrementAndGet()
+            RefreshResult.Success(RefreshedTokens("access-new", "refresh-new"))
+        }
+        val retry = authenticator.authenticate(null, unauthorized("access-old", "/api/v1/auth/logout"))
+        assertEquals(1, refreshCount.get())
+        assertEquals("Bearer access-new", retry?.header("Authorization"))
+        assertEquals("access-new", tokens.currentAccessToken())
+        assertEquals("refresh-new", tokens.currentRefreshToken())
     }
 
     private fun unauthorized(token: String?, path: String = "/api/v1/items") = Response.Builder()

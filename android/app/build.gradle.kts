@@ -1,3 +1,6 @@
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -18,11 +21,13 @@ android {
         buildConfigField("String", "API_BASE_URL", "\"https://api.gutcare.invalid/api/v1/\"")
     }
 
+    sourceSets.getByName("main").res.srcDir(layout.buildDirectory.dir("generated/registration-notices/res").get().asFile)
+
     buildTypes {
         debug {
-            val emulatorHttp = providers.gradleProperty("allowEmulatorHttp").orNull == "true"
+            val emulatorHttp = providers.gradleProperty("allowEmulatorHttp").orNull != "false"
             val debugUrl = providers.gradleProperty("debugApiBaseUrl").orNull
-                ?: if (emulatorHttp) "http://10.0.2.2:8000/api/v1/" else "https://api.gutcare.invalid/api/v1/"
+                ?: "http://10.0.2.2:8000/api/v1/"
             buildConfigField("String", "API_BASE_URL", "\"$debugUrl\"")
             buildConfigField("boolean", "ALLOW_EMULATOR_HTTP", emulatorHttp.toString())
         }
@@ -50,6 +55,39 @@ android {
         abortOnError = true
         checkReleaseBuilds = true
     }
+}
+
+val registrationNoticesArtifact = rootProject.layout.projectDirectory.file("../contracts/consent/registration-notices.json")
+
+val validateRegistrationNotices by tasks.registering {
+    inputs.file(registrationNoticesArtifact)
+    doLast {
+        val file = registrationNoticesArtifact.asFile
+        check(file.isFile) { "Registration notice artifact is required: ${file.path}" }
+        val bytes = file.readBytes()
+        check(!(bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte())) {
+            "Registration notice artifact must not contain a UTF-8 BOM"
+        }
+        check(bytes.none { it == 0x0D.toByte() }) { "Registration notice artifact must use LF line endings only" }
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+    }
+}
+
+val generateRegistrationNotices by tasks.registering(Copy::class) {
+    val source = registrationNoticesArtifact
+    dependsOn(validateRegistrationNotices)
+    from(source)
+    into(layout.buildDirectory.dir("generated/registration-notices/res/raw"))
+    rename { "registration_notices.json" }
+}
+
+tasks.named("preBuild").configure { dependsOn(generateRegistrationNotices) }
+
+tasks.withType<Test>().configureEach {
+    systemProperty("gutcare.registrationNoticesPath", registrationNoticesArtifact.asFile.absolutePath)
 }
 
 dependencies {

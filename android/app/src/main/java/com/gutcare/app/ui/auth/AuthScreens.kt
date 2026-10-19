@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -199,6 +200,7 @@ fun RegisterCredentialsScreen(
     draft: RegistrationDraft,
     operation: AuthOperationState,
     onDraftChange: (RegistrationDraft) -> Unit,
+    privacyNoticeSummary: String? = null,
     onContinue: () -> Unit,
     onBack: () -> Unit,
     onLogin: () -> Unit,
@@ -253,7 +255,7 @@ fun RegisterCredentialsScreen(
         GutCareCard(padding = 16.dp) {
             Text("隐私说明", style = MaterialTheme.typography.titleMedium)
             Text(
-                "测试构建的告知版本会由后续认证适配器提供；正式发布须使用已审核的告知制品。",
+                privacyNoticeSummary ?: "隐私告知暂不可用，当前无法继续注册。",
                 modifier = Modifier.padding(top = 6.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = GutCareMuted,
@@ -271,7 +273,7 @@ fun RegisterCredentialsScreen(
         GutCarePrimaryButton(
             label = "继续",
             onClick = onContinue,
-            enabled = AuthValidators.canContinueRegistration(draft),
+            enabled = privacyNoticeSummary != null && AuthValidators.canContinueRegistration(draft),
             loading = operation is AuthOperationState.Loading,
             testTag = "register_continue",
         )
@@ -285,6 +287,7 @@ fun ProfileBootstrapScreen(
     draft: RegistrationDraft,
     operation: AuthOperationState,
     onDraftChange: (RegistrationDraft) -> Unit,
+    healthDataNoticeSummary: String? = null,
     onSubmit: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -300,7 +303,7 @@ fun ProfileBootstrapScreen(
         GutCareCard {
             Text("健康数据处理", style = MaterialTheme.typography.titleLarge)
             Text(
-                "出生年份属于健康资料。请先阅读并单独同意，再填写这一必要信息。",
+                healthDataNoticeSummary ?: "健康数据告知暂不可用，当前无法继续注册。",
                 modifier = Modifier.padding(top = 8.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = GutCareMuted,
@@ -316,7 +319,7 @@ fun ProfileBootstrapScreen(
                         ),
                     )
                 },
-                description = AuthCopy.healthDataConsent,
+                description = "我已阅读以上健康数据处理告知，并单独同意",
                 testTag = "health_data_consent",
             )
             if (draft.healthDataProcessingAccepted) {
@@ -346,7 +349,7 @@ fun ProfileBootstrapScreen(
         GutCarePrimaryButton(
             label = "注册并发送验证邮件",
             onClick = onSubmit,
-            enabled = AuthValidators.canSubmitRegistration(draft),
+            enabled = healthDataNoticeSummary != null && AuthValidators.canSubmitRegistration(draft),
             loading = operation is AuthOperationState.Loading,
             testTag = "profile_submit",
         )
@@ -357,11 +360,14 @@ fun ProfileBootstrapScreen(
 @Composable
 fun EmailVerificationScreen(
     operation: AuthOperationState,
+    onVerify: (String) -> Unit,
     onGoToLogin: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BackHandler(onBack = onBack)
+    var token by remember { mutableStateOf("") }
+    LaunchedEffect(operation) { if (operation is AuthOperationState.Accepted) token = "" }
     AuthPageHeader(
         title = "验证邮箱",
         subtitle = "请在注册邮箱中打开验证链接。验证完成后，请使用邮箱和密码登录。",
@@ -371,16 +377,34 @@ fun EmailVerificationScreen(
         GutCareCard {
             Text("等待邮箱验证", style = MaterialTheme.typography.titleLarge)
             Text(
-                "验证链接为一次性安全操作。本页面不会保存或展示验证令牌。",
+                "验证链接中的一次性令牌仅在本页面内存中使用，不会写入日志或持久保存。",
                 modifier = Modifier.padding(top = 8.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = GutCareMuted,
             )
             Spacer(Modifier.height(12.dp))
-            ScreenStatus("认证服务接入后可显示发送与验证状态。")
+            ScreenStatus("请使用注册邮件中的一次性验证令牌完成验证。")
+            Spacer(Modifier.height(14.dp))
+            GutCareTextField(
+                value = token,
+                onValueChange = { token = it },
+                label = "邮箱验证令牌",
+                supportingText = if (token.isNotEmpty() && token.length < 20) "令牌格式不完整" else null,
+                isError = token.isNotEmpty() && token.length < 20,
+                password = true,
+                testTag = "email_verification_token",
+            )
         }
         AuthOperationMessage(operation)
         Spacer(Modifier.height(20.dp))
+        GutCarePrimaryButton(
+            label = "完成邮箱验证",
+            onClick = { onVerify(token) },
+            enabled = token.length >= 20,
+            loading = operation is AuthOperationState.Loading,
+            testTag = "verify_email_submit",
+        )
+        Spacer(Modifier.height(12.dp))
         GutCareSecondaryButton(
             label = "重新发送验证邮件",
             onClick = {},

@@ -43,6 +43,7 @@ sealed interface TabContentState {
 fun ProtectedTabShell(
     selectedTab: RootTab,
     onSelectTab: (RootTab) -> Unit,
+    onLogout: () -> Unit = {},
     modifier: Modifier = Modifier,
     contentState: TabContentState = TabContentState.Empty,
 ) {
@@ -58,6 +59,10 @@ fun ProtectedTabShell(
             )
             Spacer(Modifier.height(10.dp))
             Text(selectedTab.subtitle, style = MaterialTheme.typography.bodyLarge, color = GutCareMuted)
+            if (selectedTab == RootTab.Me) {
+                Spacer(Modifier.height(18.dp))
+                GutCarePrimaryButton(label = "退出登录", onClick = onLogout, testTag = "logout")
+            }
             Spacer(Modifier.height(38.dp))
             TabStatePanel(tab = selectedTab, state = contentState)
         }

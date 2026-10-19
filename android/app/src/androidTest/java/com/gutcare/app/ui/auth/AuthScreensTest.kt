@@ -24,6 +24,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.navigation.compose.rememberNavController
 import com.gutcare.app.navigation.GutCareNavHost
+import com.gutcare.app.core.network.RegistrationNoticeSummaries
 import com.gutcare.app.ui.theme.GutCareTheme
 import org.junit.Rule
 import org.junit.Test
@@ -32,6 +33,11 @@ import org.junit.Assert.assertEquals
 class AuthScreensTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    private val testNotices = RegistrationNoticeSummaries(
+        privacy = "测试用隐私告知内容",
+        healthData = "测试用健康数据告知内容",
+    )
 
     @Test
     fun registrationUsesEmailAndNeverShowsPhoneOrSmsCopy() {
@@ -70,6 +76,7 @@ class AuthScreensTest {
                     draft = currentDraft,
                     operation = AuthOperationState.Idle,
                     onDraftChange = { currentDraft = it },
+                    healthDataNoticeSummary = testNotices.healthData,
                     onSubmit = {},
                     onBack = {},
                 )
@@ -79,7 +86,7 @@ class AuthScreensTest {
         composeRule.onAllNodesWithContentDescription("出生年份").assertCountEquals(0)
         composeRule.onNodeWithTag("profile_submit").assertIsNotEnabled()
 
-        composeRule.onNodeWithContentDescription(AuthCopy.healthDataConsent).performClick()
+        composeRule.onNodeWithTag("health_data_consent").performClick()
         composeRule.onNodeWithContentDescription("出生年份").assertIsDisplayed().performTextInput("1990")
         composeRule.onNodeWithTag("profile_submit").assertIsEnabled()
     }
@@ -124,7 +131,10 @@ class AuthScreensTest {
     fun systemBackLeavingRegistrationFlowClearsSensitiveDraft() {
         composeRule.setContent {
             GutCareTheme {
-                GutCareNavHost(navController = rememberNavController())
+                GutCareNavHost(
+                    navController = rememberNavController(),
+                    registrationNoticeSummaries = testNotices,
+                )
             }
         }
 

@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [switch]$PurgeData
+    [switch]$PurgeData,
+    [string[]]$ExpectedContainerIds
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,8 +20,15 @@ if (-not (Test-Path -LiteralPath $composeFile -PathType Leaf) -or -not (Test-Pat
 $docker = Get-Command docker -ErrorAction SilentlyContinue
 if (-not $docker) { throw 'Environment blocked: Docker CLI is unavailable; no services were changed.' }
 Set-Location $root
-$containers = @(& $docker.Source ps -aq --filter "label=com.docker.compose.project=$project")
+$containers = @(& $docker.Source ps -aq --no-trunc --filter "label=com.docker.compose.project=$project")
 if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect Docker project resources; no services were changed.' }
+$actualIds = @($containers | Where-Object { $_ } | ForEach-Object { ([string]$_).Trim() } | Sort-Object)
+if ($PSBoundParameters.ContainsKey('ExpectedContainerIds')) {
+    $expectedIds = @($ExpectedContainerIds | Where-Object { $_ } | ForEach-Object { ([string]$_).Trim() } | Sort-Object)
+    if ($expectedIds.Count -eq 0 -or $actualIds.Count -ne $expectedIds.Count -or (($actualIds -join ',') -cne ($expectedIds -join ','))) {
+        throw 'Refusing cleanup: current phone-demo container IDs differ from the caller-verified startup IDs.'
+    }
+}
 foreach ($container in $containers) {
     if (-not $container) { continue }
     $label = & $docker.Source inspect --format $containerProjectLabelTemplate $container

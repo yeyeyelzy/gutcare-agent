@@ -14,6 +14,21 @@ interface SecureSessionStore {
     suspend fun saveRefreshToken(token: String)
     suspend fun readRefreshToken(): String?
     suspend fun clear()
+
+    /** Persist rotation state first; publish the process-memory access token only after it succeeds. */
+    suspend fun saveTokenPair(accessToken: String, refreshToken: String) {
+        try {
+            saveRefreshToken(refreshToken)
+            saveAccessToken(accessToken)
+        } catch (failure: Throwable) {
+            try {
+                clear()
+            } catch (clearFailure: Throwable) {
+                failure.addSuppressed(clearFailure)
+            }
+            throw failure
+        }
+    }
 }
 
 /** Access credentials are process-memory only; refresh credentials are encrypted at rest. */

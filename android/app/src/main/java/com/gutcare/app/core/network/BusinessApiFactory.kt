@@ -25,6 +25,23 @@ object BusinessApiFactory {
         client,
     )
 
+    /** Public authentication client: deliberately has neither bearer interception nor Authenticator. */
+    fun createPlainConfigured(client: OkHttpClient = OkHttpClient.Builder().build()): BusinessApi {
+        val endpoint = ApiEndpoint.validate(
+            ApiConfiguration(
+                baseUrl = com.gutcare.app.BuildConfig.API_BASE_URL,
+                isDebug = com.gutcare.app.BuildConfig.DEBUG,
+                allowEmulatorHttp = com.gutcare.app.BuildConfig.ALLOW_EMULATOR_HTTP,
+            ),
+        )
+        return Retrofit.Builder()
+            .baseUrl(endpoint)
+            .client(client)
+            .addConverterFactory(MoshiConverterFactory.create(moshi()))
+            .build()
+            .create(BusinessApi::class.java)
+    }
+
     fun create(baseUrl: String, client: OkHttpClient = OkHttpClient()): BusinessApi {
         require(baseUrl.startsWith("https://")) { "Business API must use HTTPS" }
         return Retrofit.Builder()

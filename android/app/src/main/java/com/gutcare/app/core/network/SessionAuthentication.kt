@@ -5,18 +5,27 @@ import okhttp3.Interceptor
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.Route
+import kotlinx.coroutines.runBlocking
 
 fun interface AccessTokenProvider { fun currentAccessToken(): String? }
 
 class BearerTokenInterceptor(private val tokens: AccessTokenProvider) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
-        val token = tokens.currentAccessToken()
+        val pathSegments = chain.request().url.pathSegments
+        val authSegmentIndex = pathSegments.indexOf("auth")
+        val authRoute = if (authSegmentIndex >= 0) pathSegments.drop(authSegmentIndex).joinToString("/") else null
+        val publicAuthPath = authRoute in PUBLIC_AUTH_ROUTES
+        val token = if (publicAuthPath) null else tokens.currentAccessToken()
         val request = chain.request().newBuilder().apply {
             if (chain.request().header("Authorization") == null && !token.isNullOrBlank()) {
                 header("Authorization", "Bearer $token")
             }
         }.build()
         return chain.proceed(request)
+    }
+
+    private companion object {
+        val PUBLIC_AUTH_ROUTES = setOf("auth/register", "auth/email/verify", "auth/login", "auth/refresh")
     }
 }
 
@@ -41,7 +50,10 @@ class SessionAuthenticator(
 ) : Authenticator {
     override fun authenticate(route: Route?, response: Response): Request? {
         if (responseCount(response) >= 2) return null
-        if ("auth" in response.request.url.pathSegments) return null
+        val pathSegments = response.request.url.pathSegments
+        val authSegmentIndex = pathSegments.indexOf("auth")
+        val authRoute = if (authSegmentIndex >= 0) pathSegments.drop(authSegmentIndex).joinToString("/") else null
+        if (authRoute in PUBLIC_AUTH_ROUTES) return null
         val attempted = response.request.header("Authorization")
             ?.takeIf { it.startsWith("Bearer ") }
             ?.removePrefix("Bearer ")
@@ -55,8 +67,10 @@ class SessionAuthenticator(
             val refreshToken = tokens.currentRefreshToken() ?: return null
             return when (val result = runCatching { refresh(refreshToken) }.getOrElse { RefreshResult.TransientFailure }) {
                 is RefreshResult.Success -> {
-                    tokens.replace(result.tokens)
-                    response.request.withBearer(result.tokens.accessToken)
+                    runCatching {
+                        tokens.replace(result.tokens)
+                        response.request.withBearer(result.tokens.accessToken)
+                    }.getOrNull()
                 }
                 RefreshResult.InvalidCredentials -> {
                     tokens.clearTokens()
@@ -75,7 +89,27 @@ class SessionAuthenticator(
     }
 
     private fun Request.withBearer(token: String) = newBuilder().header("Authorization", "Bearer $token").build()
+
+    private companion object {
+        val PUBLIC_AUTH_ROUTES = setOf("auth/register", "auth/email/verify", "auth/login", "auth/refresh")
+    }
 }
+
+/** Builds the refresh callback around a plain auth API so refresh requests cannot recursively refresh. */
+fun sessionAuthenticator(tokens: MutableAccessTokens, authApi: BusinessApi): SessionAuthenticator =
+    SessionAuthenticator(tokens) { refreshToken ->
+        runBlocking {
+            val response = runCatching { authApi.refresh(RefreshRequest(refreshToken)) }.getOrNull()
+                ?: return@runBlocking RefreshResult.TransientFailure
+            if (response.code() == 401) return@runBlocking RefreshResult.InvalidCredentials
+            if (!response.isSuccessful) return@runBlocking RefreshResult.TransientFailure
+            val pair = response.body() ?: return@runBlocking RefreshResult.TransientFailure
+            if (pair.tokenType != "Bearer" || pair.accessToken.length < 20 ||
+                pair.refreshToken.length < 20 || pair.expiresIn < 1
+            ) return@runBlocking RefreshResult.TransientFailure
+            RefreshResult.Success(RefreshedTokens(pair.accessToken, pair.refreshToken))
+        }
+    }
 
 interface MutableAccessTokens : AccessTokenProvider {
     val refreshLock: Any

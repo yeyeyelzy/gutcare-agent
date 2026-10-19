@@ -7,12 +7,20 @@
 | 阶段 | 工作范围 | 通过条件 |
 |---|---|---|
 | 0. 基线核对 | 阅读需求、UI、数据字典、OpenAPI 和 ADR；建立功能到页面/API/测试的映射 | 不改变已冻结业务语义；识别旧客户端仅可参考的内容 |
-| 1. 原生工程基座 | 创建 `android/`，建立应用启动、导航、网络与会话基础、主题和测试结构 | Android Studio 可同步、构建并在模拟器启动；API 行为遵守现有契约 |
-| 2. 功能迁移 | 按 Fxx 迁移页面和业务流程，优先完成 P0 闭环 | 每个切片映射到 Fxx、API、状态机和测试编号；无越权或敏感信息泄漏 |
+| 1. 原生工程基座 | 已建立 `android/` Kotlin/Compose 工程、应用启动、导航、网络与会话基础、主题和测试结构；认证运行时已接入业务 API | Debug 构建、lint、JVM 单测通过；认证 Repository 的 phone-demo 真实 API 链路已由 T01k 验证；认证页面级 E2E 与 22 页迁移仍未完成 |
+| 2. 功能迁移 | 进行中：邮箱注册/验证/登录、刷新恢复、本人资料引导和登出已连接真实认证 API；告知资源从冻结 JSON 构建并在运行时校验。`UnconnectedAuthWorkflow` 仅作为 NavHost 默认/测试回退，不用于 MainActivity 运行时；四个受保护根 Tab 仍为占位页，22 个原型页待迁移 | 每个交付切片映射到 Fxx、API、状态机和测试编号；完成后逐项联调并检查越权或敏感信息泄漏 |
 | 3. 模拟器验收 | 在 Android Studio 模拟器完成页面、导航、API 联调、错误态和权限相关可测流程 | 记录模拟器镜像/API level、应用构建标识、环境、合成数据集、测试编号和结果；阻断缺陷清零 |
 | 4. 发布前真机门禁 | 对设备相关能力进行 Android 真机安装和场景验证 | 归档设备型号、Android 版本、构建标识、网络与合成数据集、用例及截图/录屏；系统能力相关问题关闭 |
 
+本机认证联调门禁 T01k 已通过（2026-10-19 17:09 Asia/Shanghai；`android/build/emulator-evidence/phone-demo-auth-20261019-170835-d2e7c4fc/summary.json` 与 `junit-summary.json`，1/1）。脚本 `scripts/test-phone-demo-android-auth.ps1` 通过 Android Studio 模拟器 `emulator-5582` 的 `10.0.2.2` 桥接连接本机 phone-demo Compose；instrumentation 使用随机合成账户，经原生认证 Repository 依次完成注册、Mailpit 邮箱验证、登录、本人资料读取、refresh rotation/资料刷新和退出，并验证 SecureSessionStore 清理。该次执行复用了启动前已运行且健康的 Compose 容器，证据记为 `preexisting_project_preserved`，没有停止既有服务；只归档无凭据状态摘要和模拟器截图。T01k 验证 Android 网络栈、Repository、后端真实 API 与 Keystore 会话存储，不经过 Compose 认证页面；页面级认证 E2E 仍待验收。
+
+Compose 生命周期按项目 label 执行 fail-closed：启动前查询同名项目的全部容器（包括 stopped），记录完整 container ID 与状态；只要存在任意容器就不调用 `up` 或 `down`，要求全部容器 running 且本机 health/live 返回 200，否则失败并原样保留。仅启动前容器集为空时才启动；成功后记录本次容器 ID。默认清理要求启动前为空、当前 ID 集合与启动后记录完全一致，并由 `phone-demo-down.ps1 -ExpectedContainerIds` 再校验一次；ID 集合改变或无法证明归属时拒绝清理并警告。演示数据卷始终保留。
+
 模拟器通过表示当前阶段可验收，不代表发布前真机门禁已通过。未取得真机证据时，发布状态不得标记为完成。
+
+截至 2026-10-19，常规模拟器证据 `android/build/emulator-evidence/20261019-162823/summary.json` 记录 Android API 37（Google APIs Play Store x86_64）instrumentation 13/13 通过、0 失败。T01k 独立 phone-demo 证据 `android/build/emulator-evidence/phone-demo-auth-20261019-170835-d2e7c4fc/` 记录 1/1 通过。当前 JVM 单测报告 `android/app/build/reports/tests/testDebugUnitTest/index.html` 显示 32 项通过、0 失败、0 跳过；Debug 构建与 lint 通过。上述证据不代表认证页面级 E2E、22 页迁移、全系统模拟器验收或真机验收已完成。
+
+仓库当前仅有 `development_test_only` 注册告知制品。它可用于 Debug 合成账户联调，不可用于真实患者。Production/Release 注册保持 fail-closed；生产批准制品的 classification/schema 与签核流程尚未冻结，正式发布前需完成 ADR/制品规范与签核门禁。
 
 ## 路径与保留边界
 
