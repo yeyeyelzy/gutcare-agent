@@ -33,6 +33,23 @@ describe('shared authentication UI state', () => {
       .toEqual({ message: '网络暂不可用，请检查连接后重试。', requestId: 'fixture-timeout-id' })
   })
 
+  it.each([
+    ['DEVICE_LOCKED', '设备当前处于锁定状态，解锁后再登录。'],
+    ['KEY_INVALIDATED', expect.stringContaining('KEY_INVALIDATED')],
+    ['CORRUPT_DATA', expect.stringContaining('CORRUPT_DATA')],
+    ['UNSUPPORTED_PLATFORM', expect.stringContaining('Android 或 iOS APP')],
+    ['INVALID_VALUE', expect.stringContaining('INVALID_VALUE')],
+    ['SECURE_STORAGE_FAILED', expect.stringContaining('SECURE_STORAGE_FAILED')],
+  ])('shows safe actionable secure-store feedback for %s without exposing native details', (code, expected) => {
+    const nativeError = Object.assign(new Error(`native failure containing private detail`), { code })
+    expect(presentAuthProblem(nativeError, 'fallback')?.message).toEqual(expected)
+  })
+
+  it('uses secure-store codes from AppError while keeping server and token details hidden', () => {
+    expect(presentAuthProblem(new AppError('unavailable', 'private native detail', { code: 'SECURE_STORAGE_FAILED' }), 'fallback'))
+      .toEqual({ message: expect.stringContaining('SECURE_STORAGE_FAILED') })
+  })
+
   it('treats busy as disabled to prevent duplicate submissions', () => {
     expect(isGcButtonDisabled(false, false)).toBe(false)
     expect(isGcButtonDisabled(false, true)).toBe(true)

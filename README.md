@@ -28,3 +28,5 @@ Compose 配置要求 Docker Compose v2。先人工创建本地 `.env`，使用�
 Docker 不可用时，基础设施校验会明确报告环境阻塞；不得将该状态记为 Compose 或服务启动通过。不要用未审核的镜像替代 MinIO 源码构建基线。
 
 当前 Compose 仅定义本地数据/网关依赖；API、Worker、Beat 与 agent-mock 容器尚未纳入，因为仓库目前没有对应可构建服务镜像。Caddy 的 `/api` 上游因此要等 API 服务加入 Compose 后才能连通；现阶段不能视为完整 B00 启动拓扑。
+
+比赛中使用实体手机 HTTPS 联调时，可使用完全隔离的 test/demo-only 路径，见 `docs/手机 HTTPS 演示联调指南.md`。它使用 `compose.phone-demo.yaml` 和 `scripts/phone-demo-*.ps1`，不会改变上述正式本地 Compose 的现状，也不属于生产部署方案。
