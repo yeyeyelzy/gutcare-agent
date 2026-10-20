@@ -6,7 +6,7 @@ GutCare 是面向已确诊消化道疾病患者的健康管理项目。患者端
 
 ## 当前可演示范围
 
-已归档证据覆盖 Android 原生认证 Repository 的注册、邮箱验证、登录、资料读取、refresh、退出，以及饮食、排便、症状、心情的手工 CRUD、分页、症状状态历史、409 与登出后 401。它不代表全部页面或功能已验收。F02、图片识别、分析/建议、风险、趋势、用药、活动、通知、隐私中心等仍按 [Android 页面—功能—API—测试映射](docs/Android页面-功能-API-测试映射.md) 的逐项状态执行。
+本地证据覆盖 Android 原生认证 Repository 的注册、邮箱验证、登录、资料读取、refresh、退出，以及饮食、排便、症状、心情的手工 CRUD、分页、症状状态历史、409 与登出后 401；F02 档案页面已接入 store-only 上传，并通过隔离 phone-demo 的真实 ClamAV clean、档案查询和授权下载 E2E。F02 证据不包含 analyze、Agent 候选产生或 Agent 回调。其余分析/建议、风险、趋势、用药、活动、通知、隐私中心等仍按 [Android 页面—功能—API—测试映射](docs/Android页面-功能-API-测试映射.md) 的逐项状态执行。
 
 视觉验收目标为与指定原型**至少 80% 一致且无明显错误**；每页仍须有可追溯截图比较证据。模拟器是开发验收环境；发布前真机证据另行要求。
 
@@ -29,4 +29,4 @@ Invoke-WebRequest http://127.0.0.1:8000/health/live
 .\scripts\phone-demo-down.ps1
 ```
 
-该环境仅用于 local/test/demo，不是生产部署，也不包含对象存储/病毒扫描、文件上传下载、Agent 或其他未列出的依赖。
+该环境仅用于 local/test/demo，不是生产部署。它包含隔离的 PostgreSQL、Redis、Mailpit、私有 MinIO 与 ClamAV；MinIO root 凭据仅用于一次性初始化容器，API 使用 `phone-demo.env` 中独立随机生成的应用凭据，权限仅覆盖演示 bucket 的对象读写/删除和版本列表。MinIO 初始化镜像使用 `.downloads/phone-demo-minio-init-context` 独立最小构建上下文，不会将仓库根目录、`phone-demo.env` 或运行时缓存发送给 Docker daemon。启动脚本在本机生成被忽略的密钥文件，并在 MinIO 健康后初始化演示 bucket 与最小权限用户。只有 ClamAV 扫描 clean 的对象才会被标为可用。F02 的原生档案 UI 与 `store_only` 上传已实现；隔离 phone-demo E2E 覆盖真实 ClamAV clean、档案元数据和授权下载，不覆盖 analyze、候选生成或 Agent 回调。不要把真实病历用于演示。`phone-demo-down.ps1` 保留项目数据卷；仅在确认要清除本项目演示数据时使用 `-PurgeData`，该操作也会删除演示文件对象。

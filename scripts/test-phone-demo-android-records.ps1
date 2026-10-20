@@ -2,7 +2,8 @@
 param(
     [string]$Serial,
     [string]$AvdName = 'GutCare_API_37',
-    [ValidateRange(1, 65535)] [int]$AdbServerPort = 5037
+    [ValidateRange(1, 65535)] [int]$AdbServerPort = 5037,
+    [string]$SdkRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,7 +11,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $androidRoot = Join-Path $root 'android'
 $composeFile = Join-Path $root 'compose.phone-demo.yaml'
 $envFile = Join-Path $root 'phone-demo.env'
-$sdkRoot = 'D:\Android\Sdk'
+$sdkRoot = if ($SdkRoot) { $SdkRoot } elseif ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } elseif ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
 $adb = Join-Path $sdkRoot 'platform-tools\adb.exe'
 $runId = '{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), ([guid]::NewGuid().ToString('N').Substring(0, 8))
 $evidenceDir = Join-Path $androidRoot "build\emulator-evidence\phone-demo-records-$runId"
@@ -98,7 +99,7 @@ try {
     $stage = 'android-build'
     $repoPath = (Resolve-Path $root).Path
     $existingMappings = @(& subst)
-    foreach ($letter in @('S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z')) {
+    foreach ($letter in 'Z'..'D') {
         if ((Get-PSDrive -Name $letter -ErrorAction SilentlyContinue) -or ($existingMappings | Where-Object { $_ -match "^${letter}:\\: => " })) { continue }
         $mappedDrive = "${letter}:"
         break

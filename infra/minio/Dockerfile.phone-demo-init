@@ -1,0 +1,7 @@
+FROM python:3.13-slim-bookworm
+
+COPY mc /usr/local/bin/mc
+COPY phone-demo-minio-init.py /usr/local/bin/phone-demo-minio-init.py
+COPY phone-demo-app-policy.json /usr/local/share/phone-demo-app-policy.json
+
+ENTRYPOINT ["python", "/usr/local/bin/phone-demo-minio-init.py"]

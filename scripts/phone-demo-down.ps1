@@ -47,4 +47,4 @@ if ($PurgeData) {
 }
 & $docker.Source @args
 if ($LASTEXITCODE -ne 0) { throw 'Phone-demo shutdown failed.' }
-Write-Host ($(if ($PurgeData) { 'Phone-demo containers and its project volumes were removed.' } else { 'Phone-demo containers were stopped; project volumes were kept.' }))
+Write-Host ($(if ($PurgeData) { 'Phone-demo containers and all project volumes were removed, including uploaded demo objects.' } else { 'Phone-demo containers were stopped; database, uploaded demo objects and service data volumes were kept.' }))

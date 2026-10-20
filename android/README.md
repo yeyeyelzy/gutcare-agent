@@ -13,13 +13,17 @@
    Invoke-WebRequest http://127.0.0.1:8000/health/live
    ```
 
-   成功响应表示 phone-demo API 已存活。该脚本生成被 Git 忽略的本机 `phone-demo.env`，不会打印任何密钥。
+   成功响应表示 phone-demo API 已存活。该脚本生成被 Git 忽略的本机 `phone-demo.env`，不会打印任何密钥；首次启动还会准备固定版本的本地 MinIO 测试镜像和 MinIO Client，并等待 MinIO、ClamAV 健康及演示 bucket/应用用户初始化完成。MinIO root 凭据只用于一次性初始化容器；API 使用随机应用凭据，且只对演示 bucket 拥有必要的对象读写/删除与版本列表权限。对象存储与扫描器仅在 phone-demo 内网可见。
+
+   如需独立验收 F02 文件服务，可在仓库根目录执行 `.\scripts\phone-demo-f02-e2e.ps1`。脚本会注册全新合成账号，从本机 Mailpit 读取验证令牌（不输出令牌），生成内存中的 2×2 合成 JPEG，并验证授权、上传、真实 ClamAV clean 状态、`store_only` 档案查询及授权下载。该脚本验证业务 API 文件链路，不代表 Android 客户端上传、analyze 或 Agent 候选 E2E。数据保留在 phone-demo 卷中；确认要删除本项目所有演示数据时执行 `.\scripts\phone-demo-down.ps1 -PurgeData`。
 
 2. 打开 Android Studio，选择 **Open**，定位到 `<clone-directory>\android`。完成 Gradle Sync 后，从 Device Manager 启动模拟器，选择 `app` Debug 变体并点击 Run。Debug 默认连接 `http://10.0.2.2:8000/api/v1/`；`10.0.2.2` 是 Android 模拟器访问 Windows 宿主机 loopback 的专用地址。
 
-3. 在 APP 中演示：注册一个新的演示邮箱和密码 → 在浏览器打开 `http://127.0.0.1:8025` 的 Mailpit，复制该账号验证邮件中的 token → 回到 APP 验证、登录并完成资料读取 → 从“记录”新增、查看、编辑和删除饮食、排便、症状、心情记录 → 退出登录。此流程只演示已验收的手工记录切片；不演示未验收的文件档案、图片识别、Agent 分析或医疗结论。
+3. 在 APP 中演示：注册新的演示邮箱和密码 → 在 Mailpit 读取该账号验证邮件中的 token → 回到 APP 验证、登录并完成资料读取 → 从“记录”进入健康档案演示 store-only 存档，再新增、查看、编辑和删除饮食、排便、症状、心情记录 → 退出登录。F02 不触发 analyze 或 Agent 候选；不演示未验收的 Agent 分析/回调或医疗结论。
 
-4. 结束后在仓库根目录停止演示服务：
+4. F02 Android 档案页面目前只支持 store-only 存档；解析授权管理、analyze 和候选处理尚未完成。真实 phone-demo E2E 验证的是业务 API 的上传、ClamAV clean、档案查询及授权下载链路，不是 Agent 联调。运行环境的 MinIO/ClamAV 仅供隔离演示，API 需先获得 `health_data_processing` 授权。停止服务保留数据库、对象和邮件数据；`-PurgeData` 会永久删除该 phone-demo 项目的所有数据卷。
+
+5. 结束后在仓库根目录停止演示服务：
 
    ```powershell
    .\scripts\phone-demo-down.ps1

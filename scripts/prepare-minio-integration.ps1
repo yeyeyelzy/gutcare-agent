@@ -10,7 +10,9 @@ $runtimeGo = Join-Path $toolchainRoot 'go\bin\go.exe'
 $goPath = Join-Path $root '.runtime\go-gopath'
 $minioArtifact = Join-Path $root '.downloads\minio'
 $context = Join-Path $root '.downloads\minio-context'
+$phoneDemoInitContext = Join-Path $root '.downloads\phone-demo-minio-init-context'
 $moduleVersion = 'RELEASE.2025-09-07T16-13-09Z'
+$mcModuleVersion = 'v0.0.0-20250313080218-cf909e1063a9'
 
 New-Item -ItemType Directory -Path (Split-Path -Parent $toolchainZip) -Force | Out-Null
 New-Item -ItemType Directory -Path $minioArtifact -Force | Out-Null
@@ -62,6 +64,14 @@ if (-not (Test-Path -LiteralPath $minioBinary -PathType Leaf)) {
     }
 }
 
+$mcBinary = Join-Path $env:GOPATH 'bin\linux_amd64\mc'
+if (-not (Test-Path -LiteralPath $mcBinary -PathType Leaf)) {
+    & $runtimeGo install "github.com/minio/mc@$mcModuleVersion"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Pinned MinIO Client source build failed for $mcModuleVersion (exit $LASTEXITCODE)."
+    }
+}
+
 Copy-Item -LiteralPath $minioBinary -Destination (Join-Path $minioArtifact 'minio') -Force
 $binaryHash = (Get-FileHash -LiteralPath (Join-Path $minioArtifact 'minio') -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath (Join-Path $minioArtifact 'minio.sha256') -Value $binaryHash -NoNewline -Encoding ascii
@@ -69,4 +79,10 @@ Set-Content -LiteralPath (Join-Path $minioArtifact 'minio.sha256') -Value $binar
 New-Item -ItemType Directory -Path $context -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\infra\minio\Dockerfile.integration') -Destination (Join-Path $context 'Dockerfile') -Force
 Copy-Item -LiteralPath (Join-Path $minioArtifact 'minio') -Destination (Join-Path $context 'minio') -Force
+Copy-Item -LiteralPath $mcBinary -Destination (Join-Path $context 'mc') -Force
+New-Item -ItemType Directory -Path $phoneDemoInitContext -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\infra\minio\Dockerfile.phone-demo-init') -Destination (Join-Path $phoneDemoInitContext 'Dockerfile') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\infra\minio\phone-demo-minio-init.py') -Destination $phoneDemoInitContext -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\infra\minio\phone-demo-app-policy.json') -Destination $phoneDemoInitContext -Force
+Copy-Item -LiteralPath $mcBinary -Destination (Join-Path $phoneDemoInitContext 'mc') -Force
 Write-Host "Prepared official MinIO $moduleVersion Linux/amd64 binary (SHA-256 $binaryHash)."

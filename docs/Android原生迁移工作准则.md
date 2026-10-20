@@ -12,13 +12,13 @@
 | 3. 模拟器验收 | 在 Android Studio 模拟器完成页面、导航、API 联调、错误态和权限相关可测流程 | 记录模拟器镜像/API level、应用构建标识、环境、合成数据集、测试编号和结果；阻断缺陷清零 |
 | 4. 发布前真机门禁 | 对设备相关能力进行 Android 真机安装和场景验证 | 归档设备型号、Android 版本、构建标识、网络与合成数据集、用例及截图/录屏；系统能力相关问题关闭 |
 
-本机认证联调门禁 T01k 已通过（2026-10-19 17:09 Asia/Shanghai；`android/build/emulator-evidence/phone-demo-auth-20261019-170835-d2e7c4fc/summary.json` 与 `junit-summary.json`，1/1）。脚本 `scripts/test-phone-demo-android-auth.ps1` 通过 Android Studio 模拟器 `emulator-5582` 的 `10.0.2.2` 桥接连接本机 phone-demo Compose；instrumentation 使用随机合成账户，经原生认证 Repository 依次完成注册、Mailpit 邮箱验证、登录、本人资料读取、refresh rotation/资料刷新和退出，并验证 SecureSessionStore 清理。该次执行复用了启动前已运行且健康的 Compose 容器，证据记为 `preexisting_project_preserved`，没有停止既有服务；只归档无凭据状态摘要和模拟器截图。T01k 验证 Android 网络栈、Repository、后端真实 API 与 Keystore 会话存储，不经过 Compose 认证页面；页面级认证 E2E 仍待验收。
+本机认证联调门禁 T01k 已通过（2026-10-20；`android/build/emulator-evidence/phone-demo-auth-20261020-130223-f79a9c61/summary.json` 与 `junit-summary.json`，1/1）。脚本 `scripts/test-phone-demo-android-auth.ps1` 通过 Android Studio 模拟器 `emulator-5580` 的 `10.0.2.2` 桥接连接本机 phone-demo Compose；instrumentation 使用随机合成账户，经原生认证 Repository 依次完成注册、Mailpit 邮箱验证、登录、本人资料读取、refresh rotation/资料刷新和退出，并验证 SecureSessionStore 清理。该次执行复用了启动前已运行且健康的 Compose 容器，证据记为 `preexisting_project_preserved`，没有停止既有服务；只归档无凭据状态摘要和模拟器截图。T01k 验证 Android 网络栈、Repository、后端真实 API 与 Keystore 会话存储，不经过 Compose 认证页面；页面级认证 E2E 仍待验收。
 
 Compose 生命周期按项目 label 执行 fail-closed：启动前查询同名项目的全部容器（包括 stopped），记录完整 container ID 与状态；只要存在任意容器就不调用 `up` 或 `down`，要求全部容器 running 且本机 health/live 返回 200，否则失败并原样保留。仅启动前容器集为空时才启动；成功后记录本次容器 ID。默认清理要求启动前为空、当前 ID 集合与启动后记录完全一致，并由 `phone-demo-down.ps1 -ExpectedContainerIds` 再校验一次；ID 集合改变或无法证明归属时拒绝清理并警告。演示数据卷始终保留。
 
 模拟器通过表示当前阶段可验收，不代表发布前真机门禁已通过。未取得真机证据时，发布状态不得标记为完成。
 
-截至 2026-10-20，当前工作树的 Debug 构建通过，JVM 测试 51/51、`RecordScreensTest` 9/9、全量 instrumentation 23/23 均通过。真实 phone-demo 记录联调在 Android 模拟器完成 diet/stool/symptom/mood CRUD、游标分页、symptom status-history、409 乐观锁冲突以及登出后 401，会话凭据和响应正文未写入证据；可追溯摘要为 `android/build/emulator-evidence/phone-demo-records-20261020-014006-b480ec9f/summary.json`。T01k 认证证据仍独立保留在 `android/build/emulator-evidence/phone-demo-auth-20261019-170835-d2e7c4fc/`。本次结论仅表示 F03/F04/F05/F14 手工记录切片的所列自动化和真实 API 场景通过，不代表 F02/F06/F07/F08/F09/F10/F11/F12/F13 已迁移，也不代表逐页 UI ≥80% 且无明显错误，或发布前真机门禁通过。
+截至 2026-10-20，本地验证门禁为 backend 207 项、Android 31 项通过。Android 原生认证与记录切片已有真实 phone-demo API 证据；F02 原生档案 UI 已支持 store-only 存档，phone-demo 文件 API E2E 通过真实 ClamAV clean、档案查询及授权下载。F02 的证据不覆盖 Android 上传端到端、analyze、Agent 候选生成/回调或服务端候选确认链路。今日页相似度 80.69% 仅为探索性分数，尚未满足正式截图采集、全页覆盖和对齐证据要求。旧 `app/` 只读归档。当前工作成果仍不代表 F06/F07/F08/F09/F10/F11/F12/F13 全部迁移或发布前真机门禁通过。
 
 仓库当前仅有 `development_test_only` 注册告知制品。它可用于 Debug 合成账户联调，不可用于真实患者。Production/Release 注册保持 fail-closed；生产批准制品的 classification/schema 与签核流程尚未冻结，正式发布前需完成 ADR/制品规范与签核门禁。
 

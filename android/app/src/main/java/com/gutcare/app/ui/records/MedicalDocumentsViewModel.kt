@@ -116,7 +116,11 @@ class MedicalDocumentsViewModel(private val gateway: MedicalDocumentsGateway) : 
             }
         }
     }
-    fun upload(fileName: String, contentType: String, sizeBytes: Long, content: RequestBody, analyze: Boolean) = viewModelScope.launch {
+    fun upload(fileName: String, contentType: String, sizeBytes: Long, content: RequestBody, analyze: Boolean, documentType: String = "other") = viewModelScope.launch {
+        if (documentType !in setOf("outpatient_record", "discharge_summary", "diagnosis_certificate", "lab_report", "prescription", "other")) {
+            mutableState.value = mutableState.value.copy(operationMessage = "请选择有效的报告类型。", conflict = false)
+            return@launch
+        }
         if (analyze) {
             // F02 requires both current consents before a sensitive file can enter the analyze flow.
             // Until the consent read/guide route is wired, do not upload and let the server see a late failure.
@@ -130,7 +134,7 @@ class MedicalDocumentsViewModel(private val gateway: MedicalDocumentsGateway) : 
             return@launch
         }
         val fileId = (file as ApiResult.Success).value.id
-        when (val created = gateway.create(MedicalDocumentCreateDto(fileId, "other", processingMode = if (analyze) "analyze" else "store_only"))) {
+        when (val created = gateway.create(MedicalDocumentCreateDto(fileId, documentType, processingMode = if (analyze) "analyze" else "store_only"))) {
             is ApiResult.Success -> {
                 mutableState.value = mutableState.value.copy(uploading = false, operationMessage = "报告已安全上传。", conflict = false)
                 load()

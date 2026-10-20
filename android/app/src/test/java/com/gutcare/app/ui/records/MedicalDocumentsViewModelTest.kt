@@ -80,6 +80,18 @@ class MedicalDocumentsViewModelTest {
         } finally { Dispatchers.resetMain() }
     }
 
+    @Test fun uploadPreservesPatientSelectedDocumentType() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val gateway = FakeGateway().apply { uploadResult = ApiResult.Success(FileObjectDto("file", "available", "application/pdf", 12)) }
+            val model = MedicalDocumentsViewModel(gateway)
+            model.upload("report.pdf", "application/pdf", 12, RequestBody.create(null, byteArrayOf(1)), analyze = false, documentType = "lab_report")
+            advanceUntilIdle()
+            assertEquals("lab_report", gateway.created?.documentType)
+            assertEquals("store_only", gateway.created?.processingMode)
+        } finally { Dispatchers.resetMain() }
+    }
+
     @Test fun analyzeFailsClosedBeforeAnySensitiveUploadUntilConsentLookupExists() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -43,6 +44,7 @@ fun MedicalArchiveRoute(model: MedicalDocumentsViewModel, onBack: () -> Unit, on
     val resolver = LocalContext.current.contentResolver
     var pickerError by remember { mutableStateOf<String?>(null) }
     var pendingUpload by remember { mutableStateOf<PickedMedicalFile?>(null) }
+    var selectedDocumentType by remember { mutableStateOf("other") }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             when (val result = inspectMedicalFile(resolver, uri)) {
@@ -61,8 +63,10 @@ fun MedicalArchiveRoute(model: MedicalDocumentsViewModel, onBack: () -> Unit, on
     pendingUpload?.let { file ->
         UploadModeDialog(
             file = file,
+            selectedDocumentType = selectedDocumentType,
+            onDocumentTypeChange = { selectedDocumentType = it },
             onDismiss = { pendingUpload = null },
-            onConfirm = { model.upload(file.name, file.contentType, file.sizeBytes, UriRequestBody(resolver, file.uri, file.contentType), analyze = false); pendingUpload = null },
+            onConfirm = { model.upload(file.name, file.contentType, file.sizeBytes, UriRequestBody(resolver, file.uri, file.contentType), analyze = false, documentType = selectedDocumentType); pendingUpload = null },
         )
     }
     pickerError?.let { message -> AlertDialog(onDismissRequest = { pickerError = null }, title = { Text("无法选择文件") }, text = { Text(message) }, confirmButton = { TextButton(onClick = { pickerError = null }) { Text("知道了") } }) }
@@ -81,8 +85,12 @@ fun MedicalArchiveScreen(
         Text("健康档案", style = MaterialTheme.typography.headlineMedium)
         Text("报告仅保存在你的私有档案中；解析候选须由你逐项确认。", style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(16.dp))
+        OutlinedButton(onClick = onRetry, enabled = !state.loading, modifier = Modifier.fillMaxWidth().testTag("medical_archive_refresh")) {
+            Text(if (state.loading && state.documents.isNotEmpty()) "正在刷新…" else "刷新档案")
+        }
+        if (state.loading && state.documents.isNotEmpty()) CircularProgressIndicator(modifier = Modifier.testTag("medical_archive_refresh_progress"))
         when {
-            state.loading -> Text("正在加载你的档案…", modifier = Modifier.testTag("medical_archive_loading"))
+            state.loading && state.documents.isEmpty() -> Text("正在加载你的档案…", modifier = Modifier.testTag("medical_archive_loading"))
             state.error != null -> Column {
                 Text(state.error, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("medical_archive_error"))
                 TextButton(onClick = onRetry, modifier = Modifier.testTag("medical_archive_retry")) { Text("重试") }
@@ -114,7 +122,10 @@ fun MedicalDocumentDetailScreen(state: MedicalArchiveUiState, onBack: () -> Unit
             state.detailError != null -> Column { Text(state.detailError, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("medical_document_error")); TextButton(onClick = onRetry) { Text("重试") } }
             state.detail != null -> {
                 Text(state.detail.originalName, style = MaterialTheme.typography.headlineSmall)
+                Text("${documentTypeLabel(state.detail.documentType)} · ${state.detail.documentDate ?: "未填写日期"}")
                 Text(parseStatusLabel(state.detail))
+                state.detail.parseReasonCode?.let { Text(parseReasonLabel(it), color = MaterialTheme.colorScheme.error) }
+                Text(if (state.detail.processingMode == "analyze") "解析模式：${parseStatusDetail(state.detail)}" else "仅存档，未请求解析")
                 Spacer(Modifier.height(12.dp))
                 if (state.candidates.isEmpty()) Text("当前没有待你确认的字段。", modifier = Modifier.testTag("medical_candidates_empty"))
                 state.candidates.forEachIndexed { index, candidate -> CandidateCard(candidate, index, onDecision) }
@@ -127,27 +138,56 @@ fun MedicalDocumentDetailScreen(state: MedicalArchiveUiState, onBack: () -> Unit
 
 @Composable private fun CandidateCard(candidate: MedicalFieldCandidateDto, index: Int, onDecision: (MedicalFieldCandidateDto, String, String?) -> Unit) {
     var correctedValue by remember(candidate.id) { mutableStateOf("") }
+    var excerptExpanded by remember(candidate.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp).testTag("medical_candidate_$index")) {
-        Text(candidate.fieldCode)
-        Text(candidate.value?.toString() ?: "—")
+        Text(medicalFieldLabel(candidate.fieldCode), style = MaterialTheme.typography.titleMedium)
+        Text("候选值：${candidate.value?.toString() ?: "—"}")
+        candidate.unit?.let { Text("单位：$it") }
+        candidate.confidence?.let { Text("识别置信度：${(it * 100).toInt()}%") }
         candidate.uncertainty?.let { Text("不确定性：$it") }
+        candidate.excerpt?.takeIf(String::isNotBlank)?.let { excerpt ->
+            TextButton(
+                onClick = { excerptExpanded = !excerptExpanded },
+                modifier = Modifier.testTag("medical_candidate_excerpt_toggle_$index"),
+            ) { Text(if (excerptExpanded) "收起报告原文" else "查看报告原文") }
+            if (excerptExpanded) {
+                val limitedExcerpt = excerpt.take(MAX_VISIBLE_CANDIDATE_EXCERPT)
+                val displayExcerpt = if (excerpt.length > MAX_VISIBLE_CANDIDATE_EXCERPT) "$limitedExcerpt…" else limitedExcerpt
+                Text("报告原文：$displayExcerpt", modifier = Modifier.testTag("medical_candidate_excerpt_$index"))
+            }
+        }
         if (candidate.reviewStatus == "pending") {
             TextButton(onClick = { onDecision(candidate, "accept", null) }, modifier = Modifier.testTag("medical_candidate_accept_$index")) { Text("确认") }
             TextButton(onClick = { onDecision(candidate, "reject", null) }, modifier = Modifier.testTag("medical_candidate_reject_$index")) { Text("不确认") }
             OutlinedTextField(value = correctedValue, onValueChange = { correctedValue = it }, label = { Text(if (candidate.valueType == "object") "纠正后的值（JSON 对象）" else "纠正后的值") }, modifier = Modifier.fillMaxWidth().testTag("medical_candidate_correct_value_$index"))
             TextButton(onClick = { onDecision(candidate, "correct", correctedValue) }, modifier = Modifier.testTag("medical_candidate_correct_$index")) { Text("提交纠正") }
-        } else Text("已处理：${candidate.reviewStatus}")
+        } else Text("已处理：${candidateStatusLabel(candidate.reviewStatus)}")
     }
 }
 
-@Composable private fun UploadModeDialog(file: PickedMedicalFile, onDismiss: () -> Unit, onConfirm: () -> Unit) = AlertDialog(
+private const val MAX_VISIBLE_CANDIDATE_EXCERPT = 160
+
+@Composable private fun UploadModeDialog(file: PickedMedicalFile, selectedDocumentType: String, onDocumentTypeChange: (String) -> Unit, onDismiss: () -> Unit, onConfirm: () -> Unit) = AlertDialog(
     onDismissRequest = onDismiss,
     title = { Text("上传检查报告") },
-    text = { Text("${file.name}\n本版本仅支持私有存档，不会发送解析请求。报告解析需要在上传前核验当前健康数据处理与第三方 AI 授权；该授权读取与引导尚未接入。") },
+    text = {
+        Column {
+            Text(file.name)
+            Text("选择报告类型")
+            listOf("lab_report", "outpatient_record", "discharge_summary", "diagnosis_certificate", "prescription", "other").forEach { type ->
+                TextButton(onClick = { onDocumentTypeChange(type) }, modifier = Modifier.testTag("medical_upload_type_$type")) {
+                    Text((if (selectedDocumentType == type) "✓ " else "○ ") + documentTypeLabel(type))
+                }
+            }
+            Text("当前仅支持私有存档，不会发起解析或生成候选。")
+        }
+    },
     confirmButton = { TextButton(onClick = onConfirm, modifier = Modifier.testTag("medical_upload_store_only")) { Text("仅存档") } },
 )
 
 private fun documentTypeLabel(type: String) = mapOf("lab_report" to "检验报告", "outpatient_record" to "门诊记录", "discharge_summary" to "出院小结", "diagnosis_certificate" to "诊断证明", "prescription" to "处方")[type] ?: "其他报告"
+private fun medicalFieldLabel(code: String) = mapOf("diagnosis" to "诊断候选", "document_date" to "报告日期候选", "recommendation" to "建议候选", "test_item" to "检验项目候选", "test_result" to "检验结果候选", "medication_name" to "药品名称候选", "medication_dose" to "药物剂量候选", "medication_frequency" to "用药频率候选", "medication_duration" to "用药时长候选", "allergy" to "过敏信息候选")[code] ?: "字段候选"
+private fun candidateStatusLabel(status: String) = mapOf("accepted" to "已确认", "corrected" to "已修正", "rejected" to "已拒绝", "invalidated" to "已失效")[status] ?: "已处理"
 private fun parseStatusLabel(item: MedicalDocumentDto) = when (item.parseStatus) {
     "not_requested" -> "仅存档"
     "pending", "processing" -> "正在处理"
@@ -156,6 +196,15 @@ private fun parseStatusLabel(item: MedicalDocumentDto) = when (item.parseStatus)
     "failed" -> "处理失败"
     else -> "状态未知"
 }
+private fun parseStatusDetail(item: MedicalDocumentDto) = when (item.parseStatus) {
+    "pending" -> "等待处理"
+    "processing" -> "处理中"
+    "needs_confirmation" -> when (item.parseOutcome) { "insufficient_quality" -> "未产生可确认字段，扫描质量不足"; "no_supported_facts" -> "未发现可支持的字段"; else -> "存在待你逐项核对的候选字段" }
+    "confirmed" -> "字段已由你确认"
+    "failed" -> "处理未完成，可查看失败原因"
+    else -> "未请求解析"
+}
+private fun parseReasonLabel(reason: String) = mapOf("no_supported_fields" to "未发现支持的字段", "unsupported_content" to "文档内容暂不支持", "low_quality_scan" to "扫描质量较低", "illegible_content" to "文档内容无法辨认", "incomplete_document" to "文档可能不完整")[reason] ?: "处理未完成"
 
 data class PickedMedicalFile(val uri: Uri, val name: String, val contentType: String, val sizeBytes: Long)
 private sealed interface PickResult { data class Valid(val file: PickedMedicalFile) : PickResult; data class Invalid(val message: String) : PickResult }

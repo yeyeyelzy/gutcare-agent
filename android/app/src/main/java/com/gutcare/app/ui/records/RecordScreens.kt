@@ -322,7 +322,7 @@ fun TodayScreen(
     callbacks: TodayCallbacks,
     modifier: Modifier = Modifier,
 ) {
-    RecordsPage(modifier, "today_screen", horizontalPadding = 16.dp) {
+    RecordsPage(modifier, "today_screen", horizontalPadding = 16.dp, topPadding = 0.dp) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 GutCareLeafMark(Modifier.size(22.dp))
                 Spacer(Modifier.width(6.dp))
@@ -675,13 +675,14 @@ private fun RecordsPage(
     modifier: Modifier,
     testTag: String,
     horizontalPadding: androidx.compose.ui.unit.Dp = GutCareDimensions.pageGutter,
+    topPadding: androidx.compose.ui.unit.Dp = 16.dp,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     GutCarePage(
         modifier = modifier.statusBarsPadding().testTag(testTag),
         horizontalPadding = horizontalPadding,
     ) {
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(topPadding))
         content()
         Spacer(Modifier.height(32.dp))
     }

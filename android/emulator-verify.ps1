@@ -1,11 +1,13 @@
+param([string]$SdkRoot)
+
 $ErrorActionPreference = 'Stop'
 
 # This harness uses a private adb server and fixed emulator console port. Physical
 # devices and emulator instances owned by Android Studio are never enumerated.
 $androidRoot = (Resolve-Path $PSScriptRoot).Path
 $repoRoot = Split-Path -Parent $androidRoot
-$mappedDrive = 'R:'
-$sdkRoot = 'D:\Android\Sdk'
+$mappedDrive = $null
+$sdkRoot = if ($SdkRoot) { $SdkRoot } elseif ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } elseif ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
 $avdName = 'GutCare_API_37'
 $adbPort = 5038
 $emulatorPort = 5580
@@ -228,26 +230,30 @@ try {
         throw "Android framework/package manager did not stabilize within 90 seconds (package='$packageServiceOutput'; activity='$activityServiceOutput'; probe='$packageProbeOutput')."
     }
 
-    $existingRMapping = subst | Where-Object { $_ -match '^R:\\: =>' }
-    if ((Get-PSDrive -Name 'R' -ErrorAction SilentlyContinue) -or $existingRMapping) {
-        throw 'R: is already in use; verification stopped without changing the mapping.'
+    $existingMappings = @(& subst)
+    foreach ($letter in 'Z'..'D') {
+        if ((Get-PSDrive -Name $letter -ErrorAction SilentlyContinue) -or ($existingMappings | Where-Object { $_ -match "^${letter}:\\: => " })) { continue }
+        $mappedDrive = "${letter}:"
+        break
     }
+    if (-not $mappedDrive) { throw 'No unused drive letter is available for an ASCII Gradle path.' }
     subst $mappedDrive $repoRoot
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the temporary ASCII drive mapping for Gradle.' }
     $mappedByThisScript = $true
     $sourceSettings = Join-Path $androidRoot 'settings.gradle.kts'
-    $mappedSettings = 'R:\android\settings.gradle.kts'
-    if (-not (Test-Path $mappedSettings)) { throw 'The R: mapping does not expose the expected Android project file.' }
+    $mappedAndroidRoot = Join-Path "$mappedDrive\" 'android'
+    $mappedSettings = Join-Path $mappedAndroidRoot 'settings.gradle.kts'
+    if (-not (Test-Path $mappedSettings)) { throw 'The temporary drive mapping does not expose the expected Android project file.' }
     $sourceSettingsInfo = Get-Item -LiteralPath $sourceSettings
     $mappedSettingsInfo = Get-Item -LiteralPath $mappedSettings
     $sourceSettingsHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceSettings).Hash
     $mappedSettingsHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $mappedSettings).Hash
     if ($sourceSettingsInfo.Length -ne $mappedSettingsInfo.Length -or $sourceSettingsHash -ne $mappedSettingsHash) {
-        throw 'The R: mapping does not resolve to this repository; refusing to run Gradle.'
+        throw 'The temporary drive mapping does not resolve to this repository; refusing to run Gradle.'
     }
 
     $testStartedAt = Get-Date
-    Push-Location 'R:\android'
+    Push-Location $mappedAndroidRoot
     $previousErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
@@ -376,7 +382,7 @@ catch {
 }
 finally {
     if ($mappedByThisScript) {
-        subst R: /D | Out-Null
+        subst $mappedDrive /D | Out-Null
     }
     if ($emulatorProcess -and -not $emulatorProcess.HasExited -and (Test-LaunchedEmulatorIdentity)) {
         $reportedAvd = Get-AvdNameForSerial $serial
