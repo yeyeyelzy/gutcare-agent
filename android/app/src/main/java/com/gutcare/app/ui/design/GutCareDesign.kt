@@ -87,6 +87,7 @@ object GutCareDimensions {
 fun GutCarePage(
     modifier: Modifier = Modifier,
     scrollable: Boolean = true,
+    horizontalPadding: Dp = GutCareDimensions.pageGutter,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     Box(
@@ -100,7 +101,7 @@ fun GutCarePage(
             .widthIn(max = GutCareDimensions.pageMaxWidth)
             .imePadding()
             .navigationBarsPadding()
-            .padding(horizontal = GutCareDimensions.pageGutter)
+            .padding(horizontal = horizontalPadding)
         Column(
             modifier = if (scrollable) pageModifier.verticalScroll(rememberScrollState()) else pageModifier,
             content = content,

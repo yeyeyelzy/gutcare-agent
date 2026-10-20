@@ -322,10 +322,7 @@ fun TodayScreen(
     callbacks: TodayCallbacks,
     modifier: Modifier = Modifier,
 ) {
-    RecordsPage(modifier, "today_screen") {
-        // The reference uses a 16dp content inset for the Today overview, while record forms
-        // retain the shared 24dp inset supplied by RecordsPage.
-        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+    RecordsPage(modifier, "today_screen", horizontalPadding = 16.dp) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 GutCareLeafMark(Modifier.size(22.dp))
                 Spacer(Modifier.width(6.dp))
@@ -370,7 +367,6 @@ fun TodayScreen(
             MealSummary(uiState.meals)
             Spacer(Modifier.height(20.dp))
             TrendCard(uiState.trendSummary, callbacks.onOpenTrend)
-        }
         }
     }
 }
@@ -678,10 +674,12 @@ fun MoodRecordScreen(
 private fun RecordsPage(
     modifier: Modifier,
     testTag: String,
+    horizontalPadding: androidx.compose.ui.unit.Dp = GutCareDimensions.pageGutter,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     GutCarePage(
         modifier = modifier.statusBarsPadding().testTag(testTag),
+        horizontalPadding = horizontalPadding,
     ) {
         Spacer(Modifier.height(16.dp))
         content()
