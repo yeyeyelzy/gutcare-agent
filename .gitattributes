@@ -1,2 +1,3 @@
 /contracts/consent/*.json text eol=lf
 /app/src/api/generated/openapi.ts text eol=lf
+/infra/**/*.sh text eol=lf
