@@ -27,10 +27,30 @@ jobs:
             throw 'The windows-latest image must provide ANDROID_HOME.'
           }
           $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
-          $cmdlineTools = Join-Path $env:ANDROID_HOME 'cmdline-tools\16.0\bin'
-          $env:PATH = "$cmdlineTools;$env:ANDROID_HOME\platform-tools;$env:PATH"
-          $sdkmanager = Join-Path $cmdlineTools 'sdkmanager.bat'
-          if (-not (Test-Path -LiteralPath $sdkmanager -PathType Leaf)) { throw 'Preinstalled Android sdkmanager is missing.' }
+          $sdkmanagerCommand = Get-Command sdkmanager.bat -ErrorAction SilentlyContinue
+          if (-not $sdkmanagerCommand) { $sdkmanagerCommand = Get-Command sdkmanager -ErrorAction SilentlyContinue }
+          if ($sdkmanagerCommand -and (Test-Path -LiteralPath $sdkmanagerCommand.Source -PathType Leaf)) {
+            $sdkmanager = $sdkmanagerCommand.Source
+          } else {
+            $cmdlineToolsRoot = Join-Path $env:ANDROID_HOME 'cmdline-tools'
+            $sdkmanagers = @(Get-ChildItem -LiteralPath $cmdlineToolsRoot -Filter 'sdkmanager.bat' -File -Recurse -ErrorAction SilentlyContinue)
+            $sdkmanager = $sdkmanagers |
+              Where-Object { $_.FullName -match '[\\/]cmdline-tools[\\/]latest[\\/]bin[\\/]sdkmanager\.bat$' } |
+              Select-Object -First 1 -ExpandProperty FullName
+            if (-not $sdkmanager) {
+              $versionedTools = foreach ($candidate in $sdkmanagers) {
+                $versionName = Split-Path (Split-Path $candidate.DirectoryName -Parent) -Leaf
+                $parsedVersion = $null
+                if ([version]::TryParse($versionName, [ref]$parsedVersion)) {
+                  [pscustomobject]@{ Path = $candidate.FullName; Version = $parsedVersion }
+                }
+              }
+              $sdkmanager = $versionedTools | Sort-Object Version -Descending | Select-Object -First 1 -ExpandProperty Path
+            }
+          }
+          if (-not $sdkmanager) { throw 'Android sdkmanager was not found on PATH or under ANDROID_HOME\cmdline-tools.' }
+          $sdkmanagerDirectory = Split-Path -Parent $sdkmanager
+          $env:PATH = "$sdkmanagerDirectory;$env:ANDROID_HOME\platform-tools;$env:PATH"
           1..100 | ForEach-Object { 'y' } | & $sdkmanager --licenses
           if ($LASTEXITCODE -ne 0) { throw 'Android SDK license acceptance failed.' }
           & $sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
