@@ -20,10 +20,21 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - name: Install Android SDK platform
         shell: pwsh
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:ANDROID_HOME) -or -not (Test-Path -LiteralPath $env:ANDROID_HOME -PathType Container)) {
+            throw 'The windows-latest image must provide ANDROID_HOME.'
+          }
+          $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+          $cmdlineTools = Join-Path $env:ANDROID_HOME 'cmdline-tools\16.0\bin'
+          $env:PATH = "$cmdlineTools;$env:ANDROID_HOME\platform-tools;$env:PATH"
+          $sdkmanager = Join-Path $cmdlineTools 'sdkmanager.bat'
+          if (-not (Test-Path -LiteralPath $sdkmanager -PathType Leaf)) { throw 'Preinstalled Android sdkmanager is missing.' }
+          1..100 | ForEach-Object { 'y' } | & $sdkmanager --licenses
+          if ($LASTEXITCODE -ne 0) { throw 'Android SDK license acceptance failed.' }
+          & $sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+          if ($LASTEXITCODE -ne 0) { throw 'Android SDK platform/build-tools installation failed.' }
       - name: Configure Gradle cache
         uses: gradle/actions/setup-gradle@v4
       - name: Validate pinned toolchain
