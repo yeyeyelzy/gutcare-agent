@@ -54,7 +54,7 @@ class ApiFoundationTest {
 
     @Test fun bearerInterceptorMatchesVersionedAuthRoutesAndKeepsLogoutAuthenticated() {
         val server = MockWebServer()
-        repeat(6) { server.enqueue(MockResponse()) }
+        repeat(8) { server.enqueue(MockResponse()) }
         server.start()
         try {
             val client = OkHttpClient.Builder().addInterceptor(BearerTokenInterceptor { "session-access" }).build()
@@ -63,6 +63,8 @@ class ApiFoundationTest {
                 "/api/v1/auth/email/verify",
                 "/api/v1/auth/login",
                 "/api/v1/auth/refresh",
+                "/api/v1/auth/password/reset/request",
+                "/api/v1/auth/password/reset/confirm",
                 "/api/v1/auth/logout",
                 "/api/v1/patients/me",
             )
@@ -72,7 +74,7 @@ class ApiFoundationTest {
             routes.forEachIndexed { index, path ->
                 val request = server.takeRequest()
                 assertEquals(path, request.path)
-                if (index < 4) assertNull(request.getHeader("Authorization"))
+                if (index < 6) assertNull(request.getHeader("Authorization"))
                 else assertEquals("Bearer session-access", request.getHeader("Authorization"))
             }
         } finally {
@@ -143,7 +145,10 @@ class ApiFoundationTest {
             calls.incrementAndGet()
             RefreshResult.Success(RefreshedTokens("access-new", "refresh-new"))
         }
-        listOf("/api/v1/auth/register", "/api/v1/auth/email/verify", "/api/v1/auth/login", "/api/v1/auth/refresh")
+        listOf(
+            "/api/v1/auth/register", "/api/v1/auth/email/verify", "/api/v1/auth/login", "/api/v1/auth/refresh",
+            "/api/v1/auth/password/reset/request", "/api/v1/auth/password/reset/confirm",
+        )
             .forEach { path -> assertNull(authenticator.authenticate(null, unauthorized("access-old", path))) }
         assertNull(authenticator.authenticate(null, unauthorized(null, "/api/v1/auth/login")))
         assertNull(authenticator.authenticate(null, unauthorized(null)))

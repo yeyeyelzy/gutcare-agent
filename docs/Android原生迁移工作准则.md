@@ -8,7 +8,7 @@
 |---|---|---|
 | 0. 基线核对 | 阅读需求、UI、数据字典、OpenAPI 和 ADR；建立功能到页面/API/测试的映射 | 不改变已冻结业务语义；识别旧客户端仅可参考的内容 |
 | 1. 原生工程基座 | 已建立 `android/` Kotlin/Compose 工程、应用启动、导航、网络与会话基础、主题和测试结构；认证运行时已接入业务 API | Debug 构建、lint、JVM 单测通过；认证 Repository 的 phone-demo 真实 API 链路已由 T01k 验证；认证页面级 E2E 与 22 页迁移仍未完成 |
-| 2. 功能迁移 | 进行中：邮箱注册/验证/登录、刷新恢复、本人资料引导和登出已连接真实认证 API；告知资源从冻结 JSON 构建并在运行时校验。`UnconnectedAuthWorkflow` 仅作为 NavHost 默认/测试回退，不用于 MainActivity 运行时；四个受保护根 Tab 仍为占位页，22 个原型页待迁移 | 每个交付切片映射到 Fxx、API、状态机和测试编号；完成后逐项联调并检查越权或敏感信息泄漏 |
+| 2. 功能迁移 | 进行中：邮箱注册/验证/登录、刷新恢复、本人资料引导和登出已连接真实认证 API；F03 饮食、F04 排便、F05 症状和 F14 心情已具备受保护列表、新增、详情、编辑和删除路由，症状详情读取状态历史，真实业务 API Repository 已接线。今日页和记录入口已替换占位内容。健康档案仅展示本人资料和明确的未接入状态，Analysis 仍为不连接智能体的安全占位，“我的”仅保留退出入口。告知资源从冻结 JSON 构建并在运行时校验；`UnconnectedAuthWorkflow` 仅作为 NavHost 默认/测试回退，不用于 MainActivity 运行时 | 每个交付切片映射到 Fxx、API、状态机和测试编号；完成后逐项联调并检查越权或敏感信息泄漏；页面功能验收不得替代视觉评分和发布前真机证据 |
 | 3. 模拟器验收 | 在 Android Studio 模拟器完成页面、导航、API 联调、错误态和权限相关可测流程 | 记录模拟器镜像/API level、应用构建标识、环境、合成数据集、测试编号和结果；阻断缺陷清零 |
 | 4. 发布前真机门禁 | 对设备相关能力进行 Android 真机安装和场景验证 | 归档设备型号、Android 版本、构建标识、网络与合成数据集、用例及截图/录屏；系统能力相关问题关闭 |
 
@@ -18,7 +18,7 @@ Compose 生命周期按项目 label 执行 fail-closed：启动前查询同名�
 
 模拟器通过表示当前阶段可验收，不代表发布前真机门禁已通过。未取得真机证据时，发布状态不得标记为完成。
 
-截至 2026-10-19，常规模拟器证据 `android/build/emulator-evidence/20261019-162823/summary.json` 记录 Android API 37（Google APIs Play Store x86_64）instrumentation 13/13 通过、0 失败。T01k 独立 phone-demo 证据 `android/build/emulator-evidence/phone-demo-auth-20261019-170835-d2e7c4fc/` 记录 1/1 通过。当前 JVM 单测报告 `android/app/build/reports/tests/testDebugUnitTest/index.html` 显示 32 项通过、0 失败、0 跳过；Debug 构建与 lint 通过。上述证据不代表认证页面级 E2E、22 页迁移、全系统模拟器验收或真机验收已完成。
+截至 2026-10-20，当前工作树的 Debug 构建通过，JVM 测试 51/51、`RecordScreensTest` 9/9、全量 instrumentation 23/23 均通过。真实 phone-demo 记录联调在 Android 模拟器完成 diet/stool/symptom/mood CRUD、游标分页、symptom status-history、409 乐观锁冲突以及登出后 401，会话凭据和响应正文未写入证据；可追溯摘要为 `android/build/emulator-evidence/phone-demo-records-20261020-014006-b480ec9f/summary.json`。T01k 认证证据仍独立保留在 `android/build/emulator-evidence/phone-demo-auth-20261019-170835-d2e7c4fc/`。本次结论仅表示 F03/F04/F05/F14 手工记录切片的所列自动化和真实 API 场景通过，不代表 F02/F06/F07/F08/F09/F10/F11/F12/F13 已迁移，也不代表逐页 UI ≥80% 且无明显错误，或发布前真机门禁通过。
 
 仓库当前仅有 `development_test_only` 注册告知制品。它可用于 Debug 合成账户联调，不可用于真实患者。Production/Release 注册保持 fail-closed；生产批准制品的 classification/schema 与签核流程尚未冻结，正式发布前需完成 ADR/制品规范与签核门禁。
 

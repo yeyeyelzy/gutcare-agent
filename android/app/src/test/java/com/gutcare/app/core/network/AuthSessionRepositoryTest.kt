@@ -4,14 +4,40 @@ import com.gutcare.app.core.security.SecureSessionStore
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.*
 import org.junit.Test
+import java.lang.reflect.Proxy
 import retrofit2.Retrofit
+import retrofit2.Response
 import retrofit2.converter.moshi.MoshiConverterFactory
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class AuthSessionRepositoryTest {
+    @Test fun loginPublishesTheProfileReturnedByItsBootstrapWithoutRefetching() = runTest {
+        val api = Proxy.newProxyInstance(BusinessApi::class.java.classLoader, arrayOf(BusinessApi::class.java)) { _, method, _ ->
+            when (method.name) {
+                "login" -> Response.success(TokenPairDto("access-token-123456789", "refresh-token-123456789", "Bearer", 900))
+                "myProfile" -> Response.success(PatientProfileDto("patient-1", null, 1990, "Asia/Shanghai", 1))
+                else -> error("Unexpected auth API call: ${method.name}")
+            }
+        } as BusinessApi
+        val sessions = FakeSessions()
+        var authenticatedProfile: PatientProfileDto? = null
+        val workflow = RuntimeAuthWorkflow(AuthSessionRepository(api, sessions, RegistrationNoticeProvider { null }), this,
+            { authenticatedProfile = it }, {})
+        var state: com.gutcare.app.ui.auth.AuthOperationState? = null
+        workflow.login("a@example.test", "password") { state = it }
+        advanceUntilIdle()
+        assertEquals("Asia/Shanghai", authenticatedProfile?.timezone)
+        assertEquals(com.gutcare.app.ui.auth.AuthOperationState.Accepted, state)
+        assertEquals("access-token-123456789", sessions.access)
+    }
+
     @Test fun registerUsesOnlyFrozenFieldsAndConfirmationStaysLocal() = runBlocking {
         MockWebServer().useServer { server ->
             server.enqueue(MockResponse().setResponseCode(202).setBody("""{"operation_id":"op-1","status":"accepted"}"""))
@@ -29,6 +55,45 @@ class AuthSessionRepositoryTest {
             assertFalse(body.contains("confirm"))
             assertFalse(body.contains("sha256"))
             assertFalse(body.contains("notice_summary"))
+        }
+    }
+
+    @Test fun passwordResetRequestUsesFrozenUnauthenticatedRouteAndAcceptedResponse() = runBlocking {
+        MockWebServer().useServer { server ->
+            server.enqueue(MockResponse().setResponseCode(202).setBody("""{"operation_id":"op-reset","status":"accepted"}"""))
+            server.enqueue(MockResponse().setResponseCode(202).setBody("""{"operation_id":"op-reset","status":"accepted"}"""))
+            val repo = repository(server, FakeSessions())
+            assertEquals(AuthWorkflowResult.Accepted("op-reset"), repo.requestPasswordReset("known@example.test"))
+            assertEquals(AuthWorkflowResult.Accepted("op-reset"), repo.requestPasswordReset("unknown@example.test"))
+            repeat(2) {
+                val request = server.takeRequest()
+                assertEquals("POST", request.method)
+                assertEquals("/api/v1/auth/password/reset/request", request.path)
+                assertEquals("""{"email":"${if (it == 0) "known@example.test" else "unknown@example.test"}"}""", request.body.readUtf8())
+                assertNull(request.getHeader("Authorization"))
+            }
+        }
+    }
+
+    @Test fun passwordResetConfirmSendsTokenOnlyInBodyAndClearsLocalSessionOn204() = runBlocking {
+        MockWebServer().useServer { server ->
+            server.enqueue(MockResponse().setResponseCode(204))
+            val sessions = FakeSessions().apply { access = "old-access"; refresh = "old-refresh" }
+            var invalidations = 0
+            val repo = AuthSessionRepository(api(server), sessions, RegistrationNoticeProvider { null }) { invalidations++ }
+            assertEquals(AuthWorkflowResult.Accepted(""), repo.confirmPasswordReset("synthetic-reset-token", "synthetic-new-password"))
+            val request = server.takeRequest()
+            assertEquals("POST", request.method)
+            assertEquals("/api/v1/auth/password/reset/confirm", request.path)
+            val body = request.body.readUtf8()
+            assertTrue("Reset credentials were not serialized to the contract fields",
+                body.contains("\"token\":\"synthetic-reset-token\"") &&
+                    body.contains("\"new_password\":\"synthetic-new-password\""),
+            )
+            assertNull(request.getHeader("Authorization"))
+            assertNull(sessions.access)
+            assertNull(sessions.refresh)
+            assertEquals(1, invalidations)
         }
     }
 
@@ -90,6 +155,21 @@ class AuthSessionRepositoryTest {
         }
     }
 
+    @Test fun rejectedRefreshInvalidatesTheProtectedSession() = runBlocking {
+        MockWebServer().useServer { server ->
+            server.enqueue(MockResponse().setResponseCode(401).setHeader("Content-Type", "application/problem+json")
+                .setBody(problem(401, "AUTHENTICATION_REQUIRED", "request-401")))
+            val sessions = FakeSessions().apply { access = "old-access"; refresh = "old-refresh" }
+            var invalidations = 0
+            val observed = AuthSessionRepository(api(server), sessions, RegistrationNoticeProvider { null }) { invalidations++ }
+            assertEquals(AuthWorkflowResult.Failure(401, "AUTHENTICATION_REQUIRED", "request-401"), observed.restoreSession())
+            assertNull(sessions.access)
+            assertNull(sessions.refresh)
+            assertEquals(1, invalidations)
+            assertEquals("/api/v1/auth/refresh", server.takeRequest().path)
+        }
+    }
+
     @Test fun coldStartRotatesRefreshTokenBeforeProfileAndLogoutAlwaysClearsLocally() = runBlocking {
         MockWebServer().useServer { server ->
             server.enqueue(tokenResponse("access-2-123456789012345", "refresh-2-123456789012345"))
@@ -112,9 +192,11 @@ class AuthSessionRepositoryTest {
     }
 
     private fun repository(server: MockWebServer, sessions: FakeSessions, notices: RegistrationNoticeProvider = RegistrationNoticeProvider { null }) =
-        AuthSessionRepository(Retrofit.Builder().baseUrl(server.url("/api/v1/")).client(okhttp3.OkHttpClient())
+        AuthSessionRepository(api(server), sessions, notices)
+
+    private fun api(server: MockWebServer) = Retrofit.Builder().baseUrl(server.url("/api/v1/")).client(okhttp3.OkHttpClient())
             .addConverterFactory(MoshiConverterFactory.create(Moshi.Builder().add(KotlinJsonAdapterFactory()).build()))
-            .build().create(BusinessApi::class.java), sessions, notices)
+            .build().create(BusinessApi::class.java)
 
     private fun tokenResponse(
         access: String = "access-token-123456789",

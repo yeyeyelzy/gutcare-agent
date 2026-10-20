@@ -128,6 +128,75 @@ class AuthScreensTest {
     }
 
     @Test
+    fun emailVerificationKeepsTokenInPageStateAndGatesSubmission() {
+        composeRule.setContent {
+            GutCareTheme {
+                EmailVerificationScreen(
+                    operation = AuthOperationState.Idle,
+                    onVerify = {},
+                    onGoToLogin = {},
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("verify_email_submit").assertIsNotEnabled()
+        composeRule.onNodeWithTag("email_verification_token")
+            .performTextInput("a".repeat(20))
+        composeRule.onNodeWithTag("verify_email_submit").assertIsEnabled()
+        composeRule.runOnIdle {
+            val focusedView = composeRule.activity.currentFocus
+            val windowToken = focusedView?.windowToken ?: composeRule.activity.window.decorView.windowToken
+            focusedView?.clearFocus()
+            val inputMethodManager = composeRule.activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            inputMethodManager.hideSoftInputFromWindow(windowToken, 0)
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("验证链接中的一次性令牌仅在本页面内存中使用，不会写入日志或持久保存。").assertIsDisplayed()
+    }
+
+    @Test
+    fun passwordResetShowsGenericRequestCopyAndOnlyContinuesAfterAcceptance() {
+        composeRule.setContent {
+            var operation by remember { mutableStateOf<AuthOperationState>(AuthOperationState.Idle) }
+            GutCareTheme {
+                PasswordResetRequestScreen(
+                    operation = operation,
+                    onRequest = { operation = AuthOperationState.Accepted },
+                    onOpenConfirmation = {},
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("无论邮箱是否存在，服务端都会返回相同的受理结果。").assertIsDisplayed()
+        composeRule.onNodeWithTag("reset_request_submit").assertIsNotEnabled()
+        composeRule.onNodeWithTag("reset_email").performTextInput("person@example.test")
+        composeRule.onNodeWithTag("reset_request_submit").assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("reset_open_confirmation").assertIsDisplayed()
+    }
+
+    @Test
+    fun passwordResetConfirmationRequiresTokenAndMatchingStrongPassword() {
+        composeRule.setContent {
+            GutCareTheme {
+                PasswordResetConfirmScreen(
+                    operation = AuthOperationState.Idle,
+                    onConfirm = { _, _ -> },
+                    onBack = {},
+                    onGoToLogin = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("reset_confirm_submit").assertIsNotEnabled()
+        composeRule.onNodeWithTag("reset_token").performTextInput("a".repeat(20))
+        composeRule.onNodeWithTag("reset_new_password").performTextInput("a-secure-pass")
+        composeRule.onNodeWithTag("reset_confirmation").performTextInput("a-secure-pass")
+        composeRule.onNodeWithTag("reset_confirm_submit").assertIsEnabled()
+    }
+
+    @Test
     fun systemBackLeavingRegistrationFlowClearsSensitiveDraft() {
         composeRule.setContent {
             GutCareTheme {

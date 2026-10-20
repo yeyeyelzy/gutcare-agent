@@ -38,4 +38,16 @@ class RoutePolicyTest {
         assertFalse(AppRoute.EmailVerification.value in AppRoute.protectedRoutes)
         assertTrue(AppRoute.Today.value in AppRoute.protectedRoutes)
     }
+
+    @Test
+    fun recordsAndHealthArchiveRoutesRemainProtected() {
+        assertEquals(AppRoute.Welcome, RoutePolicy.allowedDestination(AppSessionState.Public, AppRoute.DietRecordNew))
+        assertEquals(AppRoute.Welcome, RoutePolicy.allowedDestination(AppSessionState.Public, AppRoute.HealthArchive))
+        assertEquals(AppRoute.MoodRecordNew, RoutePolicy.allowedDestination(AppSessionState.Authenticated, AppRoute.MoodRecordNew))
+        listOf(
+            AppRoute.DietRecords, AppRoute.StoolRecords, AppRoute.SymptomRecords, AppRoute.MoodRecords,
+            AppRoute.DietRecordNew, AppRoute.StoolRecordNew, AppRoute.SymptomRecordNew, AppRoute.MoodRecordNew,
+            AppRoute.HealthArchive,
+        ).forEach { assertEquals(AppRoute.Welcome, RoutePolicy.allowedDestination(AppSessionState.Public, it)) }
+    }
 }

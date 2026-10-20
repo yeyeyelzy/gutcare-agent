@@ -21,8 +21,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import kotlinx.coroutines.flow.collect
 import com.gutcare.app.core.network.AndroidAuthComposition
 import com.gutcare.app.core.network.AuthWorkflowResult
+import com.gutcare.app.navigation.AppRoute
 import com.gutcare.app.navigation.AppSessionState
 import com.gutcare.app.navigation.GutCareNavHost
 import com.gutcare.app.ui.theme.GutCareTheme
@@ -41,17 +44,20 @@ class MainActivity : ComponentActivity() {
                     val scope = rememberCoroutineScope()
                     var bootstrapped by remember { mutableStateOf(false) }
                     var sessionState by remember { mutableStateOf<AppSessionState>(AppSessionState.Public) }
+                    var patientProfile by remember { mutableStateOf<com.gutcare.app.core.network.PatientProfileDto?>(null) }
                     var startupError by remember { mutableStateOf<String?>(null) }
                     val navController = rememberNavController()
                     val workflow = remember(scope) {
                         auth.workflow(
                             scope,
-                            {
+                            { profile ->
+                                patientProfile = profile
                                 sessionState = AppSessionState.Authenticated
                                 startupError = null
                             },
                             {
                                 sessionState = AppSessionState.Public
+                                patientProfile = null
                                 startupError = null
                             },
                         )
@@ -60,7 +66,10 @@ class MainActivity : ComponentActivity() {
                         val restored = runCatching { auth.restore() }
                             .getOrElse { AuthWorkflowResult.Failure(null, "NETWORK_ERROR") }
                         sessionState = when (restored) {
-                            is AuthWorkflowResult.Success -> AppSessionState.Authenticated
+                            is AuthWorkflowResult.Success -> {
+                                patientProfile = restored.profile
+                                AppSessionState.Authenticated
+                            }
                             else -> AppSessionState.Public
                         }
                         if (restored is AuthWorkflowResult.Failure && restored.code != "SESSION_UNAVAILABLE") {
@@ -72,6 +81,23 @@ class MainActivity : ComponentActivity() {
                         }
                         bootstrapped = true
                     }
+                    LaunchedEffect(auth, navController) {
+                        var seenGeneration = auth.sessionInvalidations.value
+                        auth.sessionInvalidations.collect { generation ->
+                            if (generation > seenGeneration) {
+                                seenGeneration = generation
+                                patientProfile = null
+                                sessionState = AppSessionState.Public
+                                startupError = "登录状态已失效，请重新登录。"
+                                if (navController.currentDestination != null) {
+                                    navController.navigate(AppRoute.Welcome.value) {
+                                        popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                                        launchSingleTop = true
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if (bootstrapped) {
                         Box(Modifier.fillMaxSize()) {
                             GutCareNavHost(
@@ -80,6 +106,9 @@ class MainActivity : ComponentActivity() {
                                 authWorkflow = workflow,
                                 onLogout = { onResult -> workflow.logout(onResult) },
                                 registrationNoticeSummaries = auth.notices.summaries(),
+                                recordsRepository = auth.recordsRepository,
+                                medicalDocumentsRepository = auth.medicalDocumentsRepository,
+                                patientProfile = patientProfile,
                             )
                             startupError?.let {
                                 Text(

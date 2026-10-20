@@ -16,6 +16,18 @@ sealed class AppRoute(val value: String) {
     data object Records : AppRoute("tabs/records")
     data object Analysis : AppRoute("tabs/analysis")
     data object Me : AppRoute("tabs/me")
+    data object DietRecords : AppRoute("records/diet")
+    data object StoolRecords : AppRoute("records/stool")
+    data object SymptomRecords : AppRoute("records/symptoms")
+    data object MoodRecords : AppRoute("records/mood")
+    data object DietRecordNew : AppRoute("records/diet/new")
+    data object StoolRecordNew : AppRoute("records/stool/new")
+    data object SymptomRecordNew : AppRoute("records/symptoms/new")
+    data object MoodRecordNew : AppRoute("records/mood/new")
+    data object RecordDetail : AppRoute("records/detail/{recordType}/{recordId}")
+    data object RecordEdit : AppRoute("records/edit/{recordType}/{recordId}")
+    data object HealthArchive : AppRoute("records/health-archive")
+    data object MedicalDocumentDetail : AppRoute("records/medical-documents/{documentId}")
 
     companion object {
         val publicRoutes = setOf(
@@ -27,9 +39,21 @@ sealed class AppRoute(val value: String) {
             "auth/password/reset",
             "auth/password/reset/confirm",
         )
-        val protectedRoutes = setOf("tabs/today", "tabs/records", "tabs/analysis", "tabs/me")
+        val protectedRoutes = setOf(
+            "tabs/today", "tabs/records", "tabs/analysis", "tabs/me",
+            "records/diet", "records/stool", "records/symptoms", "records/mood",
+            "records/diet/new", "records/stool/new", "records/symptoms/new", "records/mood/new",
+            "records/detail/{recordType}/{recordId}", "records/edit/{recordType}/{recordId}",
+            "records/health-archive",
+            "records/medical-documents/{documentId}",
+        )
     }
 }
+
+private fun encodeRouteSegment(value: String) = value.replace("%", "%25").replace("/", "%2F").replace("?", "%3F")
+fun recordDetailRoute(type: String, id: String): String = "records/detail/${encodeRouteSegment(type)}/${encodeRouteSegment(id)}"
+fun recordEditRoute(type: String, id: String): String = "records/edit/${encodeRouteSegment(type)}/${encodeRouteSegment(id)}"
+fun medicalDocumentDetailRoute(id: String): String = "records/medical-documents/${encodeRouteSegment(id)}"
 
 enum class RootTab(
     val route: AppRoute,

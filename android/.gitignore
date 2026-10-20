@@ -1,5 +1,9 @@
 .gradle/
+.gradle-f02/
+.gradle.verify-current-20261020/
+.kotlin.verify-current-20261020/
 build/
+app/build.secondround-backup-20261020/
 local.properties
 **/build/
 captures/

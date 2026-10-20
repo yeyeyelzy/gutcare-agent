@@ -1,6 +1,7 @@
 package com.gutcare.app.ui.tabs
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,9 +13,11 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -46,9 +49,12 @@ fun ProtectedTabShell(
     onLogout: () -> Unit = {},
     modifier: Modifier = Modifier,
     contentState: TabContentState = TabContentState.Empty,
+    screenContent: (@Composable () -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        GutCarePage(modifier = Modifier.weight(1f), scrollable = false) {
+        if (screenContent != null) {
+            Box(Modifier.weight(1f).fillMaxWidth()) { screenContent() }
+        } else GutCarePage(modifier = Modifier.weight(1f), scrollable = false) {
             Spacer(Modifier.height(34.dp))
             Text("GutCare", style = MaterialTheme.typography.titleMedium, color = GutCareBrandGreen)
             Spacer(Modifier.height(34.dp))
@@ -67,8 +73,13 @@ fun ProtectedTabShell(
             TabStatePanel(tab = selectedTab, state = contentState)
         }
         NavigationBar(
-            modifier = Modifier.navigationBarsPadding().testTag("protected_tab_bar"),
+            modifier = Modifier
+                .navigationBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .testTag("protected_tab_bar"),
             containerColor = Color.White,
+            tonalElevation = 0.dp,
         ) {
             RootTab.entries.forEach { tab ->
                 NavigationBarItem(
@@ -77,14 +88,21 @@ fun ProtectedTabShell(
                     icon = {
                         Box(
                             modifier = Modifier
-                                .size(28.dp)
-                                .background(if (selectedTab == tab) GutCareSage else Color.Transparent, CircleShape),
+                                .size(26.dp)
+                                .background(Color.Transparent, CircleShape),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(tab.glyph, style = MaterialTheme.typography.labelLarge)
                         }
                     },
                     label = { Text(tab.title, style = MaterialTheme.typography.bodyMedium) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color.White,
+                        selectedTextColor = GutCareBrandGreen,
+                        indicatorColor = GutCareBrandGreen,
+                        unselectedIconColor = GutCareMuted,
+                        unselectedTextColor = GutCareMuted,
+                    ),
                     modifier = Modifier
                         .semantics { contentDescription = "切换到${tab.title}" }
                         .testTag("tab_${tab.name.lowercase()}"),

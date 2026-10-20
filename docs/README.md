@@ -21,11 +21,13 @@ APP 22 页原型事实、导航规范、视觉验收与编码前 G1 数据契约
 F02 的表/状态/API/隐私/测试追踪增补见 `F02-文件与医疗档案实现补充.md`。
 后端完成性与验收证据归档见 `后端交付验收报告.md`；该报告区分已实现证据、独立验收状态与外部依赖。
 
-> 基线版本：V1.8（ADR-0021 类型化附件快照与显式 retry 增补）
-> 冻结日期：2026-10-18
-> 工作目录：`D:\GutCare_Agent`
+> 基线版本：V1.10（原生 Android 记录切片模拟器与真实 API 验收同步）
+> 冻结日期：2026-10-20
+> 工作目录：仓库 clone 根目录（不依赖固定盘符或绝对路径）
 
 已采纳 ADR-0022：患者端迁移至原生 Android，见 `ADR/0022-原生Android客户端.md`；Android Studio 是唯一客户端开发/验收环境，旧 `app/` 只读归档，当前不做 iOS。
+
+原生 Android 当前交付状态以 `Android页面-功能-API-测试映射.md`、`Android原生迁移工作准则.md` 和 `需求追踪矩阵.md` 的 `AND-*` 条目共同为准。截至 2026-10-20，F03/F04/F05/F14 手工记录切片已通过 Debug 构建、JVM 51/51、`RecordScreensTest` 9/9、全量 instrumentation 23/23，并在真实 phone-demo 完成 diet/stool/symptom/mood CRUD、游标分页、symptom status-history、409 冲突和登出后 401；证据为 `android/build/emulator-evidence/phone-demo-records-20261020-014006-b480ec9f/summary.json`。该结论只覆盖记录切片和所列场景，不扩大 F02/F06/F07/F08/F09/F10/F11/F12/F13 的原生交付状态；逐页 UI ≥80% 且无明显错误的视觉证据和发布前真机验收仍未完成。旧 `APP-B*` 条目和 `app/` 自动化只保留迁移前追溯价值。
 
 ## 1. 文档用途
 

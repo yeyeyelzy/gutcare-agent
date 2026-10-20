@@ -25,7 +25,10 @@ class BearerTokenInterceptor(private val tokens: AccessTokenProvider) : Intercep
     }
 
     private companion object {
-        val PUBLIC_AUTH_ROUTES = setOf("auth/register", "auth/email/verify", "auth/login", "auth/refresh")
+        val PUBLIC_AUTH_ROUTES = setOf(
+            "auth/register", "auth/email/verify", "auth/login", "auth/refresh",
+            "auth/password/reset/request", "auth/password/reset/confirm",
+        )
     }
 }
 
@@ -91,7 +94,10 @@ class SessionAuthenticator(
     private fun Request.withBearer(token: String) = newBuilder().header("Authorization", "Bearer $token").build()
 
     private companion object {
-        val PUBLIC_AUTH_ROUTES = setOf("auth/register", "auth/email/verify", "auth/login", "auth/refresh")
+        val PUBLIC_AUTH_ROUTES = setOf(
+            "auth/register", "auth/email/verify", "auth/login", "auth/refresh",
+            "auth/password/reset/request", "auth/password/reset/confirm",
+        )
     }
 }
 

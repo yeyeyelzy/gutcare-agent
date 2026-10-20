@@ -18,6 +18,7 @@ class AuthSessionRepository(
     private val api: BusinessApi,
     private val sessions: SecureSessionStore,
     private val notices: RegistrationNoticeProvider,
+    private val onSessionInvalidated: () -> Unit = {},
 ) {
     suspend fun register(email: String, password: String, confirmPassword: String, birthYear: Int): AuthWorkflowResult {
         if (password != confirmPassword) return AuthWorkflowResult.Failure(null, "PASSWORD_CONFIRMATION_MISMATCH")
@@ -35,6 +36,26 @@ class AuthSessionRepository(
         if (response.isSuccessful) AuthWorkflowResult.Accepted("") else response.failure()
     }
 
+    suspend fun requestPasswordReset(email: String): AuthWorkflowResult = api.requestPasswordReset(PasswordResetRequest(email)).fold { response ->
+        if (response.code() != 202) return@fold if (response.isSuccessful) AuthWorkflowResult.Failure(response.code(), "INVALID_RESPONSE") else response.failure()
+        response.body()?.takeIf { it.status == "accepted" }
+            ?.let { AuthWorkflowResult.Accepted(it.operationId) }
+            ?: AuthWorkflowResult.Failure(response.code(), "INVALID_RESPONSE")
+    }
+
+    suspend fun confirmPasswordReset(token: String, newPassword: String): AuthWorkflowResult =
+        api.confirmPasswordReset(PasswordResetConfirmRequest(token, newPassword)).fold { response ->
+            if (response.code() == 204) {
+                sessions.clear()
+                onSessionInvalidated()
+                AuthWorkflowResult.Accepted("")
+            } else if (response.isSuccessful) {
+                AuthWorkflowResult.Failure(response.code(), "INVALID_RESPONSE")
+            } else {
+                response.failure()
+            }
+        }
+
     suspend fun login(email: String, password: String): AuthWorkflowResult {
         val response = api.login(LoginRequest(email, password))
         if (!response.isSuccessful) return response.failure()
@@ -49,7 +70,10 @@ class AuthSessionRepository(
         val refresh = sessions.readRefreshToken() ?: return AuthWorkflowResult.Failure(null, "SESSION_UNAVAILABLE")
         val response = api.refresh(RefreshRequest(refresh))
         if (!response.isSuccessful) {
-            if (response.code() == 401) sessions.clear()
+            if (response.code() == 401) {
+                sessions.clear()
+                onSessionInvalidated()
+            }
             return response.failure()
         }
         val pair = response.body() ?: return AuthWorkflowResult.Failure(response.code(), "INVALID_RESPONSE")
@@ -70,6 +94,9 @@ class AuthSessionRepository(
             else -> response.failure()
         }
     }
+
+    /** Re-reads the authenticated patient's authoritative profile for protected profile surfaces. */
+    suspend fun readMyProfile(): AuthWorkflowResult = bootstrapProfile()
 
     private suspend fun bootstrapProfile(): AuthWorkflowResult {
         val response = api.myProfile()
@@ -99,7 +126,10 @@ private fun Response<*>.failure(): AuthWorkflowResult.Failure {
 }
 
 /** Synchronous bridge used only inside OkHttp's Authenticator callback. Auth calls are on a plain client. */
-class SecureSessionAccessTokens(private val sessions: SecureSessionStore) : MutableAccessTokens {
+class SecureSessionAccessTokens(
+    private val sessions: SecureSessionStore,
+    private val onSessionInvalidated: () -> Unit = {},
+) : MutableAccessTokens {
     override val refreshLock: Any = Any()
     @Volatile private var priorAccessToken: String? = null
     override fun currentAccessToken(): String? = runBlocking { sessions.readAccessToken() }
@@ -120,5 +150,9 @@ class SecureSessionAccessTokens(private val sessions: SecureSessionStore) : Muta
             throw failure
         }
     }
-    override fun clearTokens() = runBlocking { priorAccessToken = null; sessions.clear() }
+    override fun clearTokens() = runBlocking {
+        priorAccessToken = null
+        sessions.clear()
+        onSessionInvalidated()
+    }
 }

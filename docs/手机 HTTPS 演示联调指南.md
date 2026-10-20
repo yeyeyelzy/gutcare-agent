@@ -8,7 +8,7 @@
 
 - Windows Docker Desktop 已启动，Docker Compose v2 可用。
 - 已安装 `cloudflared`，且可在独立 PowerShell 终端运行。
-- APP 通过 HBuilder 启动；不要把实体手机的 API 地址设为 `localhost`。
+- 患者端仅通过 Android Studio 打开 `android/` 并运行原生 Android APP；旧 `app/` 为只读归档。不要把实体手机的 API 地址设为 `localhost`。
 
 该演示只包括认证所需的 API、数据库、Redis 与本机 Mailpit。F02 文件上传/下载、对象存储、病毒扫描、记录图片识别、F08 智能体任务及其他依赖独立 worker/agent 的功能不在此路径中，不能据此声称完整功能验收。
 
@@ -39,15 +39,15 @@ cloudflared tunnel --url http://127.0.0.1:8000
 
 Cloudflare 会显示一个临时 HTTPS URL。它是公开、匿名的 URL；每次启动通常会变化，停止该 `cloudflared` 进程即失效。只使用合成演示数据，不要把这个 URL 发送给不受控的人员。不要使用 `--allowed-mail`：原生 APP API 调用没有交互式浏览器 cookie，不能完成该访问控制流程。
 
-取得 URL 后，将 `app/.env` 的 API 基址改成：
+取得 URL 后，在 Android Studio 的 Run/Debug Configuration 中为 `app` 的 Debug 变体设置 Gradle property：
 
 ```text
-VITE_API_BASE_URL=$tunnelUrl/api/v1
+debugApiBaseUrl=https://<quick-tunnel-host>/api/v1/
 ```
 
-其中 `$tunnelUrl` 是 Cloudflare 输出的完整 HTTPS URL（不要保留字面量 `$tunnelUrl`），然后重启 HBuilder。不能写 `localhost`、`127.0.0.1` 或宿主机局域网地址。
+其中 `<quick-tunnel-host>` 来自 Cloudflare 输出的完整 HTTPS URL；须保留末尾 `/`，不要填写字面量尖括号。然后重新运行原生 Android APP。实体手机不能写 `localhost`、`127.0.0.1` 或宿主机局域网地址。
 
-此 API 没有浏览器 CORS 需求：原生 Android/iOS 网络请求不受浏览器同源策略约束；认证仍由 API 校验。`APP_PUBLIC_BASE_URL` 在该路径固定为 loopback，因为 F02 capability URL 流程未启用；因此不必、也不应在每次 Quick Tunnel URL 改变后重建 API。若未来将 F02 加入演示，需要另行设计能安全反映临时 HTTPS origin 的对象能力 URL 与相应验证，不能沿用本指南假设。
+此 API 没有浏览器 CORS 需求：原生 Android 网络请求不受浏览器同源策略约束；认证仍由 API 校验。`APP_PUBLIC_BASE_URL` 在该路径固定为 loopback，因为 F02 capability URL 流程未启用；因此不必、也不应在每次 Quick Tunnel URL 改变后重建 API。若未来将 F02 加入演示，需要另行设计能安全反映临时 HTTPS origin 的对象能力 URL 与相应验证，不能沿用本指南假设。
 
 ## 停止和清理
 
@@ -67,4 +67,4 @@ VITE_API_BASE_URL=$tunnelUrl/api/v1
 
 ## 验收边界
 
-`/health/live` 只说明 API 进程存活；可额外查看 `/health/ready` 以检查数据库、迁移 head 和隐私 replay 门禁。Docker daemon、镜像拉取/构建、Cloudflare 出站访问、实体 Android/iOS 与 HBuilder 都是本机外部条件，必须在目标机器实际运行后才可记为运行或真机证据。
+`/health/live` 只说明 API 进程存活；可额外查看 `/health/ready` 以检查数据库、迁移 head 和隐私 replay 门禁。Docker daemon、镜像拉取/构建、Cloudflare 出站访问、实体 Android 与 Android Studio 都是本机外部条件，必须在目标机器实际运行后才可记为运行或真机证据。

@@ -8,8 +8,9 @@ if (Get-PSDrive -Name "R" -ErrorAction SilentlyContinue) {
 }
 
 $gradleHome = "C:\gutcare-gradle-home"
+$projectCache = "C:\gutcare-gradle-project-cache"
 $javaTemp = "C:\gutcare-gradle-tmp"
-New-Item -ItemType Directory -Force -Path $gradleHome, $javaTemp | Out-Null
+New-Item -ItemType Directory -Force -Path $gradleHome, $projectCache, $javaTemp | Out-Null
 
 $previousGradleHome = $env:GRADLE_USER_HOME
 $previousJavaToolOptions = $env:JAVA_TOOL_OPTIONS
@@ -31,7 +32,7 @@ try {
     }
 
     Set-Location "R:\android"
-    & ".\gradlew.bat" -p "R:\android" assembleDebug test lint --no-daemon
+    & ".\gradlew.bat" -p "R:\android" --project-cache-dir $projectCache assembleDebug test lint --no-daemon
     $exitCode = $LASTEXITCODE
 }
 finally {

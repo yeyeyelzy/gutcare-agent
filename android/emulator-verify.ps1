@@ -135,14 +135,44 @@ try {
     $maxLocaleAttempts = 3
     for ($localeAttempt = 1; $localeAttempt -le $maxLocaleAttempts; $localeAttempt++) {
         $localeSettleDeadline = (Get-Date).AddSeconds(30)
+        $settingsServiceReady = $false
         while ((Get-Date) -lt $localeSettleDeadline) {
-            $localeSetting = (& $adbExe -s $serial shell settings get system system_locales 2>$null | Out-String).Trim()
+            $localeReadOutput = & $adbExe -s $serial shell settings get system system_locales 2>&1
+            $localeReadExitCode = $LASTEXITCODE
+            $localeReadText = ([string]($localeReadOutput | Out-String)).Trim()
             $localeProperty = (& $adbExe -s $serial shell getprop persist.sys.locale 2>$null | Out-String).Trim()
-            if ($localeSetting -eq 'zh-CN') { $actualLocale = $localeSetting; break }
+            if ($localeReadExitCode -eq 0 -and $localeReadText -notmatch "Can't find service: settings") {
+                $settingsServiceReady = $true
+                $localeSetting = $localeReadText
+                if ($localeSetting -eq 'zh-CN') { $actualLocale = $localeSetting; break }
+            }
             Start-Sleep -Seconds 2
         }
         if ($actualLocale -eq 'zh-CN') { break }
         if ($localeAttempt -eq $maxLocaleAttempts) { break }
+
+        if (-not $settingsServiceReady) {
+            throw "Android settings service did not become available within 30 seconds (last output='$localeReadText')."
+        }
+
+        # Re-read immediately before writing: a successful earlier probe may have
+        # raced a service restart while the locale was settling.
+        $settingsReadyDeadline = (Get-Date).AddSeconds(30)
+        $settingsServiceReady = $false
+        while ((Get-Date) -lt $settingsReadyDeadline) {
+            $localeReadOutput = & $adbExe -s $serial shell settings get system system_locales 2>&1
+            $localeReadExitCode = $LASTEXITCODE
+            $localeReadText = ([string]($localeReadOutput | Out-String)).Trim()
+            if ($localeReadExitCode -eq 0 -and $localeReadText -notmatch "Can't find service: settings") {
+                $settingsServiceReady = $true
+                $localeSetting = $localeReadText
+                break
+            }
+            Start-Sleep -Seconds 2
+        }
+        if (-not $settingsServiceReady) {
+            throw "Android settings service was unavailable before locale update (last output='$localeReadText')."
+        }
 
         & $adbExe -s $serial shell settings put system system_locales zh-CN | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Could not reapply zh-CN system locale on attempt $localeAttempt." }
@@ -170,6 +200,34 @@ try {
     Invoke-PrivateAdb -s $serial shell settings put system font_scale 1.0
     $actualFontScale = (& $adbExe -s $serial shell settings get system font_scale 2>$null | Out-String).Trim()
     if ($actualFontScale -ne '1.0') { throw "The AVD font scale is '$actualFontScale', expected 1.0." }
+
+    $frameworkReadyDeadline = (Get-Date).AddSeconds(90)
+    $frameworkReady = $false
+    $packageServiceOutput = ''
+    $activityServiceOutput = ''
+    $packageProbeOutput = ''
+    while ((Get-Date) -lt $frameworkReadyDeadline) {
+        if ($emulatorProcess.HasExited) { throw "Emulator exited while waiting for Android framework readiness (code $($emulatorProcess.ExitCode))." }
+
+        $packageServiceOutput = (& $adbExe -s $serial shell service check package 2>&1 | Out-String).Trim()
+        $packageServiceExitCode = $LASTEXITCODE
+        $activityServiceOutput = (& $adbExe -s $serial shell service check activity 2>&1 | Out-String).Trim()
+        $activityServiceExitCode = $LASTEXITCODE
+        $packageProbeOutput = (& $adbExe -s $serial shell pm list packages --user 0 android 2>&1 | Out-String).Trim()
+        $packageProbeExitCode = $LASTEXITCODE
+
+        if ($packageServiceExitCode -eq 0 -and $packageServiceOutput -match 'Service package: found' -and
+            $activityServiceExitCode -eq 0 -and $activityServiceOutput -match 'Service activity: found' -and
+            $packageProbeExitCode -eq 0 -and $packageProbeOutput -match '(?m)^package:android$') {
+            $frameworkReady = $true
+            break
+        }
+        Start-Sleep -Seconds 2
+    }
+    if (-not $frameworkReady) {
+        throw "Android framework/package manager did not stabilize within 90 seconds (package='$packageServiceOutput'; activity='$activityServiceOutput'; probe='$packageProbeOutput')."
+    }
+
     $existingRMapping = subst | Where-Object { $_ -match '^R:\\: =>' }
     if ((Get-PSDrive -Name 'R' -ErrorAction SilentlyContinue) -or $existingRMapping) {
         throw 'R: is already in use; verification stopped without changing the mapping.'
@@ -193,14 +251,10 @@ try {
     $previousErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $gradleOutput = & '.\gradlew.bat' assembleDebug --no-daemon 2>&1
-        if ($LASTEXITCODE -ne 0) { throw 'assembleDebug failed.' }
         $apkPath = Join-Path $androidRoot 'app\build\outputs\apk\debug\app-debug.apk'
-        if (-not (Test-Path $apkPath)) { throw 'assembleDebug did not produce the debug APK.' }
-        & $adbExe -s $serial install -r $apkPath | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'Debug APK installation failed on the verified AVD.' }
-        $gradleOutput = & '.\gradlew.bat' connectedDebugAndroidTest --no-daemon 2>&1
+        $gradleOutput = & '.\gradlew.bat' connectedDebugAndroidTest --no-daemon --max-workers=1 2>&1
         $testExitCode = $LASTEXITCODE
+        if (-not (Test-Path $apkPath)) { throw 'connectedDebugAndroidTest did not produce the debug APK.' }
     }
     finally {
         $ErrorActionPreference = $previousErrorActionPreference

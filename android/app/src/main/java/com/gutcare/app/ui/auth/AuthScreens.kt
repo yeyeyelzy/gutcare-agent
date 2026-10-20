@@ -411,7 +411,11 @@ fun EmailVerificationScreen(
             enabled = false,
         )
         Spacer(Modifier.height(12.dp))
-        GutCarePrimaryButton(label = "我已完成验证，去登录", onClick = onGoToLogin)
+        GutCarePrimaryButton(
+            label = "我已完成验证，去登录",
+            onClick = onGoToLogin,
+            testTag = "verify_email_go_to_login",
+        )
     }
 }
 
@@ -452,10 +456,15 @@ fun PasswordResetRequestScreen(
             onClick = { onRequest(email.trim()) },
             enabled = AuthValidators.isValidEmail(email),
             loading = operation is AuthOperationState.Loading,
+            testTag = "reset_request_submit",
         )
         if (operation is AuthOperationState.Accepted) {
             Spacer(Modifier.height(12.dp))
-            GutCareSecondaryButton(label = "我已收到重置链接", onClick = onOpenConfirmation)
+            GutCareSecondaryButton(
+                label = "我已收到重置链接",
+                onClick = onOpenConfirmation,
+                modifier = Modifier.testTag("reset_open_confirmation"),
+            )
         }
     }
 }
@@ -516,10 +525,15 @@ fun PasswordResetConfirmScreen(
             onClick = { onConfirm(token, password) },
             enabled = canSubmit,
             loading = operation is AuthOperationState.Loading,
+            testTag = "reset_confirm_submit",
         )
         if (operation is AuthOperationState.Accepted) {
             Spacer(Modifier.height(12.dp))
-            GutCareSecondaryButton(label = "返回登录", onClick = onGoToLogin)
+            GutCareSecondaryButton(
+                label = "返回登录",
+                onClick = onGoToLogin,
+                modifier = Modifier.testTag("reset_go_to_login"),
+            )
         }
     }
 }
