@@ -215,7 +215,8 @@ class RecordImagesViewModel(private val gateway: RecordImagesGateway) : ViewMode
         val type = state.type ?: return@launch
         val request = state.recognition ?: return@launch
         val corrected: Any? = if (action == "edit" && type == PatientRecordType.STOOL) correctedValue?.toIntOrNull() else correctedValue
-        if (action == "edit" && corrected == null) {
+        val invalidBristolCorrection = action == "edit" && type == PatientRecordType.STOOL && (corrected !is Int || corrected !in 1..7)
+        if (action == "edit" && (corrected == null || invalidBristolCorrection)) {
             mutable.value = state.copy(message = if (type == PatientRecordType.STOOL) "请输入 Bristol 1–7 的整数。" else "请输入修正后的候选值。", isError = true)
             return@launch
         }
