@@ -35,6 +35,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Test F03/F04 image agents in live mode without the backend")
     parser.add_argument("--diet-image", type=Path, help="consented or synthetic meal image")
     parser.add_argument("--stool-image", type=Path, help="consented or synthetic stool image")
+    parser.add_argument(
+        "--diagnostic-only",
+        action="store_true",
+        help="print only outcome, stable error code and duration; never print model output",
+    )
     args = parser.parse_args()
     if not args.diet_image and not args.stool_image:
         parser.error("provide --diet-image and/or --stool-image")
@@ -53,10 +58,35 @@ def main() -> int:
             image, mime = _image(path, settings.max_image_bytes)
             started = time.monotonic()
             request_id, attachment_id = str(uuid.uuid4()), str(uuid.uuid4())
-            result = _run_one(settings, request_id, recognition_type,
-                              {"attachment_id": attachment_id, "content_type": mime}, image)
-            results.append({"recognition_type": recognition_type, "duration_seconds": round(time.monotonic() - started, 2),
-                            "model": settings.vision_model, "result": result})
+            try:
+                result = _run_one(
+                    settings,
+                    request_id,
+                    recognition_type,
+                    {"attachment_id": attachment_id, "content_type": mime},
+                    image,
+                    diagnostic_error_codes=args.diagnostic_only,
+                )
+            except ImageProcessingError as exc:
+                if not args.diagnostic_only:
+                    raise
+                results.append({
+                    "recognition_type": recognition_type,
+                    "outcome": "failed",
+                    "error_code": exc.error_code,
+                    "duration_seconds": round(time.monotonic() - started, 2),
+                })
+                continue
+            if args.diagnostic_only:
+                results.append({
+                    "recognition_type": recognition_type,
+                    "outcome": "success",
+                    "candidate_count": len(result.get("candidates") or []),
+                    "duration_seconds": round(time.monotonic() - started, 2),
+                })
+            else:
+                results.append({"recognition_type": recognition_type, "duration_seconds": round(time.monotonic() - started, 2),
+                                "model": settings.vision_model, "result": result})
     print(json.dumps(results, ensure_ascii=False, indent=2))
     return 0
 

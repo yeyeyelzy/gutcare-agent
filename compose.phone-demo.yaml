@@ -248,7 +248,7 @@ services:
       - ./agent/gutcare_agents:/app/gutcare_agents:ro
       - ./agent/knowledge:/app/knowledge:ro
       - ./agent/prompts:/app/prompts:ro
-    networks: [agent_internal]
+    networks: [agent_internal, agent-egress]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=2).status == 200"]
       interval: 5s
@@ -282,6 +282,9 @@ networks:
     internal: true
   agent_internal:
     internal: true
+  # Live model calls need DNS/HTTPS egress. Only the Agent joins this
+  # untrusted bridge; dispatchers and business data services remain isolated.
+  agent-egress: {}
   scanner-egress: {}
   edge: {}
 

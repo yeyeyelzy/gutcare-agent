@@ -193,7 +193,7 @@ APP 与业务后端开发方负责面向 APP 的统一业务 API 和所有非模
 
 ### 6.2 业务后端与智能体服务
 
-实现状态补充（2026-10-21）：Agent 是独立服务进程；本机 `phone-demo` 的可选 profile 不属于正式部署拓扑。业务 Worker/dispatcher 经业务 API 唯一 claim，Agent 仅按任务读取冻结快照并回调结构化结果，不能获得业务数据库凭据或直接写业务表。F08→F09 mock Compose 路径已有患者 advice 读回证据，F03/F04 mock 合成图片任务已有候选回调与患者确认证据；这些不等于生产验收。视觉层 live 冒烟单次调用等待后中断，结果不确定且未重试。默认 Compose 恢复 mock，测试候选 fixture 关闭。真实模型接入与效果验证仍未形成证据。来源、导入 commit 和许可状态见 `../agent/PROVENANCE.md`。
+实现状态补充（2026-10-21）：Agent 是独立服务进程；本机 `phone-demo` 的可选 profile 不属于正式部署拓扑。业务 Worker/dispatcher 经业务 API 唯一 claim，Agent 仅按任务读取冻结快照并回调结构化结果，不能获得业务数据库凭据或直接写业务表。F08→F09 mock Compose 路径已有患者 advice 读回证据，F03/F04 mock 合成图片任务已有候选回调与患者确认证据；这些不等于生产验收。本机已为 Agent 增加独立 `agent-egress`，不改变 dispatcher 和业务数据服务的内网边界；单张合成餐食图的 F03 live 冒烟成功，仅形成 provider 调用与候选映射证据，未形成 F04、识别准确率或生产验收证据。默认仍应使用 mock 且关闭测试候选 fixture。来源、导入 commit 和许可状态见 `../agent/PROVENANCE.md`。
 
 智能体接口至少应接收：
 

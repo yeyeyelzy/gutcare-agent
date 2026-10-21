@@ -218,7 +218,15 @@ def _download(client, capability: str, content_type: str, max_bytes: int) -> byt
     return data
 
 
-def _run_one(settings, request_id: str, recognition_type: str, attachment: dict, image_bytes: bytes) -> dict:
+def _run_one(
+    settings,
+    request_id: str,
+    recognition_type: str,
+    attachment: dict,
+    image_bytes: bytes,
+    *,
+    diagnostic_error_codes: bool = False,
+) -> dict:
     attachment_id = _uuid(attachment["attachment_id"])
     if _test_image_fixture_enabled(settings):
         # Explicit test-only fixture for UI/API E2E. These remain candidates and
@@ -244,7 +252,9 @@ def _run_one(settings, request_id: str, recognition_type: str, attachment: dict,
         result = agent.run(request)
     if result.error:
         code = str(result.error.get("code") or "") if isinstance(result.error, dict) else ""
-        mapped = "timeout" if "timeout" in code.lower() else "agent_unavailable"
+        mapped = code if diagnostic_error_codes else (
+            "timeout" if "timeout" in code.lower() else "agent_unavailable"
+        )
         raise ImageProcessingError(mapped)
     return map_image_result(request_id, recognition_type, attachment_id, result)
 
