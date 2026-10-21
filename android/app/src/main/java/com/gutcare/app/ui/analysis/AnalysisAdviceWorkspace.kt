@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +68,7 @@ fun AnalysisAdviceWorkspace(
 }
 
 @Composable private fun AnalysisTaskDetail(task: AnalysisTaskDto, model: AnalysisAdviceViewModel) {
+    val uiState = model.state.collectAsState().value
     DisposableEffect(task.id) { onDispose { model.stopTaskPolling(task.id) } }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { TextButton(onClick = model::backToList) { Text("返回") }; Text("任务详情", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
@@ -102,13 +104,13 @@ fun AnalysisAdviceWorkspace(
             }
         } ?: item { Text("服务端尚未提供分析结果。此页面不会生成或补写智能体输出。") }
         item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { model.refreshTask(task.id) }, enabled = !model.state.value.busy) { Text("刷新") }
+            OutlinedButton(onClick = { model.refreshTask(task.id) }, enabled = !uiState.busy) { Text("刷新") }
             if (task.status in listOf("pending", "processing", "needs_input")) OutlinedButton(onClick = { model.cancelTask(task.id) }, modifier = Modifier.testTag("analysis_cancel")) { Text("取消") }
             if (task.status in listOf("failed", "cancelled")) Button(onClick = { model.retryTask(task.id) }, modifier = Modifier.testTag("analysis_retry")) { Text("重试") }
         } }
-        if (model.state.value.taskPolling) item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Text("分析处理中，正在自动刷新任务状态…") } }
-        if (model.state.value.taskPollingTimedOut) item { Text("任务仍在处理中，已暂停自动刷新；可点击“刷新”再次查询。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        model.state.value.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("analysis_error")) } }
+        if (uiState.taskPolling) item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Text("分析处理中，正在自动刷新任务状态…") } }
+        if (uiState.taskPollingTimedOut) item { Text("任务仍在处理中，已暂停自动刷新；可点击“刷新”再次查询。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        uiState.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("analysis_error")) } }
     }
 }
 
