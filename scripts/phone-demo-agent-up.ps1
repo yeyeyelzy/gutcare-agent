@@ -50,11 +50,11 @@ $composeArgs = @('compose', '--profile', 'agent', '-f', $composeFile, '--env-fil
 if (Test-Path -LiteralPath $localAgentEnv) { $composeArgs += @('--env-file', $localAgentEnv) }
 $composeArgs += @('-p', 'gutcare-phone-demo', 'up', '-d')
 if ($NoBuild) { $composeArgs += '--no-build' } else { $composeArgs += '--build' }
-$composeArgs += @('--wait', 'agent', 'analysis-dispatcher')
+$composeArgs += @('--wait', 'agent', 'analysis-dispatcher', 'record-image-dispatcher')
 & $docker.Source @composeArgs
 if ($LASTEXITCODE -ne 0) { throw 'F08 Agent profile failed to start; inspect project-scoped logs.' }
 if ($mode -eq 'live') {
-    Write-Host 'F08 Agent profile is ready in live model mode. The API key is not displayed.'
+    Write-Host 'Agent profile is ready in live model mode. The API key is not displayed.'
 } else {
-    Write-Host "F08 Agent profile is ready in $mode mode."
+    Write-Host "Agent profile is ready in $mode mode."
 }

@@ -88,6 +88,26 @@ class F09MappingTests(unittest.TestCase):
         with self.assertRaises(F08ContractError):
             map_f09_advice(run, frozen, f08_status="needs_input")
 
+    def test_empty_mock_advice_gets_safe_test_only_fixture_only_when_enabled(self):
+        run, frozen = fixture()
+        run.report["advice"] = []
+        self.assertFalse(map_f09_advice(run, frozen, f08_status="partial").ready)
+        result = map_f09_advice(run, frozen, f08_status="partial", test_only_mock_advice=True)
+        self.assertTrue(result.ready)
+        advice = result.payload["advice"][0]
+        self.assertEqual(advice["category"], "record_management")
+        self.assertEqual(len(advice["evidence"]), 1)
+        self.assertEqual(advice["evidence"][0]["source_id"], frozen["records"][0]["record_id"])
+        self.assertIn("mock 合成演示", advice["body"])
+        self.assertNotIn("diagnos", advice["body"].lower())
+
+    def test_mock_fixture_never_replaces_nonempty_unsafe_output(self):
+        run, frozen = fixture()
+        run.report["advice"][0]["body"] = "请增加剂量"
+        result = map_f09_advice(run, frozen, f08_status="partial", test_only_mock_advice=True)
+        self.assertFalse(result.ready)
+        self.assertEqual(result.dropped[0]["reason"], "invalid_or_unsafe_text")
+
     def test_latest_backend_callback_model(self):
         source = os.environ.get("GCA_BACKEND_SOURCE")
         if not source:

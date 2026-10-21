@@ -15,6 +15,50 @@ import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 
 class RecordImagesRepositoryTest {
+    @Test fun imageRecognitionUsesPurposeDisclosureVersionedRequestsAndPatientDecisionContracts() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"purpose":"diet_image_recognition","enabled":true,"policy_version":"test-diet-v2","summary":"summary","purpose_text":"purpose","data_scope":"scope","recipient":"recipient","retention":"retention","withdrawal_effect":"withdraw"}""",
+        ))
+        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"disclosure_token":"one-time-token-012345678901234567890123456789","expires_at":"2026-10-20T10:05:00Z"}"""))
+        val requestJson = """{"id":"request-1","recognition_type":"diet_image_recognition","status":"candidates_ready","record_version":3,"image_set_version":1,"decision_record_version":3,"attempt":1,"retry_of_request_id":null,"candidates":[{"id":"candidate-1","candidate_version":1,"attachment_id":"image-1","candidate_group_key":"group-1","candidate_type":"food_name","value":"Rice","confidence_band":"medium","uncertainty_code":"other","status":"pending"}],"created_at":"2026-10-20T10:00:00Z","updated_at":"2026-10-20T10:00:00Z"}"""
+        server.enqueue(MockResponse().setResponseCode(202).setBody(requestJson))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(requestJson))
+        server.enqueue(MockResponse().setResponseCode(204))
+        try {
+            val api = Retrofit.Builder().baseUrl(server.url("api/v1/"))
+                .addConverterFactory(MoshiConverterFactory.create(Moshi.Builder().add(KotlinJsonAdapterFactory()).build()))
+                .build().create(RecordImagesApi::class.java)
+            val repository = RecordImagesRepository(api)
+            assertTrue(repository.recognitionDisclosure("diet_image_recognition") is ApiResult.Success)
+            val disclosure = repository.acknowledgeRecognitionDisclosure(
+                RecordImageDisclosureAcknowledgeDto("record-1", "diet_image_recognition", 3, 1, "test-diet-v2"),
+            ) as ApiResult.Success
+            val body = RecordImageRecognitionCreateDto(3, 1, disclosure.value.disclosureToken)
+            val created = repository.createRecognition(PatientRecordType.DIET, "record-1", "create-key-123", body) as ApiResult.Success
+            assertEquals("food_name", created.value.candidates.single().candidateType)
+            assertEquals("Rice", created.value.candidates.single().value)
+            assertTrue(repository.recognitionRequest("request-1") is ApiResult.Success)
+            assertTrue(repository.decideRecognitionCandidate("candidate-1", "decision-key-123",
+                RecordImageCandidateDecisionDto("accept", 1, 3, 1)) is ApiResult.Success)
+
+            assertEquals("/api/v1/record-image-recognition-disclosures?purpose=diet_image_recognition", server.takeRequest().path)
+            val acknowledgment = server.takeRequest()
+            assertEquals("POST", acknowledgment.method)
+            assertEquals("true", acknowledgment.body.readUtf8().let { Regex("\\\"acknowledged\\\":true").containsMatchIn(it).toString() })
+            val create = server.takeRequest()
+            assertEquals("/api/v1/dietary-records/record-1/image-recognition-requests", create.path)
+            assertEquals("create-key-123", create.getHeader("Idempotency-Key"))
+            assertTrue(create.body.readUtf8().contains("one-time-token-"))
+            assertEquals("/api/v1/record-image-recognition-requests/request-1", server.takeRequest().path)
+            val decision = server.takeRequest()
+            assertEquals("/api/v1/record-image-candidates/candidate-1/decision", decision.path)
+            assertEquals("decision-key-123", decision.getHeader("Idempotency-Key"))
+            assertTrue(decision.body.readUtf8().contains("\"record_version\":3"))
+        } finally { server.shutdown() }
+    }
+
     @Test fun previewsUseFreshAttachmentGrantAndUnauthenticatedSameOriginCapabilityGet() = runBlocking {
         val server = MockWebServer()
         server.start()

@@ -1,4 +1,5 @@
-FROM python:3.12-slim
+ARG PYTHON_BASE_IMAGE=python:3.13-slim-bookworm
+FROM ${PYTHON_BASE_IMAGE}
 
 # PDF 文本提取使用 pypdf；扫描页渲染使用 Poppler。
 ENV PYTHONUNBUFFERED=1 \

@@ -11,6 +11,6 @@ if (-not (Test-Path -LiteralPath $composeFile -PathType Leaf) -or -not (Test-Pat
 $docker = Get-Command docker -ErrorAction SilentlyContinue
 if (-not $docker) { throw 'Docker CLI is unavailable; no services were changed.' }
 Set-Location $root
-& $docker.Source compose --profile agent -f $composeFile --env-file $envFile -p gutcare-phone-demo stop analysis-dispatcher agent
-if ($LASTEXITCODE -ne 0) { throw 'F08 mock Agent profile did not stop cleanly.' }
-Write-Host 'F08 mock Agent and dispatcher stopped; all phone-demo data volumes were kept.'
+& $docker.Source compose --profile agent -f $composeFile --env-file $envFile -p gutcare-phone-demo stop record-image-dispatcher analysis-dispatcher agent
+if ($LASTEXITCODE -ne 0) { throw 'Phone-demo Agent profile did not stop cleanly.' }
+Write-Host 'Phone-demo Agent and dispatchers stopped; all phone-demo data volumes were kept.'

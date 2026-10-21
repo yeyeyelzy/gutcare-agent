@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateSet('agent', 'analysis-dispatcher')][string]$Service = 'analysis-dispatcher', [switch]$Follow)
+param([ValidateSet('agent', 'analysis-dispatcher', 'record-image-dispatcher')][string]$Service = 'analysis-dispatcher', [switch]$Follow)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -15,4 +15,4 @@ $args = @('compose', '--profile', 'agent', '-f', $composeFile, '--env-file', $en
 if ($Follow) { $args += '--follow' }
 $args += $Service
 & $docker.Source @args
-if ($LASTEXITCODE -ne 0) { throw 'Unable to read the selected F08 service logs.' }
+if ($LASTEXITCODE -ne 0) { throw 'Unable to read the selected phone-demo service logs.' }

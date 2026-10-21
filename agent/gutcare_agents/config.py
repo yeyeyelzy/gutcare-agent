@@ -66,6 +66,7 @@ class Settings:
     log_level: str = "INFO"
     max_image_bytes: int = 12 * 1024 * 1024
     max_image_side: int = 2048
+    test_image_candidates: bool = False  # GCA_TEST_IMAGE_CANDIDATES=1，仅 mock 合成候选
     #: replay 模式下若缺少录制结果：False=直接报错（默认，避免把 mock 当成真实结果）
     replay_fallback: bool = False
 
@@ -138,6 +139,7 @@ def load_settings(**overrides: object) -> Settings:
         internal_token=_env("GCA_INTERNAL_TOKEN"),
         backend_base_url=_env("GCA_BACKEND_BASE_URL").rstrip("/"),
         backend_service_token=_env("GCA_BACKEND_SERVICE_TOKEN"),
+        test_image_candidates=(mode == "mock" and _env("GCA_TEST_IMAGE_CANDIDATES", "0").lower() in {"1", "true", "yes"}),
         log_level=_env("GCA_LOG_LEVEL", "INFO").upper(),
         min_days_coverage=_env_int("GCA_MIN_DAYS", 3),
         min_records_for_trend=_env_int("GCA_MIN_RECORDS", 5),
@@ -147,6 +149,7 @@ def load_settings(**overrides: object) -> Settings:
         if not hasattr(settings, key):
             raise AttributeError(f"未知配置项: {key}")
         setattr(settings, key, value)
+    settings.test_image_candidates = settings.mode == "mock" and settings.test_image_candidates
     settings.validate()
     # 测试包路径：文档里承诺可用 GCA_FIXTURE_ROOT 指定（命令行/CI/容器都用它）
     fixture_env = _env("GCA_FIXTURE_ROOT")

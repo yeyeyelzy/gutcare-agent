@@ -4,6 +4,12 @@ import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.gutcare.app.core.network.ApiResult
 import com.gutcare.app.core.network.PatientRecordType
 import com.gutcare.app.core.network.RecordImageAttachmentDto
+import com.gutcare.app.core.network.RecordImageCandidateDecisionDto
+import com.gutcare.app.core.network.RecordImageDisclosureAcknowledgeDto
+import com.gutcare.app.core.network.RecordImageDisclosureDto
+import com.gutcare.app.core.network.RecordImageRecognitionCandidateDto
+import com.gutcare.app.core.network.RecordImageRecognitionCreateDto
+import com.gutcare.app.core.network.RecordImageRecognitionRequestDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -79,6 +85,86 @@ class RecordImagesViewModelTest {
         } finally { Dispatchers.resetMain() }
     }
 
+    @Test fun recognitionRequiresDisplayedPurposeNoticeAndKeepsDietCandidatesUnconfirmedUntilDecision() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val gateway = FakeRecordImagesGateway().apply {
+                images = listOf(RecordImageAttachmentDto("image-1", "record-1", 0, 3, 1, "available", "t"))
+                notice = RecordImageDisclosureDto("diet_image_recognition", true, "test-v1", "summary", "purpose", "scope", "recipient", "retention", "withdraw")
+                recognitionResponse = request("candidates_ready", 3, listOf(candidate("food_name", "Rice")))
+            }
+            val model = RecordImagesViewModel(gateway)
+            model.load(PatientRecordType.DIET, "record-1", 3, 1); advanceUntilIdle()
+            model.requestRecognition(); advanceUntilIdle()
+            assertEquals("diet_image_recognition", gateway.requestedPurpose)
+            assertEquals(null, model.uiState.value.recognition)
+            assertTrue(model.uiState.value.recognitionDisclosure?.enabled == true)
+            model.acknowledgeAndStartRecognition(); advanceUntilIdle()
+            assertEquals("test-v1", gateway.acknowledgment?.policyVersion)
+            assertEquals(3, gateway.createdBody?.recordVersion)
+            assertEquals(1, gateway.createdBody?.imageSetVersion)
+            assertTrue(gateway.createdBody?.disclosureToken == "one-time-token")
+            assertEquals("candidates_ready", model.uiState.value.recognition?.status)
+            assertEquals("Rice", model.uiState.value.recognition?.candidates?.single()?.value)
+            assertEquals(0, gateway.decisions.size)
+            model.decideCandidate(model.uiState.value.recognition!!.candidates.single(), "accept")
+            advanceUntilIdle()
+            assertEquals("accept", gateway.decisions.single().action)
+            assertEquals(3, gateway.decisions.single().recordVersion)
+            assertEquals("accepted", model.uiState.value.recognition?.candidates?.single()?.status)
+        } finally { Dispatchers.resetMain() }
+    }
+
+    @Test fun stoolRecognitionExposesOnlyBristolCandidateAndValidatesCorrection() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val gateway = FakeRecordImagesGateway().apply {
+                images = listOf(RecordImageAttachmentDto("image-2", "record-2", 0, 2, 1, "available", "t"))
+                notice = RecordImageDisclosureDto("stool_image_recognition", true, "stool-v1", null, null, null, null, null, null)
+                recognitionResponse = request("candidates_ready", 2, listOf(candidate("bristol_type", 4)), "stool_image_recognition")
+            }
+            val model = RecordImagesViewModel(gateway)
+            model.load(PatientRecordType.STOOL, "record-2", 2, 1); advanceUntilIdle()
+            model.requestRecognition(); advanceUntilIdle(); model.acknowledgeAndStartRecognition(); advanceUntilIdle()
+            val candidate = model.uiState.value.recognition!!.candidates.single()
+            model.decideCandidate(candidate, "edit", "8"); advanceUntilIdle()
+            assertTrue(gateway.decisions.isEmpty())
+            model.decideCandidate(candidate, "edit", "6"); advanceUntilIdle()
+            assertEquals(6, gateway.decisions.single().correctedValue)
+        } finally { Dispatchers.resetMain() }
+    }
+
+    @Test fun retryRequiresFreshDisclosureAndUsesCurrentRecordImageVersions() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val gateway = FakeRecordImagesGateway().apply {
+                images = listOf(RecordImageAttachmentDto("image-1", "record-1", 0, 5, 2, "available", "t"))
+                notice = RecordImageDisclosureDto("diet_image_recognition", true, "diet-v2", null, null, null, null, null, null)
+                recognitionResponse = request("failed", 5, emptyList())
+            }
+            val model = RecordImagesViewModel(gateway)
+            model.load(PatientRecordType.DIET, "record-1", 5, 2); advanceUntilIdle()
+            model.requestRecognition("previous-request"); advanceUntilIdle()
+            assertEquals("previous-request", model.uiState.value.retryRequestId)
+            assertEquals(0, gateway.retryCount)
+            model.acknowledgeAndStartRecognition(); advanceUntilIdle()
+            assertEquals(1, gateway.retryCount)
+            assertEquals("previous-request", gateway.retryParentId)
+            assertEquals(5, gateway.createdBody?.recordVersion)
+            assertEquals(2, gateway.createdBody?.imageSetVersion)
+        } finally { Dispatchers.resetMain() }
+    }
+
+    private fun candidate(type: String, value: Any?) = RecordImageRecognitionCandidateDto(
+        id = "candidate-1", candidateVersion = 1, attachmentId = "image-1", candidateGroupKey = if (type == "bristol_type") null else "group-1",
+        candidateType = type, value = value, confidenceBand = "medium", uncertaintyCode = "other", status = "pending",
+    )
+
+    private fun request(status: String, version: Int, candidates: List<RecordImageRecognitionCandidateDto>, recognitionType: String = "diet_image_recognition") = RecordImageRecognitionRequestDto(
+        id = "request-1", recognitionType = recognitionType, status = status, recordVersion = version,
+        imageSetVersion = 1, decisionRecordVersion = version, attempt = 1, candidates = candidates, createdAt = "now", updatedAt = "now",
+    )
+
     private class FakeRecordImagesGateway : RecordImagesGateway {
         var images = emptyList<RecordImageAttachmentDto>()
         var recordVersion = 0
@@ -86,6 +172,14 @@ class RecordImagesViewModelTest {
         var purpose: String? = null
         var uploadCount = 0
         var previewAttachmentId: String? = null
+        var notice: RecordImageDisclosureDto? = null
+        var requestedPurpose: String? = null
+        var acknowledgment: RecordImageDisclosureAcknowledgeDto? = null
+        var createdBody: RecordImageRecognitionCreateDto? = null
+        var recognitionResponse: RecordImageRecognitionRequestDto? = null
+        val decisions = mutableListOf<RecordImageCandidateDecisionDto>()
+        var retryCount = 0
+        var retryParentId: String? = null
         override suspend fun list(type: PatientRecordType, recordId: String) = ApiResult.Success(images)
         override suspend fun uploadAndAttach(type: PatientRecordType, recordId: String, recordVersion: Int, imageSetVersion: Int,
             idempotencyKey: String, fileName: String, contentType: String, bytes: ByteArray): ApiResult<RecordImageAttachmentDto> {
@@ -99,6 +193,32 @@ class RecordImagesViewModelTest {
         override suspend fun preview(attachmentId: String): ApiResult<ByteArray> {
             previewAttachmentId = attachmentId
             return ApiResult.Success(byteArrayOf(4, 5, 6))
+        }
+        override suspend fun disclosure(purpose: String): ApiResult<RecordImageDisclosureDto> {
+            requestedPurpose = purpose
+            return ApiResult.Success(notice ?: error("notice missing"))
+        }
+        override suspend fun acknowledgeDisclosure(body: RecordImageDisclosureAcknowledgeDto): ApiResult<String> {
+            acknowledgment = body
+            return ApiResult.Success("one-time-token")
+        }
+        override suspend fun createRecognition(type: PatientRecordType, recordId: String, key: String, body: RecordImageRecognitionCreateDto): ApiResult<RecordImageRecognitionRequestDto> {
+            createdBody = body
+            return ApiResult.Success(recognitionResponse ?: error("request missing"))
+        }
+        override suspend fun recognitionRequest(requestId: String): ApiResult<RecordImageRecognitionRequestDto> = ApiResult.Success(recognitionResponse ?: error("request missing"))
+        override suspend fun retryRecognition(requestId: String, key: String, body: RecordImageRecognitionCreateDto): ApiResult<RecordImageRecognitionRequestDto> {
+            retryCount++
+            retryParentId = requestId
+            createdBody = body
+            return ApiResult.Success(recognitionResponse ?: error("request missing"))
+        }
+        override suspend fun decideCandidate(candidateId: String, key: String, body: RecordImageCandidateDecisionDto): ApiResult<Unit> {
+            decisions += body
+            val current = recognitionResponse ?: error("request missing")
+            recognitionResponse = current.copy(decisionRecordVersion = current.decisionRecordVersion + 1,
+                candidates = current.candidates.map { if (it.id == candidateId) it.copy(status = if (body.action == "accept") "accepted" else if (body.action == "edit") "edited" else "rejected", value = null) else it })
+            return ApiResult.Success(Unit)
         }
     }
 }

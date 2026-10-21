@@ -35,6 +35,13 @@ interface RecordImagesApi {
         @Query("image_set_version") imageSetVersion: Int,
     ): Response<Unit>
     @POST("record-images/{attachment_id}/download-grants") suspend fun createDownloadGrant(@Path("attachment_id") attachmentId: String): Response<FileDownloadGrantDto>
+    @GET("record-image-recognition-disclosures") suspend fun recognitionDisclosure(@Query("purpose") purpose: String): Response<RecordImageDisclosureDto>
+    @POST("record-image-recognition-disclosures") suspend fun acknowledgeRecognitionDisclosure(@Body body: RecordImageDisclosureAcknowledgeDto): Response<RecordImageDisclosureTokenDto>
+    @POST("dietary-records/{record_id}/image-recognition-requests") suspend fun createDietRecognition(@Path("record_id") recordId: String, @Header("Idempotency-Key") key: String, @Body body: RecordImageRecognitionCreateDto): Response<RecordImageRecognitionRequestDto>
+    @POST("stool-records/{record_id}/image-recognition-requests") suspend fun createStoolRecognition(@Path("record_id") recordId: String, @Header("Idempotency-Key") key: String, @Body body: RecordImageRecognitionCreateDto): Response<RecordImageRecognitionRequestDto>
+    @GET("record-image-recognition-requests/{request_id}") suspend fun recognitionRequest(@Path("request_id") requestId: String): Response<RecordImageRecognitionRequestDto>
+    @POST("record-image-recognition-requests/{request_id}/retry") suspend fun retryRecognition(@Path("request_id") requestId: String, @Header("Idempotency-Key") key: String, @Body body: RecordImageRecognitionCreateDto): Response<RecordImageRecognitionRequestDto>
+    @POST("record-image-candidates/{candidate_id}/decision") suspend fun decideRecognitionCandidate(@Path("candidate_id") candidateId: String, @Header("Idempotency-Key") key: String, @Body body: RecordImageCandidateDecisionDto): Response<Unit>
     /** Capability GET is deliberately routed through a separate client without app credentials. */
     @GET suspend fun downloadCapability(@Url url: String): Response<ResponseBody>
 }
@@ -131,6 +138,28 @@ class RecordImagesRepository(
 
     suspend fun delete(imageId: String, recordVersion: Int, imageSetVersion: Int): ApiResult<Unit> =
         call { api.delete(imageId, recordVersion, imageSetVersion) }
+
+    suspend fun recognitionDisclosure(purpose: String): ApiResult<RecordImageDisclosureDto> =
+        call { api.recognitionDisclosure(purpose) }
+
+    suspend fun acknowledgeRecognitionDisclosure(body: RecordImageDisclosureAcknowledgeDto): ApiResult<RecordImageDisclosureTokenDto> =
+        call { api.acknowledgeRecognitionDisclosure(body) }
+
+    suspend fun createRecognition(type: PatientRecordType, recordId: String, key: String, body: RecordImageRecognitionCreateDto): ApiResult<RecordImageRecognitionRequestDto> =
+        when (type) {
+            PatientRecordType.DIET -> call { api.createDietRecognition(recordId, key, body) }
+            PatientRecordType.STOOL -> call { api.createStoolRecognition(recordId, key, body) }
+            else -> ApiResult.Failure(null, "UNSUPPORTED_RECORD_TYPE")
+        }
+
+    suspend fun recognitionRequest(requestId: String): ApiResult<RecordImageRecognitionRequestDto> =
+        call { api.recognitionRequest(requestId) }
+
+    suspend fun retryRecognition(requestId: String, key: String, body: RecordImageRecognitionCreateDto): ApiResult<RecordImageRecognitionRequestDto> =
+        call { api.retryRecognition(requestId, key, body) }
+
+    suspend fun decideRecognitionCandidate(candidateId: String, key: String, body: RecordImageCandidateDecisionDto): ApiResult<Unit> =
+        call { api.decideRecognitionCandidate(candidateId, key, body) }
 
     /** Requests a fresh short-lived grant on every preview; neither grant nor bytes are persisted. */
     suspend fun downloadPreview(attachmentId: String): ApiResult<ByteArray> {

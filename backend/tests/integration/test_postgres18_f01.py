@@ -4199,7 +4199,7 @@ def test_f03_f04_image_recognition_real_object_consent_callback_and_decision(
             },
         )
         assert response.status_code == 201, response.text
-        return record_version, image_set_version, response.json()["token"]
+        return record_version, image_set_version, response.json()["disclosure_token"]
 
     try:
         diet = app.state.record_service.create(

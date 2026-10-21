@@ -686,7 +686,7 @@ def acknowledge_disclosure(
                 },
             )
         return {
-            "token": token,
+            "disclosure_token": token,
             "expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
             "purpose": body.purpose,
             "policy_version": body.policy_version,

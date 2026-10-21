@@ -75,6 +75,7 @@ def map_f09_advice(
     *,
     f08_status: str,
     approved_knowledge: Mapping[str, Mapping[str, Any]] | None = None,
+    test_only_mock_advice: bool = False,
 ) -> F09Mapping:
     """Map advice after F08 is accepted as succeeded/partial by the backend.
 
@@ -93,6 +94,29 @@ def map_f09_advice(
         raise F08ContractError("F09 report must be object")
     observations = {obs.get("obs_id"): obs for obs in report.get("observations") or []
                     if isinstance(obs, dict) and isinstance(obs.get("obs_id"), str)}
+    # Explicit mock-only fixture: when the mock F08 deliberately returns no
+    # advice, create one non-clinical record-keeping example tied to a confirmed
+    # frozen source. Never replace non-empty (possibly unsafe) model output.
+    if test_only_mock_advice and not (report.get("advice") or []):
+        confirmed = next(iter(provenance.values()), None)
+        if confirmed:
+            obs_id = "test_only_f09_record_management"
+            observations[obs_id] = {
+                "obs_id": obs_id,
+                "source_record_ids": [confirmed["source_id"]],
+                "needs_confirmation": False,
+            }
+            report = dict(report)
+            report["advice"] = [{
+                "advice_id": "test_only_mock_record_management",
+                "category": "record_management",
+                "title": "继续记录相关情况",
+                "body": "可继续记录相关情况，供后续回顾。本机 mock 合成演示内容，不代表健康结论。",
+                "uncertainty": "仅为测试夹具，不是个性化健康建议",
+                "applicability": "仅用于本机 mock 演示",
+                "evidence_obs_ids": [obs_id],
+                "knowledge_ids": [],
+            }]
     catalog = approved_knowledge or {}
     mapped: list[dict[str, Any]] = []
     dropped: list[dict[str, str]] = []

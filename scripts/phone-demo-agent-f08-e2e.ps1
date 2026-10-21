@@ -150,6 +150,16 @@ try {
         throw "F08 task did not reach a successful mock-analysis state before timeout; state=$status."
     }
 
+    $adviceDeadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $advice = $null
+    do {
+        $adviceQuery = Invoke-Api 'GET' "$api/api/v1/advice" $null $accessToken
+        Assert-Status $adviceQuery 200 'Patient F09 advice query'
+        $advice = @((Get-Value $adviceQuery.Body 'items') | Where-Object { (Get-Value $_ 'task_id') -eq $taskId })
+        if ($advice.Count -eq 0) { Start-Sleep -Seconds 2 }
+    } while ($advice.Count -eq 0 -and (Get-Date) -lt $adviceDeadline)
+    if ($advice.Count -eq 0) { throw 'F09 advice callback was not visible to the patient before timeout.' }
+
     $summary = [ordered]@{
         outcome = 'passed'
         mode = 'mock'
@@ -159,6 +169,7 @@ try {
         attempt = Get-Value $task 'attempt'
         input_summary = Get-Value $task 'input_summary'
         result_present = ($null -ne (Get-Value $task 'result'))
+        patient_advice_count = $advice.Count
         completed_at_utc = (Get-Date).ToUniversalTime().ToString('o')
     }
     New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null

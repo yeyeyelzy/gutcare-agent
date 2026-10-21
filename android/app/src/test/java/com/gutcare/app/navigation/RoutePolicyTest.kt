@@ -78,4 +78,27 @@ class RoutePolicyTest {
         assertEquals("notifications/c2e5c22e-8f26-4d12-9b68-2b71cdbd065f", notificationDetailRoute("c2e5c22e-8f26-4d12-9b68-2b71cdbd065f"))
         assertTrue(routes.map(AppRoute::value).distinct().size == routes.size)
     }
+
+    @Test
+    fun phoneDemoFeatureEntrancesAreReachableOnlyAfterAuthentication() {
+        val entrances = listOf(
+            AppRoute.Analysis,
+            AppRoute.DietRecords,
+            AppRoute.StoolRecords,
+            AppRoute.DietRecordNew,
+            AppRoute.StoolRecordNew,
+            AppRoute.RecordDetail,
+            AppRoute.RecordImages,
+        )
+
+        entrances.forEach { route ->
+            assertTrue("${route.value} must be a protected navigation destination", route.value in AppRoute.protectedRoutes)
+            assertEquals(AppRoute.Welcome, RoutePolicy.allowedDestination(AppSessionState.Public, route))
+            assertEquals(route, RoutePolicy.allowedDestination(AppSessionState.Authenticated, route))
+        }
+        assertEquals("records/detail/diet/record-1", recordDetailRoute("diet", "record-1"))
+        assertEquals("records/detail/stool/record-2", recordDetailRoute("stool", "record-2"))
+        assertEquals("records/images/diet/record-1", recordImagesRoute("diet", "record-1"))
+        assertEquals("records/images/stool/record-2", recordImagesRoute("stool", "record-2"))
+    }
 }

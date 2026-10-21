@@ -607,7 +607,10 @@ fun GutCareNavHost(
                         if (detail == null) recordsViewModel.loadDetail(type, id)
                     }
                     DisposableEffect(type, id) { onDispose { model.clear() } }
-                    TextButton(onClick = { navController.popBackStack() }) { Text("‹ 返回记录详情") }
+                    TextButton(onClick = {
+                        recordsViewModel.loadDetail(type, id)
+                        navController.popBackStack()
+                    }) { Text("‹ 返回记录详情") }
                     if (detail == null) FeatureUnavailable("正在读取记录版本…")
                     else RecordImageAttachmentsPanel(
                         type = if (type == WorkspaceRecordType.DIET) PatientRecordType.DIET else PatientRecordType.STOOL,
@@ -620,6 +623,11 @@ fun GutCareNavHost(
                         onDelete = model::delete,
                         onPreview = model::preview,
                         onClearPreview = model::clearPreview,
+                        onRequestRecognition = { model.requestRecognition(it) },
+                        onRefreshRecognition = { model.refreshRecognition() },
+                        onDismissRecognitionDisclosure = { model.dismissRecognitionDisclosure() },
+                        onAcceptRecognitionDisclosure = { model.acknowledgeAndStartRecognition() },
+                        onDecideCandidate = { candidate, action, value -> model.decideCandidate(candidate, action, value) },
                     )
                 }
             }
