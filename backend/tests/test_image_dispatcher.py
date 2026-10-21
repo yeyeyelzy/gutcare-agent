@@ -163,9 +163,7 @@ def test_business_claimer_uses_frozen_request_claim_api_and_service_token(monkey
     monkeypatch.setattr(image_dispatcher, "urlopen", fake_urlopen)
     claim = make_business_claimer("http://api:8000/", "service-token", 3)
     assert claim() is True
-    assert seen["url"] == (
-        "http://api:8000/internal/v1/agent/record-image-recognition/claim"
-    )
+    assert seen["url"] == ("http://api:8000/internal/v1/agent/record-image-recognition/claim")
     assert seen["method"] == "POST"
     assert seen["headers"]["Authorization"] == "Bearer service-token"
     assert seen["timeout"] == 3
