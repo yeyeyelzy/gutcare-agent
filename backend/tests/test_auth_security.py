@@ -481,9 +481,10 @@ def test_smtp_delivery_has_bounded_retries_and_low_sensitivity_logs(
             "sensitive-patient@example.com", "opaque-sensitive-verification-token"
         )
 
-    assert attempts == [
-        ("mail.invalid", 1025, SMTP_DELIVERY_TIMEOUT_SECONDS)
-    ] * SMTP_DELIVERY_MAX_ATTEMPTS
+    assert (
+        attempts
+        == [("mail.invalid", 1025, SMTP_DELIVERY_TIMEOUT_SECONDS)] * SMTP_DELIVERY_MAX_ATTEMPTS
+    )
     assert log_events == [
         (
             "smtp_delivery_attempt_failed",
