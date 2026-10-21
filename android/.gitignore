@@ -1,4 +1,5 @@
 .gradle/
+.gradle-codex-verify/
 .gradle-f02/
 .gradle.verify-current-20261020/
 .kotlin.verify-current-20261020/

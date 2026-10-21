@@ -64,6 +64,23 @@ class MedicalArchiveScreensTest {
         composeRule.runOnIdle { check(decision == "accept") }
     }
 
+    @Test fun acceptedCandidateShowsPatientChosenValueOnRefresh() {
+        val candidate = MedicalFieldCandidateDto(
+            id = "candidate", fieldCode = "test_item", valueType = "string", value = "CRP",
+            reviewStatus = "corrected", chosenValue = "hs-CRP", recordVersion = 2,
+        )
+        composeRule.setContent {
+            GutCareTheme {
+                MedicalDocumentDetailScreen(
+                    state = MedicalArchiveUiState(detail = report().copy(parseStatus = "needs_confirmation"), candidates = listOf(candidate)),
+                    onBack = {}, onRetry = {}, onDecision = { _, _, _ -> },
+                )
+            }
+        }
+        composeRule.onNodeWithTag("medical_candidate_confirmed_value_0").assertIsDisplayed()
+        composeRule.onNodeWithTag("medical_candidate_confirmed_value_0").assertTextEquals("你确认的值：hs-CRP")
+    }
+
     @Test fun initialArchiveLoadingAndNetworkErrorHaveExplicitRetryState() {
         var retried = false
         composeRule.setContent {

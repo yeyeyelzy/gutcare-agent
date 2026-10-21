@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.agent.example
 .env.local
 phone-demo.env
 .demo-source/

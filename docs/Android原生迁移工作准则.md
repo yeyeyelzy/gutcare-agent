@@ -12,13 +12,13 @@
 | 3. 模拟器验收 | 在 Android Studio 模拟器完成页面、导航、API 联调、错误态和权限相关可测流程 | 记录模拟器镜像/API level、应用构建标识、环境、合成数据集、测试编号和结果；阻断缺陷清零 |
 | 4. 发布前真机门禁 | 对设备相关能力进行 Android 真机安装和场景验证 | 归档设备型号、Android 版本、构建标识、网络与合成数据集、用例及截图/录屏；系统能力相关问题关闭 |
 
-本机认证联调门禁 T01k 已通过（2026-10-20；`android/build/emulator-evidence/phone-demo-auth-20261020-130223-f79a9c61/summary.json` 与 `junit-summary.json`，1/1）。脚本 `scripts/test-phone-demo-android-auth.ps1` 通过 Android Studio 模拟器 `emulator-5580` 的 `10.0.2.2` 桥接连接本机 phone-demo Compose；instrumentation 使用随机合成账户，经原生认证 Repository 依次完成注册、Mailpit 邮箱验证、登录、本人资料读取、refresh rotation/资料刷新和退出，并验证 SecureSessionStore 清理。该次执行复用了启动前已运行且健康的 Compose 容器，证据记为 `preexisting_project_preserved`，没有停止既有服务；只归档无凭据状态摘要和模拟器截图。T01k 验证 Android 网络栈、Repository、后端真实 API 与 Keystore 会话存储，不经过 Compose 认证页面；页面级认证 E2E 仍待验收。
+本机认证联调门禁 T01k 历史 Repository/API 链路曾通过 1/1（2026-10-20；`android/build/emulator-evidence/phone-demo-auth-20261020-130223-f79a9c61/summary.json` 与 `junit-summary.json`）。认证服务已修复 SMTP 有界重试和临时失败时的 503 契约，并确认修复镜像；定向后端回归 50 passed。最新分类 live gate 的 Repository 用例 1/1 通过、UI 用例 0/1 通过；失败 checkpoint 为 `registration_submit`。本次有修复镜像证据，但没有对应测试窗口内 SMTP/Mailpit 交付证据，因此 T01k 尚未通过，不得报告认证流程完成。详细门禁仍保留于 `android/build/emulator-evidence/` 的脱敏 attempt 摘要。
 
 Compose 生命周期按项目 label 执行 fail-closed：启动前查询同名项目的全部容器（包括 stopped），记录完整 container ID 与状态；只要存在任意容器就不调用 `up` 或 `down`，要求全部容器 running 且本机 health/live 返回 200，否则失败并原样保留。仅启动前容器集为空时才启动；成功后记录本次容器 ID。默认清理要求启动前为空、当前 ID 集合与启动后记录完全一致，并由 `phone-demo-down.ps1 -ExpectedContainerIds` 再校验一次；ID 集合改变或无法证明归属时拒绝清理并警告。演示数据卷始终保留。
 
 模拟器通过表示当前阶段可验收，不代表发布前真机门禁已通过。未取得真机证据时，发布状态不得标记为完成。
 
-截至 2026-10-20，本地验证门禁为 backend 207 项、Android 31 项通过。Android 原生认证与记录切片已有真实 phone-demo API 证据；F02 原生档案 UI 已支持 store-only 存档，phone-demo 文件 API E2E 通过真实 ClamAV clean、档案查询及授权下载。F02 的证据不覆盖 Android 上传端到端、analyze、Agent 候选生成/回调或服务端候选确认链路。今日页相似度 80.69% 仅为探索性分数，尚未满足正式截图采集、全页覆盖和对齐证据要求。旧 `app/` 只读归档。当前工作成果仍不代表 F06/F07/F08/F09/F10/F11/F12/F13 全部迁移或发布前真机门禁通过。
+当前证据更新（2026-10-21）：Android 静态门禁 117/117；Lint 0 error、16 warning。默认完整仪器测试集 53 项、0 失败。综合 run 的截图阶段存在历史失败，定向真实 PNG 捕获 3/3 通过，该结果不等价于综合截图阶段通过。认证服务 SMTP 有界重试/503 契约修复后，定向回归 50 passed，修复镜像已确认；最新分类 live gate Repository 1/1、UI 0/1，失败 checkpoint `registration_submit`。虽有镜像修复证据，但无 SMTP/Mailpit 测试窗口证据，认证端到端尚未通过，不能宣称完成。P1 phone-demo API 汇总见 `../android/build/emulator-evidence/phone-demo-p1-20261020/summary.md`。F08 本机 mock Agent E2E 通过，Agent 返回 partial，患者查询 result_present=true；可提交脱敏摘要见 `evidence/F08-phone-demo-mock-E2E-20261021.md`，原始 `.demo-output` 属本机证据。F02 原生解析/候选页面和流程已有代码实现，Agent 真实产出与跨服务 E2E 尚待独立服务；F03/F04 附件 UI 入口已闭环，Android 真实上传 E2E 待最终证据。页面视觉标准为至少 80% 且无明显视觉错误；F06/F10/F11 有探索性分数但不足以替代正式逐页视觉记录。旧 `app/` 只读归档；Agent 来源未提供 LICENSE，公开推送仍受阻；生产法律/医学审核和发布前真机仍是外部门禁，未完成。
 
 仓库当前仅有 `development_test_only` 注册告知制品。它可用于 Debug 合成账户联调，不可用于真实患者。Production/Release 注册保持 fail-closed；生产批准制品的 classification/schema 与签核流程尚未冻结，正式发布前需完成 ADR/制品规范与签核门禁。
 

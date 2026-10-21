@@ -29,6 +29,17 @@ class AttachBody(BaseModel):
     image_set_version: int = Field(ge=1)
 
 
+class RecordImageAttachmentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: UUID
+    record_id: UUID
+    position: int = Field(ge=0, le=9)
+    record_version: int = Field(ge=1)
+    image_set_version: int = Field(ge=1)
+    file_status: Literal["available", "unavailable"]
+    created_at: datetime
+
+
 class DisclosureBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     record_id: UUID
@@ -188,6 +199,34 @@ def _record(
     return row
 
 
+def _compact_attachment_positions(
+    db: Session, *, table: str, patient_id: UUID, record_id: UUID
+) -> None:
+    """Close position gaps in ascending order while each target slot is already free."""
+    rows = (
+        db.execute(
+            text(
+                f"SELECT id,position FROM health.{table} "
+                "WHERE patient_id=:p AND record_id=:r AND deleted_at IS NULL "
+                "ORDER BY position,id FOR UPDATE"
+            ),
+            {"p": patient_id, "r": record_id},
+        )
+        .mappings()
+        .all()
+    )
+    for position, row in enumerate(rows):
+        if row["position"] == position:
+            continue
+        db.execute(
+            text(
+                f"UPDATE health.{table} SET position=:position "
+                "WHERE id=:id AND patient_id=:p AND record_id=:r AND deleted_at IS NULL"
+            ),
+            {"position": position, "id": row["id"], "p": patient_id, "r": record_id},
+        )
+
+
 def _attach(record_type: str, operation: str) -> Callable[..., dict[str, Any]]:
     table = "diet_record_image" if record_type == "diet" else "stool_record_image"
     record_table = "diet_record" if record_type == "diet" else "stool_record"
@@ -211,11 +250,6 @@ def _attach(record_type: str, operation: str) -> Callable[..., dict[str, Any]]:
                     {"p": str(patient_id)},
                 )
                 rec = _record(db, patient_id, record_id, record_type, lock=True)
-                if (
-                    rec["record_version"] != body.record_version
-                    or rec["image_set_version"] != body.image_set_version
-                ):
-                    raise Problem(409, "RECORD_VERSION_CONFLICT", "Record version has changed")
                 if not _consents(db, patient_id):
                     raise Problem(409, "CONSENT_REQUIRED", "Required image consent is missing")
                 digest = hashlib.sha256(
@@ -238,24 +272,31 @@ def _attach(record_type: str, operation: str) -> Callable[..., dict[str, Any]]:
                             "IDEMPOTENCY_CONFLICT",
                             "Idempotency key was used with a different request",
                         )
-                    found = (
+                    current = (
                         db.execute(
                             text(
-                                f"SELECT id,file_object_id,position,created_at FROM health.{table} WHERE id=:id AND patient_id=:p"
+                                f"SELECT a.id,a.record_id,a.position,a.created_at, "
+                                "CASE WHEN f.storage_status='available' AND f.scan_status='clean' AND f.deleted_at IS NULL "
+                                "THEN 'available' ELSE 'unavailable' END AS file_status "
+                                f"FROM health.{table} a JOIN health.file_object f ON f.id=a.file_object_id AND f.patient_id=a.patient_id "
+                                "WHERE a.id=:id AND a.patient_id=:p AND a.deleted_at IS NULL"
                             ),
                             {"id": idem["resource_id"], "p": patient_id},
                         )
                         .mappings()
                         .first()
                     )
-                    if found:
+                    if current:
                         return {
-                            **dict(found),
-                            "id": str(found["id"]),
-                            "file_object_id": str(found["file_object_id"]),
+                            **dict(current),
                             "record_version": rec["record_version"],
                             "image_set_version": rec["image_set_version"],
                         }
+                if (
+                    rec["record_version"] != body.record_version
+                    or rec["image_set_version"] != body.image_set_version
+                ):
+                    raise Problem(409, "RECORD_VERSION_CONFLICT", "Record version has changed")
                 file = db.execute(
                     text("""SELECT f.id FROM health.file_object f
                         JOIN health.upload_session u ON u.file_object_id=f.id AND u.patient_id=f.patient_id
@@ -281,7 +322,7 @@ def _attach(record_type: str, operation: str) -> Callable[..., dict[str, Any]]:
                 row = (
                     db.execute(
                         text(
-                            f"INSERT INTO health.{table}(patient_id,record_id,file_object_id,position) VALUES (:p,:r,:f,:pos) RETURNING id,file_object_id,position,created_at"
+                            f"INSERT INTO health.{table}(patient_id,record_id,file_object_id,position) VALUES (:p,:r,:f,:pos) RETURNING id,record_id,position,created_at"
                         ),
                         {
                             "p": patient_id,
@@ -311,8 +352,9 @@ def _attach(record_type: str, operation: str) -> Callable[..., dict[str, Any]]:
                 )
                 return {
                     "id": str(row["id"]),
-                    "file_object_id": str(row["file_object_id"]),
+                    "record_id": str(row["record_id"]),
                     "position": row["position"],
+                    "file_status": "available",
                     "created_at": row["created_at"].isoformat(),
                     "record_version": rec["record_version"] + 1,
                     "image_set_version": rec["image_set_version"] + 1,
@@ -334,18 +376,25 @@ def _list_images(record_type: str) -> Callable[..., list[dict[str, Any]]]:
         db = _session(request)
         try:
             patient_id = _patient(db, context)
-            _record(db, patient_id, record_id, record_type)
+            rec = _record(db, patient_id, record_id, record_type)
             rows = db.execute(
                 text(
-                    f"SELECT id,file_object_id,position,created_at FROM health.{table} WHERE patient_id=:p AND record_id=:r AND deleted_at IS NULL ORDER BY position"
+                    f"SELECT a.id,a.record_id,a.position,a.created_at, "
+                    "CASE WHEN f.storage_status='available' AND f.scan_status='clean' AND f.deleted_at IS NULL "
+                    "THEN 'available' ELSE 'unavailable' END AS file_status "
+                    f"FROM health.{table} a JOIN health.file_object f ON f.id=a.file_object_id AND f.patient_id=a.patient_id "
+                    "WHERE a.patient_id=:p AND a.record_id=:r AND a.deleted_at IS NULL ORDER BY a.position"
                 ),
                 {"p": patient_id, "r": record_id},
             ).mappings()
             return [
                 {
                     "id": str(r["id"]),
-                    "file_object_id": str(r["file_object_id"]),
+                    "record_id": str(r["record_id"]),
                     "position": r["position"],
+                    "record_version": rec["record_version"],
+                    "image_set_version": rec["image_set_version"],
+                    "file_status": r["file_status"],
                     "created_at": r["created_at"].isoformat(),
                 }
                 for r in rows
@@ -357,7 +406,10 @@ def _list_images(record_type: str) -> Callable[..., list[dict[str, Any]]]:
 
 
 @router.get(
-    "/dietary-records/{record_id}/images", operation_id="listDietRecordImages", tags=["Records"]
+    "/dietary-records/{record_id}/images",
+    operation_id="listDietRecordImages",
+    tags=["Records"],
+    response_model=list[RecordImageAttachmentResponse],
 )
 def list_diet_images(
     record_id: UUID,
@@ -372,6 +424,7 @@ def list_diet_images(
     status_code=201,
     operation_id="attachDietRecordImage",
     tags=["Records"],
+    response_model=RecordImageAttachmentResponse,
 )
 def attach_diet_image(
     record_id: UUID,
@@ -384,7 +437,10 @@ def attach_diet_image(
 
 
 @router.get(
-    "/stool-records/{record_id}/images", operation_id="listStoolRecordImages", tags=["Records"]
+    "/stool-records/{record_id}/images",
+    operation_id="listStoolRecordImages",
+    tags=["Records"],
+    response_model=list[RecordImageAttachmentResponse],
 )
 def list_stool_images(
     record_id: UUID,
@@ -399,6 +455,7 @@ def list_stool_images(
     status_code=201,
     operation_id="attachStoolRecordImage",
     tags=["Records"],
+    response_model=RecordImageAttachmentResponse,
 )
 def attach_stool_image(
     record_id: UUID,
@@ -467,6 +524,9 @@ def delete_record_image(
             db.execute(
                 text(f"UPDATE health.{table} SET deleted_at=now() WHERE id=:id AND patient_id=:p"),
                 {"id": image_id, "p": patient_id},
+            )
+            _compact_attachment_positions(
+                db, table=table, patient_id=patient_id, record_id=found["record_id"]
             )
             db.execute(
                 text(

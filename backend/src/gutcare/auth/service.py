@@ -1,7 +1,6 @@
 """Email/password account flows backed by the PostgreSQL business schema."""
 # ruff: noqa: E501
 
-import logging
 import smtplib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -11,6 +10,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import jwt
+import structlog
 from pwdlib import PasswordHash
 from redis import Redis
 from sqlalchemy import desc, select, text, update
@@ -44,9 +44,11 @@ REFRESH_TOKEN_DAYS = 30
 EMAIL_TOKEN_MINUTES = 10
 LOGIN_FAILURE_LIMIT = 5
 LOGIN_LOCK_MINUTES = 15
+SMTP_DELIVERY_TIMEOUT_SECONDS = 3
+SMTP_DELIVERY_MAX_ATTEMPTS = 2
 password_hasher = PasswordHash.recommended()
 DUMMY_PASSWORD_HASH = password_hasher.hash("gutcare-dummy-password-not-for-login")
-logger = logging.getLogger("gutcare.auth")
+logger = structlog.get_logger("gutcare.auth")
 
 
 class EmailProvider(Protocol):
@@ -69,12 +71,7 @@ class SmtpEmailVerificationProvider:
         message["From"] = self._settings.smtp_sender
         message["To"] = recipient
         message.set_content(f"请在 GutCare APP 中输入以下一次性验证令牌：\n\n{token}\n")
-        with smtplib.SMTP(self._settings.smtp_host, self._settings.smtp_port, timeout=10) as smtp:
-            if self._settings.smtp_starttls:
-                smtp.starttls()
-            if self._settings.smtp_username:
-                smtp.login(self._settings.smtp_username, self._settings.smtp_password or "")
-            smtp.send_message(message)
+        self._send(message, "verification")
 
     def send_password_reset(self, recipient: str, token: str) -> None:
         message = EmailMessage()
@@ -82,12 +79,36 @@ class SmtpEmailVerificationProvider:
         message["From"] = self._settings.smtp_sender
         message["To"] = recipient
         message.set_content(f"请在 GutCare APP 中输入以下一次性重置令牌：\n\n{token}\n")
-        with smtplib.SMTP(self._settings.smtp_host, self._settings.smtp_port, timeout=10) as smtp:
-            if self._settings.smtp_starttls:
-                smtp.starttls()
-            if self._settings.smtp_username:
-                smtp.login(self._settings.smtp_username, self._settings.smtp_password or "")
-            smtp.send_message(message)
+        self._send(message, "password_reset")
+
+    def _send(self, message: EmailMessage, delivery_kind: str) -> None:
+        for attempt in range(1, SMTP_DELIVERY_MAX_ATTEMPTS + 1):
+            try:
+                with smtplib.SMTP(
+                    self._settings.smtp_host,
+                    self._settings.smtp_port,
+                    timeout=SMTP_DELIVERY_TIMEOUT_SECONDS,
+                ) as smtp:
+                    if self._settings.smtp_starttls:
+                        smtp.starttls()
+                    if self._settings.smtp_username:
+                        smtp.login(self._settings.smtp_username, self._settings.smtp_password or "")
+                    smtp.send_message(message)
+                logger.info(
+                    "smtp_delivery_succeeded",
+                    delivery_kind=delivery_kind,
+                    attempt=attempt,
+                )
+                return
+            except (smtplib.SMTPException, OSError) as exc:
+                logger.warning(
+                    "smtp_delivery_attempt_failed",
+                    delivery_kind=delivery_kind,
+                    attempt=attempt,
+                    exception_type=type(exc).__name__,
+                )
+                if attempt == SMTP_DELIVERY_MAX_ATTEMPTS:
+                    raise
 
 
 class MailpitEmailVerificationProvider(SmtpEmailVerificationProvider):
@@ -350,7 +371,14 @@ class AuthService:
                     attempt_count=0,
                 )
             )
-        self._email_provider.send_verification(email, raw_token)
+        try:
+            self._email_provider.send_verification(email, raw_token)
+        except (smtplib.SMTPException, OSError) as exc:
+            raise Problem(
+                503,
+                "EMAIL_DELIVERY_UNAVAILABLE",
+                "Email delivery is temporarily unavailable",
+            ) from exc
         return operation_id
 
     def verify_email(self, raw_token: str, source: str) -> None:

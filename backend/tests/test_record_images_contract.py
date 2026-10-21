@@ -45,6 +45,7 @@ def test_image_routes_match_frozen_public_operation_ids() -> None:
         "listStoolRecordImages",
         "attachStoolRecordImage",
         "deleteRecordImage",
+        "createRecordImageDownloadGrant",
         "getRecordImageRecognitionDisclosure",
         "acknowledgeRecordImageRecognitionDisclosure",
         "createDietImageRecognitionRequest",
@@ -59,6 +60,7 @@ def test_image_routes_match_frozen_public_operation_ids() -> None:
         "listStoolRecordImages",
         "attachStoolRecordImage",
         "deleteRecordImage",
+        "createRecordImageDownloadGrant",
         "getRecordImageRecognitionDisclosure",
         "acknowledgeRecordImageRecognitionDisclosure",
         "createDietImageRecognitionRequest",
@@ -69,6 +71,30 @@ def test_image_routes_match_frozen_public_operation_ids() -> None:
     }
     assert implemented <= operations
     assert implemented <= runtime_operations
+    artifact_attachment = contract["components"]["schemas"]["RecordImageAttachment"]
+    assert set(artifact_attachment["required"]) == {
+        "id",
+        "record_id",
+        "position",
+        "record_version",
+        "image_set_version",
+        "file_status",
+        "created_at",
+    }
+    assert artifact_attachment["properties"]["file_status"]["enum"] == [
+        "available",
+        "unavailable",
+    ]
+    attachment = runtime["components"]["schemas"]["RecordImageAttachmentResponse"]
+    assert set(attachment["required"]) == {
+        "id",
+        "record_id",
+        "position",
+        "record_version",
+        "image_set_version",
+        "file_status",
+        "created_at",
+    }
 
 
 def test_worker_routes_match_frozen_agent_contract() -> None:

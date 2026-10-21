@@ -207,7 +207,13 @@ def create_app(
 
             application.state.database_probe = production_database_probe
         sessions = sessionmaker(engine, expire_on_commit=False)
-        application.state.record_service = RecordService(sessions)
+        application.state.record_service = RecordService(
+            sessions,
+            allow_test_only_rules=(
+                resolved_settings.risk_test_only_rules_enabled
+                and resolved_settings.env in {"local", "test"}
+            ),
+        )
         application.state.medication_service = MedicationService(sessions)
         application.state.analysis_service = AnalysisService(
             sessions, resolved_settings.jwt_signing_key

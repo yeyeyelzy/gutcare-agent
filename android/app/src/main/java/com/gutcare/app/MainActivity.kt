@@ -108,6 +108,12 @@ class MainActivity : ComponentActivity() {
                                 registrationNoticeSummaries = auth.notices.summaries(),
                                 recordsRepository = auth.recordsRepository,
                                 medicalDocumentsRepository = auth.medicalDocumentsRepository,
+                                medicationRepository = auth.medicationRepository,
+                                analysisAdviceRepository = auth.analysisAdviceRepository,
+                                privacyRepository = auth.privacyRepository,
+                                recordImagesRepository = auth.recordImagesRepository,
+                                notificationRepository = auth.notificationRepository,
+                                activityRecordsRepository = auth.activityRecordsRepository,
                                 patientProfile = patientProfile,
                             )
                             startupError?.let {

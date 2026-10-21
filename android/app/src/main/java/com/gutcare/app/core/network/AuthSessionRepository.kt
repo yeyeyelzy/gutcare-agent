@@ -10,7 +10,12 @@ fun interface RegistrationNoticeProvider { fun currentVersions(): RegistrationNo
 sealed interface AuthWorkflowResult {
     data class Success(val profile: PatientProfileDto) : AuthWorkflowResult
     data class Accepted(val operationId: String) : AuthWorkflowResult
-    data class Failure(val status: Int?, val code: String?, val requestId: String? = null) : AuthWorkflowResult
+    data class Failure(
+        val status: Int?,
+        val code: String?,
+        val requestId: String? = null,
+        val reason: AuthFailureReason = AuthFailureReason.OTHER,
+    ) : AuthWorkflowResult
 }
 
 /** Coordinates auth calls and profile bootstrap. Password confirmation is deliberately never serialized. */
@@ -98,6 +103,14 @@ class AuthSessionRepository(
     /** Re-reads the authenticated patient's authoritative profile for protected profile surfaces. */
     suspend fun readMyProfile(): AuthWorkflowResult = bootstrapProfile()
 
+    /** Updates only the patient's profile through the versioned business API. */
+    suspend fun updateMyProfile(nickname: String?, birthYear: Int, profileVersion: Int): AuthWorkflowResult {
+        val response = api.updateMyProfile(PatientProfilePatchDto(profileVersion, nickname, birthYear))
+        if (response.isSuccessful) return response.body()?.let(AuthWorkflowResult::Success)
+            ?: AuthWorkflowResult.Failure(response.code(), "INVALID_RESPONSE")
+        return response.failure()
+    }
+
     private suspend fun bootstrapProfile(): AuthWorkflowResult {
         val response = api.myProfile()
         if (response.isSuccessful) return response.body()?.let(AuthWorkflowResult::Success)
@@ -122,7 +135,7 @@ private suspend fun <T> Response<T>.fold(block: suspend (Response<T>) -> AuthWor
 
 private fun Response<*>.failure(): AuthWorkflowResult.Failure {
     val details = errorBody()?.let { ProblemDetailsParser.parse(it.string()) }
-    return AuthWorkflowResult.Failure(code(), details?.code, details?.requestId)
+    return AuthWorkflowResult.Failure(code(), details?.code, details?.requestId, details?.reason ?: AuthFailureReason.OTHER)
 }
 
 /** Synchronous bridge used only inside OkHttp's Authenticator callback. Auth calls are on a plain client. */

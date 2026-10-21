@@ -1,0 +1,17 @@
+services:
+  agents:
+    build: .
+    image: gutcare-agents:0.2.0
+    ports:
+      - "127.0.0.1:8100:8100"
+    environment:
+      # 默认 mock：离线运行；设置 .env 中的 GCA_MODE=live 才会调用真实模型
+      GCA_MODE: "${GCA_MODE:-mock}"
+      GCA_BASE_URL: "${GCA_BASE_URL:-https://api.deepseek.com}"
+      GCA_TEXT_MODEL: "${GCA_TEXT_MODEL:-deepseek-chat}"
+      GCA_VISION_MODEL: "${GCA_VISION_MODEL:-deepseek-chat}"
+      GCA_API_KEY: "${GCA_API_KEY:-}"
+      GCA_INTERNAL_TOKEN: "${GCA_INTERNAL_TOKEN:?Set GCA_INTERNAL_TOKEN before starting the Agent}"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

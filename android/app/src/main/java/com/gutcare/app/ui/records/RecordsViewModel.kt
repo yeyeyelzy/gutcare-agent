@@ -111,6 +111,7 @@ data class RecordDetailModel(
     val note: String? = null,
     val statusHistory: List<SymptomStatusEventDto> = emptyList(),
     val statusHistoryError: String? = null,
+    val imageSetVersion: Int = 0,
 )
 sealed interface RecordsLoadState {
     data object Idle : RecordsLoadState
@@ -441,6 +442,7 @@ private fun ApiResult<MoodPageDto>.mapMoodPage(): ApiResult<RecordPageDto> = whe
 private fun RecordDto.toRecordDetail(type: WorkspaceRecordType) = RecordDetailModel(
     id, recordVersion, occurredAt, payload,
     statusHistory = emptyList(),
+    imageSetVersion = imageSetVersion,
 )
 private fun MoodDetailDto.toRecordDetail() = RecordDetailModel(
     id, recordVersion, occurredAt, RecordPayloadDto(textDescription = "心情等级 $moodLevel"), moodLevel, emotionTags, note,

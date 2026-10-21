@@ -2,6 +2,11 @@ package com.gutcare.app.core.network
 
 import okhttp3.RequestBody
 import retrofit2.Response
+import retrofit2.Retrofit
+import retrofit2.converter.moshi.MoshiConverterFactory
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import okhttp3.OkHttpClient
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -25,4 +30,26 @@ interface MedicationGateway {
     @GET("medication-checkins") suspend fun listCheckins(@Query("start") start: String, @Query("end") end: String): Response<List<MedicationCheckinDto>>
     @GET("medication-checkins/today") suspend fun todayCheckins(): Response<List<MedicationCheckinDto>>
     @PATCH("medication-checkins/{checkin_id}") suspend fun patchCheckin(@Path("checkin_id") id: String, @Body body: MedicationCheckinUpdateDto): Response<MedicationCheckinDto>
+}
+
+object MedicationGatewayFactory {
+    fun createConfigured(
+        accessTokens: AccessTokenProvider,
+        authenticator: SessionAuthenticator,
+        client: OkHttpClient = OkHttpClient.Builder().build(),
+    ): MedicationGateway {
+        val endpoint = ApiEndpoint.validate(ApiConfiguration(
+            com.gutcare.app.BuildConfig.API_BASE_URL,
+            com.gutcare.app.BuildConfig.DEBUG,
+            com.gutcare.app.BuildConfig.ALLOW_EMULATOR_HTTP,
+        ))
+        val authenticated = client.newBuilder()
+            .addInterceptor(BearerTokenInterceptor(accessTokens))
+            .authenticator(authenticator)
+            .build()
+        val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+        return Retrofit.Builder().baseUrl(endpoint).client(authenticated)
+            .addConverterFactory(MoshiConverterFactory.create(moshi)).build()
+            .create(MedicationGateway::class.java)
+    }
 }

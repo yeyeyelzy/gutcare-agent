@@ -324,6 +324,7 @@ paths:
               example: {operation_id: 019a0000-0000-7000-8000-000000000001, status: accepted}
         '422': {$ref: '#/components/responses/Problem'}
         '429': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
         '500': {$ref: '#/components/responses/Problem'}
   /auth/email/verify:
     post:
@@ -978,6 +979,15 @@ paths:
               schema: {type: array, items: {$ref: '#/components/schemas/MedicalFieldCandidate'}}
         '401': {$ref: '#/components/responses/Problem'}
         '404': {$ref: '#/components/responses/Problem'}
+  /patients/me/confirmed-medical-facts:
+    get:
+      summary: 读取当前患者已确认的结构化医疗事实
+      description: 仅返回患者逐字段接受或更正后且来源文档仍有效的事实；不包含候选、置信度、原文摘录、定位或模型信息。诊断 certainty 保持原值，不构成诊断推断。
+      tags: [Records]
+      operationId: listMyConfirmedMedicalFacts
+      responses:
+        '200': {description: 患者本人当前有效的已确认事实, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ConfirmedMedicalFact'}}}}}
+        '401': {$ref: '#/components/responses/Problem'}
   /medical-fact-conflicts:
     get:
       summary: 列出患者已确认检验事实的待核对冲突
@@ -1543,6 +1553,14 @@ paths:
       operationId: deleteRecordImage
       parameters: [{name: image_id, in: path, required: true, schema: {type: string, format: uuid}}, {name: record_version, in: query, required: true, schema: {type: integer, minimum: 1}}, {name: image_set_version, in: query, required: true, schema: {type: integer, minimum: 1}}]
       responses: {'204': {description: Image access revoked; file enters existing seven-day deletion lifecycle}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}}
+  /record-images/{attachment_id}/download-grants:
+    post:
+      tags: [Records]
+      operationId: createRecordImageDownloadGrant
+      summary: Create a short-lived same-origin preview capability for an active record image
+      security: [{BearerAuth: []}]
+      parameters: [{name: attachment_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {'200': {description: Five-minute capability URL; request a fresh grant for each preview, content: {application/json: {schema: {$ref: '#/components/schemas/DownloadGrant'}}}}, '401': {$ref: '#/components/responses/Problem'}, '404': {$ref: '#/components/responses/Problem'}}
   /dietary-records/{record_id}/image-recognition-requests:
     post:
       tags: [Records]
@@ -2043,6 +2061,17 @@ components:
         status: {const: resolved}
         record_version: {type: integer, minimum: 1}
         resolution: {const: keep_both}
+    ConfirmedMedicalFact:
+      type: object
+      additionalProperties: false
+      required: [source_document_id, field_code, value_type, value, unit, confirmed_at]
+      properties:
+        source_document_id: {type: string, format: uuid}
+        field_code: {type: string, enum: [diagnosis, document_date, recommendation, test_item, test_result, medication_name, medication_dose, medication_frequency, medication_duration, allergy]}
+        value_type: {type: string, enum: [diagnosis, date, string, object]}
+        value: {description: Patient-confirmed structured value; diagnosis certainty is preserved without inference.}
+        unit: {type: [string, 'null'], maxLength: 32}
+        confirmed_at: {type: string, format: date-time}
     MedicalCandidateDecision:
       type: object
       additionalProperties: false
@@ -2076,30 +2105,29 @@ components:
         next_cursor: {type: [string, 'null']}
     DownloadGrant:
       type: object
+      additionalProperties: false
       required: [download_url, expires_at]
       properties:
-        download_url: {type: string, format: uri, pattern: '^https://[^/]+/uploads/'}
+        download_url: {type: string, format: uri, description: Same-origin short-lived capability URL. Keep in memory only.}
         expires_at: {type: string, format: date-time}
     DietRecordImageAttach:
       type: object
       additionalProperties: false
-      required: [file_object_id, record_version, image_set_version, position]
+      required: [file_object_id, record_version, image_set_version]
       properties:
         file_object_id: {type: string, format: uuid, description: 已完成 clean 的同患者 F02 file object；服务端按 route 验证 diet_image/stool_image purpose}
         record_version: {type: integer, minimum: 1}
-        image_set_version: {type: integer, minimum: 0}
-        position: {type: integer, minimum: 0, maximum: 9}
-      example: {file_object_id: '019a0000-0000-7000-8000-000000000051', record_version: 3, image_set_version: 1, position: 1}
+        image_set_version: {type: integer, minimum: 1}
+      example: {file_object_id: '019a0000-0000-7000-8000-000000000051', record_version: 3, image_set_version: 1}
     StoolRecordImageAttach:
       type: object
       additionalProperties: false
-      required: [file_object_id, record_version, image_set_version, position]
+      required: [file_object_id, record_version, image_set_version]
       properties:
         file_object_id: {type: string, format: uuid, description: 已完成 clean 的同患者 F02 file object，purpose 必须为 stool_image}
         record_version: {type: integer, minimum: 1}
-        image_set_version: {type: integer, minimum: 0}
-        position: {const: 0}
-      example: {file_object_id: '019a0000-0000-7000-8000-000000000052', record_version: 2, image_set_version: 0, position: 0}
+        image_set_version: {type: integer, minimum: 1}
+      example: {file_object_id: '019a0000-0000-7000-8000-000000000052', record_version: 2, image_set_version: 1}
     RecordImageAttachment:
       type: object
       additionalProperties: false
@@ -2110,7 +2138,7 @@ components:
         position: {type: integer, minimum: 0, maximum: 9}
         record_version: {type: integer, minimum: 1}
         image_set_version: {type: integer, minimum: 1}
-        file_status: {type: string, enum: [available]}
+        file_status: {type: string, enum: [available, unavailable]}
         created_at: {type: string, format: date-time}
     RecordImageRecognitionCreate:
       type: object
@@ -2317,9 +2345,10 @@ components:
         next_cursor: {type: [string, 'null']}
     RiskAlert:
       type: object
-      required: [id, severity, message, recommended_action, status, triggered_at, evidence]
+      required: [id, environment, severity, message, recommended_action, status, triggered_at, evidence]
       properties:
         id: {type: string, format: uuid}
+        environment: {type: string, enum: [production, test_only], description: 规则运行环境；test_only 仅供隔离测试/演示，不代表医疗结论。}
         severity: {type: string, enum: [attention, seek_care, emergency]}
         message: {type: string}
         recommended_action: {type: string}

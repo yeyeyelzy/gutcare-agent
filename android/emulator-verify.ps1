@@ -1,4 +1,4 @@
-param([string]$SdkRoot)
+param([string]$SdkRoot, [string]$TestClass)
 
 $ErrorActionPreference = 'Stop'
 
@@ -73,6 +73,34 @@ function Test-LaunchedEmulatorIdentity {
     $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $($script:emulatorProcess.Id)" -ErrorAction SilentlyContinue
     if (-not $processInfo -or $processInfo.Name -ne 'emulator.exe') { return $false }
     return ($processInfo.CommandLine -match '(?i)(^|\s)-avd\s+"?GutCare_API_37("|\s|$)')
+}
+
+function Export-SyntheticScreenshot {
+    param([string] $FileName, [string] $Destination)
+    $devicePath = "/sdcard/Pictures/GutCareSmoke/$FileName"
+    & $adbExe -s $serial pull $devicePath $Destination 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Destination)) {
+        Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+        throw "Could not export synthetic screenshot '$FileName' from $devicePath."
+    }
+    $bytes = [System.IO.File]::ReadAllBytes($Destination)
+    $signature = [byte[]](137, 80, 78, 71, 13, 10, 26, 10)
+    $validSignature = $bytes.Length -ge 24
+    for ($index = 0; $validSignature -and $index -lt $signature.Length; $index++) {
+        if ($bytes[$index] -ne $signature[$index]) { $validSignature = $false }
+    }
+    $validHeader = $validSignature -and
+        $bytes[12] -eq 73 -and $bytes[13] -eq 72 -and $bytes[14] -eq 68 -and $bytes[15] -eq 82
+    if ($validHeader) {
+        $width = [long]$bytes[16] * 16777216 + [long]$bytes[17] * 65536 + [long]$bytes[18] * 256 + $bytes[19]
+        $height = [long]$bytes[20] * 16777216 + [long]$bytes[21] * 65536 + [long]$bytes[22] * 256 + $bytes[23]
+        $validHeader = $bytes.Length -ge 1024 -and $bytes.Length -le 25000000 -and
+            $width -ge 1 -and $width -le 10000 -and $height -ge 1 -and $height -le 10000
+    }
+    if (-not $validHeader) {
+        Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+        throw "Synthetic screenshot '$FileName' is not a valid PNG with reasonable size and dimensions."
+    }
 }
 
 try {
@@ -215,12 +243,14 @@ try {
         $packageServiceExitCode = $LASTEXITCODE
         $activityServiceOutput = (& $adbExe -s $serial shell service check activity 2>&1 | Out-String).Trim()
         $activityServiceExitCode = $LASTEXITCODE
-        $packageProbeOutput = (& $adbExe -s $serial shell pm list packages --user 0 android 2>&1 | Out-String).Trim()
+        # `pm list packages android` is a substring filter and can include many
+        # unrelated package names. Query the exact framework package instead.
+        $packageProbeOutput = (& $adbExe -s $serial shell pm path android 2>&1 | Out-String).Trim()
         $packageProbeExitCode = $LASTEXITCODE
 
         if ($packageServiceExitCode -eq 0 -and $packageServiceOutput -match 'Service package: found' -and
             $activityServiceExitCode -eq 0 -and $activityServiceOutput -match 'Service activity: found' -and
-            $packageProbeExitCode -eq 0 -and $packageProbeOutput -match '(?m)^package:android$') {
+            $packageProbeExitCode -eq 0 -and $packageProbeOutput -match '(?m)^package:/system/framework/framework-res\.apk\r?$') {
             $frameworkReady = $true
             break
         }
@@ -253,13 +283,26 @@ try {
     }
 
     $testStartedAt = Get-Date
+    # The dedicated AVD was freshly launched with -wipe-data. Still explicitly
+    # remove both package variants before Gradle installs matching APKs.
+    & $adbExe -s $serial uninstall com.gutcare.app 2>$null | Out-Null
+    & $adbExe -s $serial uninstall com.gutcare.app.test 2>$null | Out-Null
     Push-Location $mappedAndroidRoot
     $previousErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
         $apkPath = Join-Path $androidRoot 'app\build\outputs\apk\debug\app-debug.apk'
-        $gradleOutput = & '.\gradlew.bat' connectedDebugAndroidTest --no-daemon --max-workers=1 2>&1
+        $gradleArgs = @('connectedDebugAndroidTest', '--no-daemon', '--max-workers=1')
+        if ($TestClass) { $gradleArgs += "-Pandroid.testInstrumentationRunnerArguments.class=$TestClass" }
+        # The native feature merge changes generated Compose signatures across
+        # modules; clean first so main and androidTest APKs cannot disagree.
+        $gradleOutput = & '.\gradlew.bat' clean @gradleArgs 2>&1
         $testExitCode = $LASTEXITCODE
+        if ($testExitCode -ne 0) {
+            # Keep only the tail for local diagnosis; output is not emitted to
+            # the terminal because Gradle may include machine-specific paths.
+            $gradleOutput | Select-Object -Last 100 | Set-Content -Encoding utf8 (Join-Path $evidenceDir 'gradle-failure.txt')
+        }
         if (-not (Test-Path $apkPath)) { throw 'connectedDebugAndroidTest did not produce the debug APK.' }
     }
     finally {
@@ -281,6 +324,15 @@ try {
         catch { }
     }
     $status = if ($testExitCode -eq 0 -and $testCount -gt 0 -and $failureCount -eq 0 -and $errorCount -eq 0) { 'passed' } else { 'failed' }
+
+    # Page-level screenshots are generated only by androidTest synthetic fixtures.
+    # They contain no live/backend data and are pulled into this run's evidence folder.
+    if (-not $TestClass -or $TestClass -match 'FixturePageSmokeTest') {
+        foreach ($fixtureScreenshot in @('today.png', 'f12-notifications.png', 'f07-activity.png')) {
+            $fixtureScreenshotPath = Join-Path $evidenceDir $fixtureScreenshot
+            Export-SyntheticScreenshot $fixtureScreenshot $fixtureScreenshotPath
+        }
+    }
 
     if ((Get-AvdNameForSerial $serial) -ne $avdName -or -not (Test-LaunchedEmulatorIdentity)) {
         throw "Device identity changed before screenshot capture; refusing to capture from $serial."

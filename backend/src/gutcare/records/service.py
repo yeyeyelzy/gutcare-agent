@@ -212,8 +212,11 @@ def evaluate_condition(node: Any, facts: dict[str, Any]) -> bool:
 
 
 class RecordService:
-    def __init__(self, sessions: sessionmaker[Session]) -> None:
+    def __init__(
+        self, sessions: sessionmaker[Session], *, allow_test_only_rules: bool = False
+    ) -> None:
         self._sessions = sessions
+        self._allow_test_only_rules = allow_test_only_rules
 
     @staticmethod
     def _scope(session: Session, patient_id: UUID) -> None:
@@ -440,10 +443,13 @@ class RecordService:
         payload: dict[str, Any],
     ) -> None:
         now = _utcnow()
+        environments = (
+            ("production", "test_only") if self._allow_test_only_rules else ("production",)
+        )
         rules = session.scalars(
             select(RiskRule).where(
                 RiskRule.review_status == "approved",
-                RiskRule.environment == "production",
+                RiskRule.environment.in_(environments),
                 RiskRule.reviewed_by.is_not(None),
                 RiskRule.reviewed_at.is_not(None),
                 RiskRule.expires_at > now,
@@ -486,6 +492,7 @@ class RecordService:
                             "record_type": record_type,
                             "record_id": str(record_id),
                             "record_version": version,
+                            "rule_environment": rule.environment,
                         },
                     )
                     .on_conflict_do_nothing(index_elements=["patient_id", "deduplication_key"])
@@ -936,6 +943,7 @@ class RecordService:
     def _alert_dto(x: RiskAlert) -> dict[str, Any]:
         return {
             "id": str(x.id),
+            "environment": x.evidence_summary.get("rule_environment", "production"),
             "severity": x.severity,
             "message": x.message,
             "recommended_action": x.recommended_action,

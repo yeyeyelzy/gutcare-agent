@@ -194,6 +194,27 @@ def test_t65_patient_decision_endpoint_is_204_without_response_body() -> None:
     assert "content" not in operation["responses"]["204"]
 
 
+def test_confirmed_facts_endpoint_is_patient_scoped_and_excludes_candidate_evidence() -> None:
+    app = FastAPI()
+    app.include_router(router)
+    operation = app.openapi()["paths"]["/api/v1/patients/me/confirmed-medical-facts"]["get"]
+    schema_ref = operation["responses"]["200"]["content"]["application/json"]["schema"]["items"][
+        "$ref"
+    ]
+    fact_schema = app.openapi()["components"]["schemas"][schema_ref.rsplit("/", 1)[-1]]
+    properties = fact_schema["properties"]
+    assert set(properties) == {
+        "source_document_id",
+        "field_code",
+        "value_type",
+        "value",
+        "unit",
+        "confirmed_at",
+    }
+    forbidden = {"confidence", "excerpt", "source_locator", "prompt", "candidate_id"}
+    assert not forbidden.intersection(properties)
+
+
 def test_t61_internal_agent_contract_is_task_scoped_and_uses_service_bearer() -> None:
     app = FastAPI()
     app.include_router(agent_router)

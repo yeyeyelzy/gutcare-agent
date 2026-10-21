@@ -1,6 +1,7 @@
 package com.gutcare.app.navigation
 
 import com.gutcare.app.ui.auth.AuthValidators
+import com.gutcare.app.ui.auth.AuthOperationState
 import com.gutcare.app.ui.auth.RegistrationDraft
 
 /** Typed route catalogue. Strings are exposed only at Navigation Compose's boundary. */
@@ -28,6 +29,18 @@ sealed class AppRoute(val value: String) {
     data object RecordEdit : AppRoute("records/edit/{recordType}/{recordId}")
     data object HealthArchive : AppRoute("records/health-archive")
     data object MedicalDocumentDetail : AppRoute("records/medical-documents/{documentId}")
+    data object FeatureDirectory : AppRoute("features")
+    data object Medication : AppRoute("medication")
+    data object Activity : AppRoute("activity")
+    data object RiskAlerts : AppRoute("risk-alerts")
+    data object RiskAlertDetail : AppRoute("risk-alerts/{alertId}")
+    data object Trends : AppRoute("trends")
+    data object History : AppRoute("history")
+    data object PrivacySettings : AppRoute("settings/privacy")
+    data object Notifications : AppRoute("notifications")
+    data object NotificationDetail : AppRoute("notifications/{notificationId}")
+    data object NotificationPreferences : AppRoute("notifications/preferences")
+    data object RecordImages : AppRoute("records/images/{recordType}/{recordId}")
 
     companion object {
         val publicRoutes = setOf(
@@ -46,6 +59,8 @@ sealed class AppRoute(val value: String) {
             "records/detail/{recordType}/{recordId}", "records/edit/{recordType}/{recordId}",
             "records/health-archive",
             "records/medical-documents/{documentId}",
+            "features", "medication", "activity", "risk-alerts", "risk-alerts/{alertId}",
+            "trends", "history", "settings/privacy", "notifications", "notifications/{notificationId}", "notifications/preferences", "records/images/{recordType}/{recordId}",
         )
     }
 }
@@ -54,6 +69,9 @@ private fun encodeRouteSegment(value: String) = value.replace("%", "%25").replac
 fun recordDetailRoute(type: String, id: String): String = "records/detail/${encodeRouteSegment(type)}/${encodeRouteSegment(id)}"
 fun recordEditRoute(type: String, id: String): String = "records/edit/${encodeRouteSegment(type)}/${encodeRouteSegment(id)}"
 fun medicalDocumentDetailRoute(id: String): String = "records/medical-documents/${encodeRouteSegment(id)}"
+fun riskAlertDetailRoute(id: String): String = "risk-alerts/${encodeRouteSegment(id)}"
+fun recordImagesRoute(type: String, id: String): String = "records/images/${encodeRouteSegment(type)}/${encodeRouteSegment(id)}"
+fun notificationDetailRoute(id: String): String = "notifications/${encodeRouteSegment(id)}"
 
 enum class RootTab(
     val route: AppRoute,
@@ -86,6 +104,16 @@ object RoutePolicy {
         }
 
     fun canEnterProfile(draft: RegistrationDraft): Boolean = AuthValidators.canContinueRegistration(draft)
+
+    /**
+     * Registration success clears the sensitive draft immediately, before Navigation Compose has
+     * committed the email-verification destination. Do not let the old profile entry's guard race
+     * that transition and redirect back to credentials.
+     */
+    fun shouldRedirectFromInvalidRegistrationProfile(
+        draft: RegistrationDraft,
+        registrationOperation: AuthOperationState,
+    ): Boolean = !canEnterProfile(draft) && registrationOperation != AuthOperationState.Accepted
 
     fun shouldClearRegistrationDraftOnExit(destination: AppRoute): Boolean = destination in setOf(
         AppRoute.Welcome,

@@ -29,6 +29,8 @@ $previousGradleHome = $env:GRADLE_USER_HOME
 $previousSdkRoot = $env:ANDROID_SDK_ROOT
 $previousAndroidHome = $env:ANDROID_HOME
 $previousJavaToolOptions = $env:JAVA_TOOL_OPTIONS
+$previousTemp = $env:TEMP
+$previousTmp = $env:TMP
 $mappedByThisScript = $false
 $exitCode = 1
 
@@ -41,13 +43,15 @@ try {
     $env:GRADLE_USER_HOME = $gradleHome
     $env:ANDROID_SDK_ROOT = $sdkRoot
     $env:ANDROID_HOME = $sdkRoot
+    $env:TEMP = $javaTemp
+    $env:TMP = $javaTemp
     $env:JAVA_TOOL_OPTIONS = "-Djava.io.tmpdir=$javaTemp"
     if ($previousJavaToolOptions) {
         $env:JAVA_TOOL_OPTIONS = "$previousJavaToolOptions $env:JAVA_TOOL_OPTIONS"
     }
 
     Set-Location $mappedAndroidRoot
-    & ".\gradlew.bat" -p $mappedAndroidRoot --project-cache-dir $projectCache assembleDebug test lint --no-daemon
+    & ".\gradlew.bat" -p $mappedAndroidRoot --project-cache-dir $projectCache assembleDebug test lint --no-daemon --max-workers=1
     $exitCode = $LASTEXITCODE
 }
 finally {
@@ -65,6 +69,8 @@ finally {
     else {
         Remove-Item Env:JAVA_TOOL_OPTIONS -ErrorAction SilentlyContinue
     }
+    if ($previousTemp) { $env:TEMP = $previousTemp } else { Remove-Item Env:TEMP -ErrorAction SilentlyContinue }
+    if ($previousTmp) { $env:TMP = $previousTmp } else { Remove-Item Env:TMP -ErrorAction SilentlyContinue }
 
     Set-Location $repoRoot
     if ($mappedByThisScript) {

@@ -117,6 +117,7 @@ fun RecordDetailScreen(
     onRetry: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onManageImages: (() -> Unit)? = null,
 ) {
     val confirm = remember(state.detailState) { mutableStateOf(false) }
     WorkspacePage("record_detail_${type.name.lowercase()}_screen") {
@@ -170,6 +171,9 @@ fun RecordDetailScreen(
                 }
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick = onEdit, enabled = !state.operation.saving, modifier = Modifier.fillMaxWidth().testTag("record_detail_edit")) { Text("编辑") }
+                onManageImages?.let { action ->
+                    OutlinedButton(onClick = action, enabled = !state.operation.saving, modifier = Modifier.fillMaxWidth().testTag("record_detail_images")) { Text("管理记录图片") }
+                }
                 TextButton(onClick = { confirm.value = true }, enabled = !state.operation.saving, modifier = Modifier.testTag("record_detail_delete")) { Text("删除") }
             }
         }

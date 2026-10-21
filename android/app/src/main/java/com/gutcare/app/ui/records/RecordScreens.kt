@@ -133,6 +133,13 @@ data class TodayUiState(
     val meals: List<TodayMealUiState> = emptyList(),
     val trendSummary: String? = null,
     val summaryMessage: String? = null,
+    val riskSummary: String? = null,
+    val recentRecordSummary: String? = null,
+    val adviceSummary: String? = null,
+    val unreadCount: Int? = null,
+    val medicationUnavailable: Boolean = false,
+    val recentRecordMessage: String? = null,
+    val adviceMessage: String? = null,
 )
 
 data class TodayCallbacks(
@@ -141,6 +148,7 @@ data class TodayCallbacks(
     val onOpenMeals: () -> Unit = {},
     val onOpenTrend: () -> Unit = {},
     val onOpenProfile: () -> Unit = {},
+    val onOpenNotifications: () -> Unit = {},
 )
 
 data class DietDraftItemUiState(
@@ -158,7 +166,6 @@ data class DietRecordUiState(
     val mealType: MealType = MealType.Lunch,
     val occurredDate: String = "",
     val occurredTime: String = "",
-    val selectedPhotoLabel: String? = null,
     val draftItems: List<DietDraftItemUiState> = emptyList(),
     val candidates: List<DietCandidateUiState> = emptyList(),
     val portionSize: PortionSize? = null,
@@ -168,7 +175,6 @@ data class DietRecordUiState(
     val isSaving: Boolean = false,
     val feedbackMessage: String? = null,
     val isEditing: Boolean = false,
-    val photoUnavailableReason: String = "当前版本暂不可用：记录图片上传与识别 API 尚未接入。",
 )
 
 data class DietRecordCallbacks(
@@ -178,7 +184,7 @@ data class DietRecordCallbacks(
     val onDateChange: (String) -> Unit = {},
     val onTimeChange: (String) -> Unit = {},
     val onDescriptionChange: (String) -> Unit = {},
-    val onSelectPhoto: () -> Unit = {},
+    val onManageImages: () -> Unit = {},
     val onAddFood: (String, String?) -> Unit = { _, _ -> },
     val onRemoveFood: (Int) -> Unit = {},
     val onReviewCandidate: (DietCandidateUiState) -> Unit = {},
@@ -223,12 +229,10 @@ data class BowelRecordUiState(
     val bristolType: Int? = null,
     val discomfort: BowelDiscomfort = BowelDiscomfort.None,
     val note: String = "",
-    val photoLabel: String? = null,
     val canSave: Boolean = true,
     val isSaving: Boolean = false,
     val feedbackMessage: String? = null,
     val isEditing: Boolean = false,
-    val photoUnavailableReason: String = "当前版本暂不可用：记录图片上传与识别 API 尚未接入。",
 )
 
 data class BowelRecordCallbacks(
@@ -236,7 +240,7 @@ data class BowelRecordCallbacks(
     val onSelectCategory: (RecordCategory) -> Unit = {},
     val onDateChange: (String) -> Unit = {},
     val onTimeChange: (String) -> Unit = {},
-    val onSelectPhoto: () -> Unit = {},
+    val onManageImages: () -> Unit = {},
     val onSelectBristolType: (Int) -> Unit = {},
     val onSelectDiscomfort: (BowelDiscomfort) -> Unit = {},
     val onNoteChange: (String) -> Unit = {},
@@ -328,6 +332,11 @@ fun TodayScreen(
                 Spacer(Modifier.width(6.dp))
                 Text("GutCare", style = androidx.compose.material3.MaterialTheme.typography.titleMedium, color = GutCareInk)
                 Spacer(Modifier.weight(1f))
+                  OutlinedButton(
+                      onClick = callbacks.onOpenNotifications,
+                      modifier = Modifier.height(40.dp).testTag("today_notifications"),
+                      contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
+                  ) { Text(uiState.unreadCount?.let { if (it > 0) "通知 $it" else "通知" } ?: "通知") }
                 OutlinedButton(
                     onClick = callbacks.onOpenProfile,
                     modifier = Modifier.size(44.dp).testTag("today_profile"),
@@ -345,13 +354,16 @@ fun TodayScreen(
             fontWeight = FontWeight.ExtraBold,
             color = GutCareInk,
         )
-        uiState.summaryMessage?.let {
+          uiState.summaryMessage?.let {
             Spacer(Modifier.height(16.dp))
             RecordCard { Text(it, style = androidx.compose.material3.MaterialTheme.typography.bodyLarge, color = GutCareMuted) }
         } ?: run {
             Spacer(Modifier.height(16.dp))
             DailyCareCard(uiState)
         }
+          uiState.riskSummary?.let { summary -> Spacer(Modifier.height(12.dp)); RecordCard { Text(summary, color = GutCareInk, modifier = Modifier.testTag("today_risk_summary")) } }
+          (uiState.recentRecordSummary ?: uiState.recentRecordMessage)?.let { summary -> Spacer(Modifier.height(8.dp)); Text(summary, color = GutCareMuted, modifier = Modifier.testTag("today_recent_record")) }
+          (uiState.adviceSummary?.let { "最新建议：$it" } ?: uiState.adviceMessage)?.let { summary -> Spacer(Modifier.height(8.dp)); RecordCard { Text(summary, color = GutCareInk, modifier = Modifier.testTag("today_latest_advice")) } }
         Spacer(Modifier.height(20.dp))
         TodaySectionTitle("快捷记录")
         Spacer(Modifier.height(12.dp))
@@ -360,7 +372,7 @@ fun TodayScreen(
             Spacer(Modifier.height(20.dp))
             SectionHeader(title = "今日用药", actionLabel = "查看计划", onAction = callbacks.onOpenMedication)
             Spacer(Modifier.height(12.dp))
-            MedicationCard(uiState.medication)
+              MedicationCard(uiState.medication, uiState.medicationUnavailable)
             Spacer(Modifier.height(20.dp))
             SectionHeader(title = "今天吃了什么", actionLabel = "查看全部", onAction = callbacks.onOpenMeals)
             Spacer(Modifier.height(12.dp))
@@ -382,14 +394,11 @@ fun DietRecordScreen(
         Spacer(Modifier.height(14.dp))
         RecordCategoryTabs(RecordCategory.Diet, callbacks.onSelectCategory)
         Spacer(Modifier.height(12.dp))
-        PhotoPickerCard(
-            photoLabel = uiState.selectedPhotoLabel,
-            emptyLabel = "拍照或选择照片（可选）",
-            onClick = callbacks.onSelectPhoto,
-            enabled = false,
-            testTag = "diet_photo_picker",
-        )
-        Text(uiState.photoUnavailableReason, color = GutCareMuted, modifier = Modifier.testTag("diet_photo_unavailable"))
+        if (uiState.isEditing) {
+            OutlinedButton(onClick = callbacks.onManageImages, modifier = Modifier.fillMaxWidth().testTag("diet_manage_images")) { Text("管理记录图片") }
+        } else {
+            Text("记录保存后，可在详情页添加或管理图片。", color = GutCareMuted, modifier = Modifier.testTag("diet_images_after_save"))
+        }
         Spacer(Modifier.height(16.dp))
         PillRow(MealType.entries, uiState.mealType, { it.label }, callbacks.onSelectMealType, "diet_meal")
         Spacer(Modifier.height(18.dp))
@@ -490,18 +499,12 @@ fun BowelRecordScreen(
                 timeLabel = "记录时间",
             )
             Spacer(Modifier.height(16.dp))
-            OutlinedButton(
-                onClick = callbacks.onSelectPhoto,
-                enabled = false,
-                modifier = Modifier.heightIn(min = 48.dp).testTag("bowel_photo_picker"),
-                border = androidx.compose.foundation.BorderStroke(1.dp, GutCareLine),
-            ) {
-                RecordLineIcon(RecordIcon.Camera, GutCareBrandGreen, Modifier.size(22.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(uiState.photoLabel ?: "添加照片（可选）")
-            }
         }
-        Text(uiState.photoUnavailableReason, color = GutCareMuted, modifier = Modifier.testTag("bowel_photo_unavailable"))
+        if (uiState.isEditing) {
+            OutlinedButton(onClick = callbacks.onManageImages, modifier = Modifier.fillMaxWidth().testTag("bowel_manage_images")) { Text("管理记录图片") }
+        } else {
+            Text("记录保存后，可在详情页添加或管理图片。", color = GutCareMuted, modifier = Modifier.testTag("bowel_images_after_save"))
+        }
         Spacer(Modifier.height(26.dp))
         SectionTitle("形态判定")
         Spacer(Modifier.height(12.dp))
@@ -807,9 +810,11 @@ private fun QuickRecordCard(category: RecordCategory, color: Color, tint: Color,
 }
 
 @Composable
-private fun MedicationCard(medication: TodayMedicationUiState?) {
+private fun MedicationCard(medication: TodayMedicationUiState?, unavailable: Boolean = false) {
     RecordCard {
-        if (medication == null) {
+        if (unavailable) {
+            Text("今日用药数据暂不可用，请稍后重试。", style = androidx.compose.material3.MaterialTheme.typography.bodyLarge, color = GutCareMuted, modifier = Modifier.testTag("today_medication_unavailable"))
+        } else if (medication == null) {
             Text("今日暂无用药打卡数据", style = androidx.compose.material3.MaterialTheme.typography.bodyLarge, color = GutCareMuted)
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -906,24 +911,6 @@ private fun TrendGlyph(modifier: Modifier = Modifier) {
             drawLine(color, Offset(size.width * start.first, size.height * start.second), Offset(size.width * end.first, size.height * end.second), strokeWidth = size.minDimension * .055f, cap = StrokeCap.Round)
         }
         drawLine(Color(0xFFD4CCEA), Offset(size.width * .05f, size.height * .78f), Offset(size.width * .96f, size.height * .78f), strokeWidth = size.minDimension * .025f)
-    }
-}
-
-@Composable
-private fun PhotoPickerCard(photoLabel: String?, emptyLabel: String, onClick: () -> Unit, enabled: Boolean = true, testTag: String) {
-    OutlinedButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp).testTag(testTag),
-        shape = RoundedCornerShape(GutCareDimensions.cardRadius),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFB8C8BC)),
-        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = GutCareInk),
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            RecordLineIcon(RecordIcon.Camera, GutCareBrandGreen, Modifier.size(40.dp))
-            Spacer(Modifier.height(10.dp))
-            Text(photoLabel ?: emptyLabel, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-        }
     }
 }
 

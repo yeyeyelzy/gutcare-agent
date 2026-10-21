@@ -111,6 +111,52 @@ class RecordScreensTest {
     }
 
     @Test
+    fun dietEditExposesImageManagementAndCreationExplainsSaveFirst() {
+        var opened = false
+        composeRule.setContent {
+            GutCareTheme {
+                DietRecordScreen(DietRecordUiState(isEditing = true), DietRecordCallbacks(onManageImages = { opened = true }))
+            }
+        }
+        composeRule.onNodeWithTag("diet_manage_images").performScrollTo().performClick()
+        composeRule.runOnIdle { check(opened) }
+    }
+
+    @Test
+    fun dietCreationExplainsImagesAreAvailableAfterSave() {
+        composeRule.setContent { GutCareTheme { DietRecordScreen(DietRecordUiState(), DietRecordCallbacks()) } }
+        composeRule.onNodeWithTag("diet_images_after_save").assertIsDisplayed()
+    }
+
+    @Test
+    fun bowelEditExposesImageManagementEntryPoint() {
+        var opened = false
+        composeRule.setContent {
+            GutCareTheme { BowelRecordScreen(BowelRecordUiState(isEditing = true), BowelRecordCallbacks(onManageImages = { opened = true })) }
+        }
+        composeRule.onNodeWithTag("bowel_manage_images").performScrollTo().performClick()
+        composeRule.runOnIdle { check(opened) }
+    }
+
+    @Test
+    fun recordDetailExposesImageManagementAction() {
+        var opened = false
+        composeRule.setContent {
+            GutCareTheme {
+                RecordDetailScreen(
+                    type = WorkspaceRecordType.DIET,
+                    state = RecordsUiState(detailState = RecordDetailLoadState.Loaded(
+                        RecordDetailModel("diet-1", 2, "2026-10-19T08:30:00+08:00", com.gutcare.app.core.network.RecordPayloadDto()),
+                    )),
+                    onBack = {}, onRetry = {}, onEdit = {}, onDelete = {}, onManageImages = { opened = true },
+                )
+            }
+        }
+        composeRule.onNodeWithTag("record_detail_images").performClick()
+        composeRule.runOnIdle { check(opened) }
+    }
+
+    @Test
     fun symptomRecordExposesItsCoreInputs() {
         var symptomCode: String? = null
         composeRule.setContent {

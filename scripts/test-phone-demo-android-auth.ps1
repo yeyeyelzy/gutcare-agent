@@ -26,6 +26,7 @@ $lifecycleLockAcquired = $false
 $testExitCode = 1
 $testOutput = @()
 $testStartedAt = Get-Date
+$script:classRunSummaries = [System.Collections.Generic.List[object]]::new()
 $emulatorSerial = $null
 $mappedDrive = $null
 $mappedByThisScript = $false
@@ -39,11 +40,13 @@ function Get-PhoneDemoContainerSnapshot {
     $snapshot = @()
     foreach ($id in $ids) {
         if (-not $id) { continue }
-        $description = & $docker.Source inspect --format '{{.Id}}|{{.State.Status}}|{{ index .Config.Labels "com.docker.compose.project" }}' $id
+        $description = & $docker.Source inspect --format '{{.Id}}|{{json .State}}|{{ index .Config.Labels "com.docker.compose.service" }}|{{ index .Config.Labels "com.docker.compose.project" }}' $id
         if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect a phone-demo container.' }
-        $parts = ([string]$description).Trim().Split('|', 3)
-        if ($parts.Count -ne 3 -or $parts[2] -ne 'gutcare-phone-demo') { throw 'Phone-demo filter returned a container with an unexpected project label.' }
-        $snapshot += [pscustomobject]@{ Id = $parts[0]; State = $parts[1] }
+        $parts = ([string]$description).Trim().Split('|', 4)
+        if ($parts.Count -ne 4 -or $parts[3] -ne 'gutcare-phone-demo') { throw 'Phone-demo filter returned a container with an unexpected project label.' }
+        try { $containerState = $parts[1] | ConvertFrom-Json -ErrorAction Stop } catch { throw 'Unable to parse a phone-demo container state.' }
+        $health = if ($containerState.Health) { [string]$containerState.Health.Status } else { 'none' }
+        $snapshot += [pscustomobject]@{ Id = $parts[0]; State = [string]$containerState.Status; ExitCode = [int]$containerState.ExitCode; Health = $health; Service = $parts[2] }
     }
     return @($snapshot | Sort-Object Id)
 }
@@ -60,14 +63,31 @@ function Assert-PhoneDemoReady([object[]]$Snapshot) {
         $response = Invoke-WebRequest -Uri 'http://127.0.0.1:8000/health/live' -Method Get -TimeoutSec 5
         $healthOk = $response.StatusCode -eq 200
     } catch { $healthOk = $false }
-    if ($Snapshot.Count -eq 0 -or @($Snapshot | Where-Object { $_.State -ne 'running' }).Count -gt 0 -or -not $healthOk) {
-        throw 'Phone-demo is not ready (all project containers must be running and health/live must return 200); existing resources were left unchanged.'
+    $ignoredOptionalStopped = [System.Collections.Generic.List[string]]::new()
+    $requiredServices = @('api', 'postgres', 'redis', 'mailpit', 'minio', 'clamav')
+    $presentRequiredServices = @($Snapshot | Where-Object { $_.Service -in $requiredServices } | ForEach-Object { $_.Service } | Sort-Object -Unique)
+    if (($presentRequiredServices -join ',') -cne (($requiredServices | Sort-Object) -join ',')) {
+        throw 'Phone-demo is not ready because a required core service is missing.'
     }
+    $notReady = @($Snapshot | Where-Object {
+        if ($_.Service -in $requiredServices -and $_.State -eq 'running' -and $_.Health -eq 'healthy') { return $false }
+        if ($_.Service -in @('agent', 'analysis-dispatcher') -and $_.State -eq 'running') { return $false }
+        if ($_.State -eq 'exited' -and $_.ExitCode -eq 0 -and $_.Service -eq 'minio-init') { return $false }
+        if ($_.State -eq 'exited' -and $_.Service -in @('agent', 'analysis-dispatcher') -and $_.ExitCode -in @(0, 137)) {
+            $ignoredOptionalStopped.Add([string]$_.Service)
+            return $false
+        }
+        return $true
+    })
+    if ($Snapshot.Count -eq 0 -or $notReady.Count -gt 0 -or -not $healthOk) {
+        throw 'Phone-demo is not ready (services must be running, with only the successful minio-init one-shot allowed to exit, and health/live must return 200); existing resources were left unchanged.'
+    }
+    $script:ignoredOptionalStopped = @($ignoredOptionalStopped | Sort-Object -Unique)
 }
 
 function Write-SafeJUnitSummary([datetime]$Since) {
     $safe = [ordered]@{
-        suite = 'PhoneDemoAuthLiveContractTest'
+        suite = 'PhoneDemoAuthLive'
         tests = 0
         passed = 0
         failures = 0
@@ -75,37 +95,62 @@ function Write-SafeJUnitSummary([datetime]$Since) {
         skipped = 0
         junit_available = $false
     }
+    if ($script:classRunSummaries.Count -gt 0) {
+        $safe.junit_available = $true
+        $safe.classes = @($script:classRunSummaries.ToArray())
+        foreach ($classResult in $script:classRunSummaries) {
+            $safe.tests += $classResult.tests
+            $safe.passed += $classResult.passed
+            $safe.failures += $classResult.failures
+            $safe.errors += $classResult.errors
+            $safe.skipped += $classResult.skipped
+            if ($classResult.diagnostic) { $safe.diagnostic = $classResult.diagnostic }
+        }
+        [System.IO.File]::WriteAllText($junitSummaryPath, ($safe | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false))
+        return $safe
+    }
     $resultsRoot = Join-Path $androidRoot 'app\build\outputs\androidTest-results\connected\debug'
     $resultFiles = @(Get-ChildItem -LiteralPath $resultsRoot -Filter '*.xml' -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $Since })
     foreach ($resultFile in $resultFiles) {
         try {
             [xml]$junit = [System.IO.File]::ReadAllText($resultFile.FullName)
-            $case = @($junit.SelectNodes('//testcase') | Where-Object { $_.GetAttribute('classname') -eq 'com.gutcare.app.core.network.PhoneDemoAuthLiveContractTest' }) | Select-Object -First 1
-            if (-not $case) { continue }
+            $cases = @($junit.SelectNodes('//testcase') | Where-Object {
+                $_.GetAttribute('classname') -in @(
+                    'com.gutcare.app.core.network.PhoneDemoAuthLiveContractTest',
+                    'com.gutcare.app.ui.auth.PhoneDemoAuthUiLiveTest'
+                )
+            })
+            if ($cases.Count -eq 0) { continue }
             $safe.junit_available = $true
-            $safe.tests = 1
-            $failureNode = $case.ChildNodes | Where-Object { $_.LocalName -in @('failure', 'error') } | Select-Object -First 1
-            $skippedNode = $case.ChildNodes | Where-Object { $_.LocalName -eq 'skipped' } | Select-Object -First 1
-            if ($failureNode) {
-                if ($failureNode.LocalName -eq 'failure') { $safe.failures = 1 } else { $safe.errors = 1 }
-                # Only retain structured diagnostics emitted by failSafe; never copy JUnit text or body.
-                $message = [string]$failureNode.GetAttribute('message')
-                $pattern = '^(?<stage>registration|verification|login/profile|refresh/profile|logout) failed: status=(?<status>\d{3}|none) code=(?<code>[A-Z0-9_]+|none)(?: request_id=(?<requestId>[0-9a-fA-F-]{36}))?$'
-                if ($message -match $pattern) {
-                    $safe.diagnostic = [ordered]@{
-                        stage = $Matches.stage
-                        status = $Matches.status
-                        code = $Matches.code
-                        request_id = $Matches.requestId
-                    }
-                } else {
+            foreach ($case in $cases) {
+                $safe.tests++
+                $failureNode = $case.ChildNodes | Where-Object { $_.LocalName -in @('failure', 'error') } | Select-Object -First 1
+                $skippedNode = $case.ChildNodes | Where-Object { $_.LocalName -eq 'skipped' } | Select-Object -First 1
+                if ($failureNode) {
+                    if ($failureNode.LocalName -eq 'failure') { $safe.failures++ } else { $safe.errors++ }
                     $safe.diagnostic = 'Test failed; details suppressed.'
+                    $safeDiagnostic = [regex]::Match(
+                        ($failureNode.GetAttribute('message') + ' ' + $failureNode.InnerText),
+                        'safe checkpoint: ([a-z_]+); safe error codes: ([A-Z0-9_, ]+); safe validation fields: ([A-Za-z0-9_.,]+); safe auth reason: ([A-Z0-9_, ]+); safe operation_state: (loading|error|accepted|none)'
+                    )
+                    if ($safeDiagnostic.Success) {
+                        $stage = $safeDiagnostic.Groups[1].Value
+                        $codes = $safeDiagnostic.Groups[2].Value.Trim().TrimEnd(',')
+                        $fields = $safeDiagnostic.Groups[3].Value.Trim().TrimEnd(',')
+                        $reason = $safeDiagnostic.Groups[4].Value.Trim().TrimEnd(',')
+                        $operationState = $safeDiagnostic.Groups[5].Value
+                        if ($stage -match '^[a-z_]+$' -and $codes -match '^(none|[A-Z0-9_, ]+)$' -and
+                            $fields -match '^(none|[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*(,[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*)*)$' -and
+                            $reason -match '^(none|[A-Z0-9_, ]+)$' -and $operationState -in @('loading', 'error', 'accepted', 'none')) {
+                            $safe.diagnostic = "stage=$stage; safe_error_codes=$codes; validation_locations=$fields; safe_auth_reason=$reason; operation_state=$operationState"
+                        }
+                    }
+                } elseif ($skippedNode) {
+                    $safe.skipped++
+                    $safe.diagnostic = 'Live test skipped.'
+                } else {
+                    $safe.passed++
                 }
-            } elseif ($skippedNode) {
-                $safe.skipped = 1
-                $safe.diagnostic = 'Live test skipped.'
-            } else {
-                $safe.passed = 1
             }
             break
         } catch {
@@ -131,23 +176,34 @@ try {
         if ($startedContainers.Count -eq 0) { throw 'Phone-demo startup returned without creating project containers.' }
         Assert-PhoneDemoReady $startedContainers
     }
+    if ($script:ignoredOptionalStopped.Count -gt 0) {
+        Write-Host ('Phone-demo readiness ignored_optional_stopped=' + ($script:ignoredOptionalStopped -join ','))
+    }
     $devices = @(& $adb.Source devices)
     if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate adb devices.' }
-    $emulators = @($devices | ForEach-Object {
-        if ($_ -match '^(emulator-\d+)\s+device$') { $Matches[1] }
+    $deviceSerials = @($devices | ForEach-Object {
+        if ($_ -match '^(emulator-\d+|127\.0\.0\.1:\d+)\s+device(?:\s|$)') { $Matches[1] }
+    })
+    $emulators = @($deviceSerials | Where-Object {
+        if ($_ -match '^emulator-\d+$') { return $true }
+        $qemu = @(& $adb.Source -s $_ shell getprop ro.kernel.qemu 2>$null)
+        return ($LASTEXITCODE -eq 0 -and (($qemu -join '').Trim() -eq '1'))
     })
     if ($Serial) {
-        if ($Serial -notmatch '^emulator-\d+$' -or $Serial -notin $emulators) { throw 'Requested serial is not a connected Android emulator.' }
+        if ($Serial -notin $emulators) { throw 'Requested serial is not a connected Android emulator.' }
         $emulatorSerial = $Serial
     } elseif ($emulators.Count -eq 1) {
         $emulatorSerial = $emulators[0]
     } else {
-        throw 'Exactly one Android Studio emulator must be connected, or pass -Serial emulator-NNNN.'
+        throw 'Exactly one Android Studio emulator must be connected, or pass its -Serial value.'
     }
 
     $debugApiBaseUrl = 'http://10.0.2.2:8000/api/v1/'
     $gradleCommonArgs = @('--no-daemon', "-PdebugApiBaseUrl=$debugApiBaseUrl")
-    $gradleArgs = @('connectedDebugAndroidTest') + $gradleCommonArgs + @("-Pandroid.injected.device.serial=$emulatorSerial", '-Pandroid.testInstrumentationRunnerArguments.phoneDemoLive=true')
+    $targetClassNames = @(
+        'com.gutcare.app.core.network.PhoneDemoAuthLiveContractTest',
+        'com.gutcare.app.ui.auth.PhoneDemoAuthUiLiveTest'
+    )
     $testStartedAt = Get-Date
     $repoPath = (Resolve-Path $root).Path
     $existingMappings = @(& subst)
@@ -169,26 +225,112 @@ try {
         # it before opening the app for screenshot evidence.
         $buildOutput = @(& '.\gradlew.bat' assembleDebug @gradleCommonArgs 2>&1)
         if ($LASTEXITCODE -ne 0) { throw 'Android debug app build failed; credentials are suppressed.' }
-        $testOutput = @(& '.\gradlew.bat' @gradleArgs 2>&1)
-        $testExitCode = $LASTEXITCODE
+        $targetCases = @()
+        $testExitCode = 0
+        foreach ($className in $targetClassNames) {
+            $classStartedAt = Get-Date
+            $classGradleArgs = @('connectedDebugAndroidTest') + $gradleCommonArgs + @(
+                "-Pandroid.injected.device.serial=$emulatorSerial",
+                '-Pandroid.testInstrumentationRunnerArguments.phoneDemoLive=true',
+                "-Pandroid.testInstrumentationRunnerArguments.class=$className"
+            )
+            $testOutput = @(& '.\gradlew.bat' @classGradleArgs 2>&1)
+            $classExitCode = $LASTEXITCODE
+            if ($classExitCode -ne 0) { $testExitCode = $classExitCode }
+
+            $classCases = @()
+            $classResultFiles = @(Get-ChildItem -LiteralPath (Join-Path $androidRoot 'app\build\outputs\androidTest-results\connected\debug') -Filter '*.xml' -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $classStartedAt })
+            foreach ($resultFile in $classResultFiles) {
+                try {
+                    [xml]$junit = [System.IO.File]::ReadAllText($resultFile.FullName)
+                    $classCases += @($junit.SelectNodes('//testcase') | Where-Object { $_.GetAttribute('classname') -eq $className })
+                } catch {
+                    # Malformed reports are not surfaced; the missing case fails closed below.
+                }
+            }
+            $targetCases += $classCases
+            foreach ($case in $classCases) {
+                $failureNode = $case.ChildNodes | Where-Object { $_.LocalName -in @('failure', 'error') } | Select-Object -First 1
+                $skippedNode = $case.ChildNodes | Where-Object { $_.LocalName -eq 'skipped' } | Select-Object -First 1
+                $classResult = [ordered]@{
+                    class_name = $className
+                    test_name = $case.GetAttribute('name')
+                    tests = 1
+                    passed = 0
+                    failures = 0
+                    errors = 0
+                    skipped = 0
+                    diagnostic = $null
+                }
+                if ($failureNode) {
+                    if ($failureNode.LocalName -eq 'failure') { $classResult.failures = 1 } else { $classResult.errors = 1 }
+                    $safeDiagnostic = [regex]::Match(
+                        ($failureNode.GetAttribute('message') + ' ' + $failureNode.InnerText),
+                        'safe checkpoint: ([a-z_]+); safe error codes: ([A-Z0-9_, ]+); safe validation fields: ([A-Za-z0-9_.,]+); safe auth reason: ([A-Z0-9_, ]+); safe operation_state: (loading|error|accepted|none)'
+                    )
+                    if ($safeDiagnostic.Success) {
+                        $safeStage = $safeDiagnostic.Groups[1].Value
+                        $safeCodes = $safeDiagnostic.Groups[2].Value.Trim().TrimEnd(',')
+                        $safeFields = $safeDiagnostic.Groups[3].Value.Trim().TrimEnd(',')
+                        $safeReason = $safeDiagnostic.Groups[4].Value.Trim().TrimEnd(',')
+                        $operationState = $safeDiagnostic.Groups[5].Value
+                        if ($safeStage -match '^[a-z_]+$' -and $safeCodes -match '^(none|[A-Z0-9_, ]+)$' -and
+                            $safeFields -match '^(none|[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*(,[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*)*)$' -and
+                            $safeReason -match '^(none|[A-Z0-9_, ]+)$' -and $operationState -in @('loading', 'error', 'accepted', 'none')) {
+                            $classResult.diagnostic = "stage=$safeStage; safe_error_codes=$safeCodes; validation_locations=$safeFields; safe_auth_reason=$safeReason; operation_state=$operationState"
+                        }
+                    }
+                    if (-not $classResult.diagnostic) { $classResult.diagnostic = 'Test failed; details suppressed.' }
+                } elseif ($skippedNode) {
+                    $classResult.skipped = 1
+                    $classResult.diagnostic = 'Live test skipped.'
+                } else {
+                    $classResult.passed = 1
+                }
+                $script:classRunSummaries.Add($classResult)
+            }
+            $classEvidenceName = if ($className -eq 'com.gutcare.app.core.network.PhoneDemoAuthLiveContractTest') { 'repository' } else { 'ui' }
+            $classEvidence = [ordered]@{
+                suite = 'PhoneDemoAuthLive'
+                class_name = $className
+                tests = @($script:classRunSummaries | Where-Object { $_.class_name -eq $className } | Measure-Object -Property tests -Sum).Sum
+                passed = @($script:classRunSummaries | Where-Object { $_.class_name -eq $className } | Measure-Object -Property passed -Sum).Sum
+                failures = @($script:classRunSummaries | Where-Object { $_.class_name -eq $className } | Measure-Object -Property failures -Sum).Sum
+                errors = @($script:classRunSummaries | Where-Object { $_.class_name -eq $className } | Measure-Object -Property errors -Sum).Sum
+                skipped = @($script:classRunSummaries | Where-Object { $_.class_name -eq $className } | Measure-Object -Property skipped -Sum).Sum
+                diagnostic = @($script:classRunSummaries | Where-Object { $_.class_name -eq $className } | Select-Object -ExpandProperty diagnostic -ErrorAction SilentlyContinue | Where-Object { $_ }) | Select-Object -Last 1
+                junit_available = ($classCases.Count -gt 0)
+            }
+            $classEvidencePath = Join-Path $evidenceDir "junit-$classEvidenceName-summary.json"
+            [System.IO.File]::WriteAllText($classEvidencePath, ($classEvidence | ConvertTo-Json -Depth 5), [System.Text.UTF8Encoding]::new($false))
+            if ($classExitCode -ne 0 -or $classCases.Count -ne 1 -or @($classCases | Where-Object { $_.ChildNodes | Where-Object { $_.LocalName -in @('failure', 'error', 'skipped') } }).Count -gt 0) {
+                $testExitCode = if ($classExitCode -ne 0) { $classExitCode } else { 1 }
+                break
+            }
+        }
     } finally { Pop-Location }
     # Gradle may echo runner arguments. Keep its output transient and publish only a status summary.
-    if ($testExitCode -ne 0) { throw 'Android live auth instrumentation failed; inspect the Gradle result locally (credentials are suppressed).' }
+    if ($testExitCode -ne 0) { throw 'Android live auth instrumentation failed; inspect the safe JUnit summary (credentials are suppressed).' }
 
     $testResultsRoot = Join-Path $androidRoot 'app\build\outputs\androidTest-results\connected\debug'
     $resultFiles = @(Get-ChildItem -LiteralPath $testResultsRoot -Filter '*.xml' -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $testStartedAt })
-    $targetCase = $null
+    $targetCases = @()
     foreach ($resultFile in $resultFiles) {
         [xml]$junit = [System.IO.File]::ReadAllText($resultFile.FullName)
-        $targetCase = @($junit.SelectNodes('//testcase') | Where-Object { $_.GetAttribute('classname') -eq 'com.gutcare.app.core.network.PhoneDemoAuthLiveContractTest' }) | Select-Object -First 1
-        if ($targetCase) { break }
+        $targetCases += @($junit.SelectNodes('//testcase') | Where-Object {
+            $_.GetAttribute('classname') -in @(
+                'com.gutcare.app.core.network.PhoneDemoAuthLiveContractTest',
+                'com.gutcare.app.ui.auth.PhoneDemoAuthUiLiveTest'
+            )
+        })
     }
-    if (-not $targetCase) { throw 'Successful Gradle exit did not include the opted-in live auth JUnit case.' }
-    if ($targetCase.ChildNodes | Where-Object { $_.LocalName -in @('failure', 'error', 'skipped') }) { throw 'The live auth JUnit case did not execute as a passing test.' }
+    $completedClasses = @($targetCases | ForEach-Object { $_.GetAttribute('classname') } | Sort-Object -Unique)
+    if ($targetCases.Count -ne 2 -or $completedClasses.Count -ne 2) { throw 'Successful Gradle exit did not include both separately invoked live auth JUnit classes.' }
+    if (@($targetCases | Where-Object { $_.ChildNodes | Where-Object { $_.LocalName -in @('failure', 'error', 'skipped') } }).Count -gt 0) { throw 'A live auth JUnit case did not execute as a passing test.' }
     $junitSummary = [ordered]@{
-        suite = 'PhoneDemoAuthLiveContractTest'
-        tests = 1
-        passed = 1
+        suite = 'PhoneDemoAuthLive'
+        tests = 2
+        passed = 2
         failures = 0
         errors = 0
         skipped = 0

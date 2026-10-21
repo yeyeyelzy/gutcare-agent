@@ -138,6 +138,16 @@ class MedicalCandidateData:
     chosen_value: Any
 
 
+@dataclass(frozen=True, slots=True)
+class ConfirmedMedicalFactData:
+    source_document_id: UUID
+    field_code: str
+    value_type: str
+    value: Any
+    unit: str | None
+    confirmed_at: datetime
+
+
 def capability_digest(token: str) -> str:
     return sha256(token.encode("ascii")).hexdigest()
 
@@ -720,6 +730,42 @@ class FileService:
                     )
                 )
             return output
+
+    def list_confirmed_medical_facts(self, context: AuthContext) -> list[ConfirmedMedicalFactData]:
+        """Return only active facts the authenticated patient explicitly confirmed."""
+        with self._sessions.begin() as db:
+            patient_id = self._set_user_scope(db, context.user_id)
+            rows = db.execute(
+                select(ConfirmedMedicalFact, MedicalDocument.id)
+                .join(
+                    MedicalFieldCandidate,
+                    MedicalFieldCandidate.id == ConfirmedMedicalFact.candidate_id,
+                )
+                .join(
+                    MedicalParseRequest, MedicalParseRequest.id == MedicalFieldCandidate.request_id
+                )
+                .join(MedicalDocument, MedicalDocument.id == MedicalParseRequest.document_id)
+                .where(
+                    ConfirmedMedicalFact.patient_id == patient_id,
+                    ConfirmedMedicalFact.fact_status == "active",
+                    MedicalFieldCandidate.patient_id == patient_id,
+                    MedicalParseRequest.patient_id == patient_id,
+                    MedicalDocument.patient_id == patient_id,
+                    MedicalDocument.deleted_at.is_(None),
+                )
+                .order_by(ConfirmedMedicalFact.confirmed_at.desc(), ConfirmedMedicalFact.id)
+            )
+            return [
+                ConfirmedMedicalFactData(
+                    source_document_id=document_id,
+                    field_code=fact.field_code,
+                    value_type=fact.value_type,
+                    value=fact.value,
+                    unit=fact.unit,
+                    confirmed_at=fact.confirmed_at,
+                )
+                for fact, document_id in rows
+            ]
 
     def decide_medical_candidate(
         self,
@@ -1935,6 +1981,53 @@ class FileService:
             expires_at=expires_at,
         )
 
+    def create_record_image_download_grant(
+        self, context: AuthContext, attachment_id: UUID
+    ) -> DownloadGrantData:
+        """Issue the existing short-lived gateway grant only for a live owned record image."""
+        capability = secrets.token_urlsafe(32)
+        expires_at = datetime.now(UTC) + DOWNLOAD_TTL
+        with self._sessions.begin() as db:
+            patient_id = self._set_user_scope(db, context.user_id)
+            match = db.execute(
+                text("""
+                    SELECT f.id
+                    FROM health.diet_record_image a
+                    JOIN health.diet_record r ON r.id=a.record_id AND r.patient_id=a.patient_id
+                    JOIN health.file_object f ON f.id=a.file_object_id AND f.patient_id=a.patient_id
+                    JOIN health.upload_session u ON u.file_object_id=f.id AND u.patient_id=f.patient_id
+                    WHERE a.id=:attachment AND a.patient_id=:patient AND a.deleted_at IS NULL
+                      AND r.deleted_at IS NULL AND u.purpose='diet_image' AND u.status='completed'
+                      AND f.scan_status='clean' AND f.storage_status='available' AND f.deleted_at IS NULL
+                    UNION ALL
+                    SELECT f.id
+                    FROM health.stool_record_image a
+                    JOIN health.stool_record r ON r.id=a.record_id AND r.patient_id=a.patient_id
+                    JOIN health.file_object f ON f.id=a.file_object_id AND f.patient_id=a.patient_id
+                    JOIN health.upload_session u ON u.file_object_id=f.id AND u.patient_id=f.patient_id
+                    WHERE a.id=:attachment AND a.patient_id=:patient AND a.deleted_at IS NULL
+                      AND r.deleted_at IS NULL AND u.purpose='stool_image' AND u.status='completed'
+                      AND f.scan_status='clean' AND f.storage_status='available' AND f.deleted_at IS NULL
+                    LIMIT 1
+                """),
+                {"attachment": attachment_id, "patient": patient_id},
+            ).first()
+            if match is None:
+                raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
+            self._require_health_consent(db, patient_id)
+            db.add(
+                FileDownloadGrant(
+                    patient_id=patient_id,
+                    file_object_id=match.id,
+                    token_hash=capability_digest(capability),
+                    expires_at=expires_at,
+                )
+            )
+        return DownloadGrantData(
+            download_url=f"{self._public_base_url}/uploads/{capability}",
+            expires_at=expires_at,
+        )
+
     def download_by_capability(self, capability: str) -> tuple[bytes, str, str]:
         if len(capability) < 32:
             raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
@@ -1967,6 +2060,29 @@ class FileService:
             )
             if file_object is None:
                 raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
+            image_purpose = db.execute(
+                text(
+                    "SELECT purpose FROM health.upload_session WHERE file_object_id=:file AND patient_id=:patient AND status='completed'"
+                ),
+                {"file": file_id, "patient": patient_id},
+            ).scalar_one_or_none()
+            if image_purpose in {"diet_image", "stool_image"}:
+                attachment_table, record_table = (
+                    ("diet_record_image", "diet_record")
+                    if image_purpose == "diet_image"
+                    else ("stool_record_image", "stool_record")
+                )
+                active_attachment = db.execute(
+                    text(
+                        f"SELECT 1 FROM health.{attachment_table} a "
+                        f"JOIN health.{record_table} r ON r.id=a.record_id AND r.patient_id=a.patient_id "
+                        "WHERE a.file_object_id=:file AND a.patient_id=:patient "
+                        "AND a.deleted_at IS NULL AND r.deleted_at IS NULL LIMIT 1"
+                    ),
+                    {"file": file_id, "patient": patient_id},
+                ).first()
+                if active_attachment is None:
+                    raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
             bucket, object_key = file_object.bucket_name, file_object.object_key
             content_type, original_name = file_object.content_type, file_object.original_name
         try:

@@ -12,9 +12,11 @@
 已采纳 ADR-0018：F02 已确认检验结果的保守冲突管理，见 `ADR/0018-f02-confirmed-lab-result-conflicts.md`。
 已采纳 ADR-0019：F14 心情记录、两项独立授权及受控 F08 快照输入，见 `ADR/0019-f14-mood-records-and-consent.md`。
 已采纳 ADR-0020：注册告知单一来源、生产 fail-closed 与登录后资料引导，见 `ADR/0020-registration-notice-source-and-profile-bootstrap.md`；仓库注册、心情授权及 F03/F04 purpose-specific 图像识别开发/测试告知制品分别见 `../contracts/consent/registration-notices.json`、`../contracts/consent/consent-notices.json` 和 `../contracts/consent/record-image-recognition-notices.json`，均不是生产法律文案。
-已采纳 ADR-0021：F03/F04 记录图片附件与独立识别候选闭环，含 Diet request-local 候选分组、名称先决事实落点、类型化 FK 附件快照、显式患者 retry 和 Stool Bristol-only 候选，见 `ADR/0021-f03-f04-image-recognition-lifecycle.md`。该 ADR 的 APP 源码实现与验收状态仅描述旧 `app/` 归档，不构成 Android 原生工程验收；原生迁移遵循 ADR-0022。业务后端边界、真实 Agent 端到端和 production purpose-specific notice 法律签核状态不变。APP 当前契约不支持记录图片持久预览。
+已采纳 ADR-0021：F03/F04 记录图片附件与独立识别候选闭环，含 Diet request-local 候选分组、名称先决事实落点、类型化 FK 附件快照、显式患者 retry 和 Stool Bristol-only 候选；ADR-0023 补充附件响应完整性与安全预览授权。Android 可按 attachment ID 申请同源五分钟下载 grant，每次预览重新申请；永久图片 URL 不持久化。该 ADR 的 APP 源码实现与验收状态仅描述旧 `app/` 归档，不构成 Android 原生工程验收；原生迁移遵循 ADR-0022。业务后端边界、真实 Agent 端到端和 production purpose-specific notice 法律签核状态不变。
 APP 22 页原型事实、导航规范、视觉验收与编码前 G1 数据契约门禁见 `UI原型审查与页面导航规范.md`。
 比赛演示数据离线构建器的输入白名单、执行方式及初始化限制见 `demo-data-tooling.md`。
+本机 phone-demo 的 F08 mock Agent profile、dispatcher、合成任务闭环及脱敏证据见 `phone-demo-agent-f08.md`；可提交的受控证据摘要见 `evidence/F08-phone-demo-mock-E2E-20261021.md`；Agent 来源和未提供 LICENSE 的状态见 `../agent/PROVENANCE.md`，授权确认前是公开推送阻塞项。2026-10-21 已完成唯一一次 F08 live 合成冒烟：后端→dispatcher→Agent→callback→患者查询，终态 `partial` 且 `result_present=true`；这仅验证集成链路，不代表医学质量。live 冒烟后已恢复 mock，API Key 未留在容器或进程中。F08 ViewModel 定向测试 4/4 与 `assembleDebug` 已通过；Android API 37 模拟器已启动、APK 已安装且 MainActivity 已启动，无 FATAL；本轮未手工走完 F08 UI。F08 是当前唯一已形成主仓本机完整 Agent 集成证据的功能；F03/F04 图像候选回调与 F09 独立建议回调未完成，不纳入 Agent 完成范围。
+用户需确认 Agent 源码/素材公开推送授权，详见 `明日需用户协助事项.md`；再次进行 live 冒烟时需由操作者在本机配置 API Key，不要通过聊天发送或提交到仓库。
 实体手机经 Cloudflare Quick Tunnel 的隔离 test/demo-only API 联调步骤、边界与清理方式见 `手机 HTTPS 演示联调指南.md`；不替代正式部署运维手册。
 源码输入哈希、视觉令牌、资产隔离导入、静态跳转缺陷及 GcAvatar 几何基线见 `UI源码基线与导入规范.md`。
 认证公开页面和组件化交付跟踪见 `前端开发与前后端联调计划.md` 的 B01-2 小节及 `需求追踪矩阵.md`。
@@ -27,7 +29,7 @@ F02 的表/状态/API/隐私/测试追踪增补见 `F02-文件与医疗档案实
 
 已采纳 ADR-0022：患者端迁移至原生 Android，见 `ADR/0022-原生Android客户端.md`；Android Studio 是唯一客户端开发/验收环境，旧 `app/` 只读归档，当前不做 iOS。
 
-原生 Android 当前交付状态以 `Android页面-功能-API-测试映射.md`、`Android原生迁移工作准则.md` 和 `需求追踪矩阵.md` 的 `AND-*` 条目共同为准。截至 2026-10-20，本地门禁为 backend 207 项、Android 31 项通过。认证与记录切片已有真实 phone-demo 证据；F02 原生档案 UI 支持 store-only 上传，业务 API 文件链路 E2E 覆盖真实 ClamAV clean、档案查询与授权下载。F02 不包含 Android 上传端到端、analyze 或 Agent 候选处理验收。今日页视觉分数 80.69% 仅属探索性比较，因截图采集记录、全页覆盖和系统栏对齐证据不足，不视为正式门禁通过；完整视觉、非核心功能迁移及发布前真机验收按映射表逐项跟踪。旧 `APP-B*` 条目和 `app/` 自动化只保留迁移前追溯价值。提交 `316de37` 对应的最终 CI 已通过；文档中逐项状态仍以各自验收证据为准。
+原生 Android 当前交付状态以 `Android页面-功能-API-测试映射.md`、`Android原生迁移工作准则.md` 和 `需求追踪矩阵.md` 的 `AND-*` 条目共同为准。最新 Android 静态门禁为 117/117；Lint 0 error、16 warning。默认完整仪器测试集 53 项、0 失败。综合 run 的截图阶段有历史失败；定向真实 PNG 截图 3/3 通过。SMTP 有界重试/503 契约修复后定向回归 50 passed，修复镜像已确认；分类 live gate Repository 1/1、UI 0/1，失败 checkpoint `registration_submit`。缺少该测试窗口 SMTP/Mailpit 证据，认证仍未通过，不得宣称完成。P1 phone-demo 汇总证据见 `../android/build/emulator-evidence/phone-demo-p1-20261020/summary.md`，仅覆盖列明业务 API，未调用 Agent。2026-10-21 F08 唯一一次 live 合成冒烟已通过后端→dispatcher→Agent→callback→患者查询，终态 `partial` 且 `result_present=true`；仅验证链路，不代表医学质量，随后已恢复 mock 且密钥未留容器/进程。F08 ViewModel 定向测试 4/4 与 `assembleDebug` 已通过；Android API 37 模拟器已启动、APK 已安装且 MainActivity 已启动，无 FATAL，但本轮未手工走完 F08 UI。F02 原生解析与候选审阅已有代码实现，但真实解析/Agent 产出和跨服务候选端到端依赖独立服务；F03/F04 附件 UI 入口与操作链路已闭环，真实 Android 上传 E2E 尚待最终证据。视觉目标为每页至少 80% 且无明显视觉错误；F06/F10/F11 已有探索性分数，不等于正式验收。全页面视觉、生产法律/医学审核与发布前真机门禁分别跟踪，不得标成完成。用户协助事项见 `明日需用户协助事项.md`。旧 `APP-B*` 条目和 `app/` 自动化只保留迁移前追溯价值。
 
 尚未完整迁移、尚未形成真实端到端证据或仅有条件测试覆盖的非智能体客户端能力，按 Fxx 与验收判据汇总在 `Android非智能体功能迁移与验收缺口清单.md`；该清单不得替代页面映射与追踪矩阵。
 

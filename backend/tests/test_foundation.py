@@ -147,6 +147,47 @@ def test_redaction_replaces_unstructured_event_text() -> None:
     assert result["event"] == "application_event"
 
 
+def test_redaction_retains_only_low_sensitivity_smtp_delivery_dimensions() -> None:
+    result = redact_sensitive_fields(
+        None,
+        "warning",
+        {
+            "event": "smtp_delivery_attempt_failed",
+            "delivery_kind": "verification",
+            "attempt": 2,
+            "exception_type": "TimeoutError",
+            "email": "patient@example.invalid",
+            "token": "opaque-sensitive-token",
+            "exception_message": "could contain transport details",
+        },
+    )
+    assert result == {
+        "event": "smtp_delivery_attempt_failed",
+        "delivery_kind": "verification",
+        "attempt": 2,
+        "exception_type": "TimeoutError",
+    }
+
+
+def test_redaction_retains_low_sensitivity_smtp_success_event() -> None:
+    result = redact_sensitive_fields(
+        None,
+        "info",
+        {
+            "event": "smtp_delivery_succeeded",
+            "delivery_kind": "verification",
+            "attempt": 1,
+            "recipient": "patient@example.invalid",
+            "token": "opaque-sensitive-token",
+        },
+    )
+    assert result == {
+        "event": "smtp_delivery_succeeded",
+        "delivery_kind": "verification",
+        "attempt": 1,
+    }
+
+
 def test_production_requires_approved_registration_notice_configuration() -> None:
     with pytest.raises(ValidationError, match="registration notice configuration is incomplete"):
         Settings(env="production")

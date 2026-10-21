@@ -300,6 +300,7 @@ def current_auth_context(
     responses={
         422: problem_response("请求字段无效"),
         429: problem_response("请求频率受限"),
+        503: problem_response("验证邮件投递服务暂不可用"),
         500: problem_response("内部错误"),
     },
     tags=["Auth"],
