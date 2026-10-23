@@ -7,7 +7,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.OkHttpClient
-import okhttp3.Dns
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -67,9 +66,7 @@ class RecordImagesRepositoryTest {
         server.start(InetAddress.getByName("127.0.0.1"), 0)
         val retrofitOrigin = server.url("api/v1/")
         val origin = retrofitOrigin.newBuilder().host("10.0.2.2").build()
-        val emulatorClient = OkHttpClient.Builder().dns(object : Dns {
-            override fun lookup(hostname: String) = listOf(InetAddress.getByName("127.0.0.1"))
-        }).build()
+        val emulatorClient = loopbackTransportClient()
         server.enqueue(MockResponse().setResponseCode(200).setBody(
             """{"download_url":"${server.url("uploads/short-capability")}","expires_at":"2026-10-20T10:05:00Z"}""",
         ))
@@ -144,9 +141,7 @@ class RecordImagesRepositoryTest {
         try {
             val retrofitOrigin = server.url("api/v1/")
             val origin = retrofitOrigin.newBuilder().host("10.0.2.2").build()
-            val emulatorClient = OkHttpClient.Builder().dns(object : Dns {
-                override fun lookup(hostname: String) = listOf(InetAddress.getByName("127.0.0.1"))
-            }).build()
+            val emulatorClient = loopbackTransportClient()
             val api = Retrofit.Builder().baseUrl(retrofitOrigin).client(emulatorClient)
                 .addConverterFactory(MoshiConverterFactory.create(moshi)).build().create(RecordImagesApi::class.java)
             val repository = RecordImagesRepository(SameOriginRecordImagesApi(api, origin, allowEmulatorLoopback = true))
@@ -188,4 +183,12 @@ class RecordImagesRepositoryTest {
             assertEquals(1, server.requestCount)
         } finally { server.shutdown() }
     }
+
+    private fun loopbackTransportClient() = OkHttpClient.Builder().addInterceptor { chain ->
+        val request = chain.request()
+        val transportUrl = request.url.takeIf { it.host == "10.0.2.2" }
+            ?.newBuilder()?.host("127.0.0.1")?.build()
+            ?: request.url
+        chain.proceed(request.newBuilder().url(transportUrl).build())
+    }.build()
 }
