@@ -65,8 +65,15 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build, unit test, and lint native Android app
+      - name: Prepare Gradle wrapper
         working-directory: android
-        run: |
-          chmod +x gradlew
-          ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --max-workers=2
+        run: chmod +x gradlew
+      - name: Build native Android app
+        working-directory: android
+        run: ./gradlew :app:assembleDebug --no-daemon --max-workers=2
+      - name: Run native Android unit tests
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --max-workers=2
+      - name: Lint native Android app
+        working-directory: android
+        run: ./gradlew :app:lintDebug --no-daemon --max-workers=2
