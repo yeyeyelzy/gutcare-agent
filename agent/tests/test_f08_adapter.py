@@ -289,7 +289,7 @@ class F08Tests(unittest.TestCase):
             journal.save_callback(TASK_ID, "result", callback)
             agent = make_server(settings)
             for _ in range(50):
-                if FakeBusiness.callbacks:
+                if FakeBusiness.callbacks and journal.get(TASK_ID)["state"] == "completed":
                     break
                 time.sleep(0.05)
             self.assertEqual(FakeBusiness.callbacks, 1)
