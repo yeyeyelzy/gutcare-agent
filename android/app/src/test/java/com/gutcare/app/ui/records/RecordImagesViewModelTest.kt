@@ -79,7 +79,7 @@ class RecordImagesViewModelTest {
             model.upload("stool.jpg", "image/jpeg", byteArrayOf(1, 2, 3))
             advanceUntilIdle()
             assertTrue(model.uiState.value.needsConsentSettings)
-            assertTrue(model.uiState.value.message.orEmpty().contains("健康数据处理和敏感图片处理"))
+            assertTrue(model.uiState.value.message.orEmpty().contains("健康数据、敏感图片以及识别所需的第三方 AI 授权"))
         } finally { Dispatchers.resetMain() }
     }
 

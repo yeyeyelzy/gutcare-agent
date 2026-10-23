@@ -64,7 +64,7 @@ class RecordImagesRepositoryTest {
 
     @Test fun previewsUseFreshAttachmentGrantAndUnauthenticatedSameOriginCapabilityGet() = runBlocking {
         val server = MockWebServer()
-        server.start()
+        server.start(InetAddress.getByName("127.0.0.1"), 0)
         val retrofitOrigin = server.url("api/v1/")
         val origin = retrofitOrigin.newBuilder().host("10.0.2.2").build()
         val emulatorClient = OkHttpClient.Builder().dns(object : Dns {
@@ -132,7 +132,7 @@ class RecordImagesRepositoryTest {
     @Test fun uploadCompletesCleanFileThenAssociatesWithVersionedRecord() = runBlocking {
         val server = MockWebServer()
         val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
-        server.start()
+        server.start(InetAddress.getByName("127.0.0.1"), 0)
         server.enqueue(MockResponse().setResponseCode(201).setBody(
             """{"upload_id":"upload-1","upload_url":"${server.url("uploads/opaque-capability")}","expires_at":"2026-10-20T11:00:00Z"}""",
         ))
