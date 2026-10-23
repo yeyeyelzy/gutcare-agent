@@ -24,9 +24,12 @@ dependencies = [
 
 [project.scripts]
 gutcare-file-worker = "gutcare.files.worker:main"
+gutcare-medical-parse-dispatcher = "gutcare.files.medical_parse_dispatcher:main"
 gutcare-medication-materializer = "gutcare.medication.worker:main"
 gutcare-notification-dispatcher = "gutcare.notifications.worker:main"
 gutcare-privacy-worker = "gutcare.privacy.worker:main"
+gutcare-analysis-dispatcher = "gutcare.analysis.worker:main"
+gutcare-record-image-dispatcher = "gutcare.records.image_dispatcher:main"
 
 [dependency-groups]
 dev = [

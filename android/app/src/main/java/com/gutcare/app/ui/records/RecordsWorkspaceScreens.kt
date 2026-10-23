@@ -3,9 +3,11 @@ package com.gutcare.app.ui.records
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -23,18 +25,23 @@ import androidx.compose.ui.unit.dp
 import com.gutcare.app.core.network.PatientProfileDto
 import com.gutcare.app.navigation.RootTab
 import com.gutcare.app.ui.design.GutCarePage
+import com.gutcare.app.ui.design.GutCareBackButton
 import com.gutcare.app.ui.design.GutCarePrimaryButton
 import com.gutcare.app.ui.theme.GutCareBrandGreen
 import com.gutcare.app.ui.theme.GutCareMuted
+import com.gutcare.app.ui.theme.GutCareSage
 
 @Composable
 fun RecordsHubScreen(
     onOpenCategory: (WorkspaceRecordType) -> Unit,
+    onOpenActivity: () -> Unit = {},
     onOpenArchive: () -> Unit,
 ) {
     WorkspacePage("records_hub_screen") {
         Text("记录", style = MaterialTheme.typography.displayLarge)
         Text("查看和管理本人记录", color = GutCareMuted)
+        Spacer(Modifier.height(16.dp))
+        GutCarePrimaryButton("健康档案 · 上传检查报告", onOpenArchive, testTag = "records_open_health_archive")
         Spacer(Modifier.height(20.dp))
         WorkspaceRecordType.entries.forEach { type ->
             OutlinedButton(
@@ -44,7 +51,15 @@ fun RecordsHubScreen(
             ) { Text("${type.title}记录", modifier = Modifier.weight(1f)); Text("查看 / 新增  ›", color = GutCareBrandGreen) }
             Spacer(Modifier.height(10.dp))
         }
-        GutCarePrimaryButton("健康档案", onOpenArchive, testTag = "records_open_health_archive")
+        OutlinedButton(
+            onClick = onOpenActivity,
+            modifier = Modifier.fillMaxWidth().height(56.dp).testTag("records_open_activity"),
+            shape = RoundedCornerShape(18.dp),
+        ) {
+            Text("运动记录", modifier = Modifier.weight(1f))
+            Text("查看 / 新增  ›", color = GutCareBrandGreen)
+        }
+        Spacer(Modifier.height(10.dp))
     }
 }
 
@@ -61,7 +76,7 @@ fun RecordListScreen(
 ) {
     WorkspacePage("record_list_${type.name.lowercase()}_screen") {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack, modifier = Modifier.testTag("record_list_back")) { Text("‹ 返回") }
+            GutCareBackButton(onBack, testTag = "record_list_back")
             Text("${type.title}记录", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
         }
         Spacer(Modifier.height(14.dp))
@@ -95,8 +110,8 @@ fun RecordListScreen(
 private fun RecordRowCard(type: WorkspaceRecordType, record: RecordRow, index: Int, operation: RecordOperationState, onOpen: (RecordRow) -> Unit, onDelete: (RecordRow) -> Unit) {
     val confirm = remember(record.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(14.dp).testTag("record_row_$index")) {
-        Text(record.label, style = MaterialTheme.typography.titleMedium)
-        Text(record.occurredAt, color = GutCareMuted)
+        Text(if (type == WorkspaceRecordType.STOOL) "排便记录" else record.label, style = MaterialTheme.typography.titleMedium)
+        Text(formatRecordTime(record.occurredAt), color = GutCareMuted)
         TextButton(onClick = { onOpen(record) }, modifier = Modifier.testTag("record_open_$index")) { Text("查看详情") }
         TextButton(onClick = { confirm.value = true }, enabled = !operation.saving, modifier = Modifier.testTag("record_delete_$index")) { Text("删除") }
     }
@@ -117,11 +132,13 @@ fun RecordDetailScreen(
     onRetry: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onManageImages: (() -> Unit)? = null,
+    stoolRecognitionResult: String? = null,
 ) {
     val confirm = remember(state.detailState) { mutableStateOf(false) }
     WorkspacePage("record_detail_${type.name.lowercase()}_screen") {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack, modifier = Modifier.testTag("record_detail_back")) { Text("‹ 返回") }
+            GutCareBackButton(onBack, testTag = "record_detail_back")
             Text("${type.title}记录详情", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
         }
         Spacer(Modifier.height(14.dp))
@@ -133,7 +150,7 @@ fun RecordDetailScreen(
             }
             is RecordDetailLoadState.Loaded -> {
                 val record = detailState.detail
-                Text("发生时间：${record.occurredAt}")
+                Text(formatRecordTime(record.occurredAt), style = MaterialTheme.typography.titleMedium, color = GutCareBrandGreen, modifier = Modifier.testTag("record_detail_occurred_at"))
                 when (type) {
                     WorkspaceRecordType.DIET -> {
                         Text("餐次：${record.payload.mealType.orEmpty()}")
@@ -144,11 +161,23 @@ fun RecordDetailScreen(
                         record.payload.subjectiveNote?.let { Text("备注：$it") }
                     }
                     WorkspaceRecordType.STOOL -> {
-                        record.payload.bristolType?.let { Text("Bristol 类型：$it") }
-                        record.payload.colorCode?.let { Text("颜色描述：$it") }
-                        record.payload.bowelAmount?.let { Text("排便量：$it") }
-                        record.payload.processSensation.orEmpty().takeIf { it.isNotEmpty() }?.let { Text("过程感受：${it.joinToString()}") }
-                        record.payload.notes?.let { Text("备注：$it") }
+                        Spacer(Modifier.height(12.dp))
+                        DetailSection("排便情况", "stool_detail_bowel") {
+                            record.payload.bowelAmount?.let { DetailValue("排便量", it) }
+                            record.payload.processSensation.orEmpty().takeIf { it.isNotEmpty() }?.let { DetailValue("伴随不适", it.joinToString("、")) }
+                            if (record.payload.bowelAmount == null && record.payload.processSensation.isNullOrEmpty()) Text("暂无补充信息", color = GutCareMuted)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        DetailSection("观察与备注", "stool_detail_notes") {
+                            record.payload.colorCode?.let { DetailValue("颜色描述", it) }
+                            record.payload.notes?.takeIf { it.isNotBlank() }?.let { DetailValue("备注", it) }
+                            if (record.payload.colorCode == null && record.payload.notes.isNullOrBlank()) Text("暂无补充信息", color = GutCareMuted)
+                        }
+                        stoolRecognitionResult?.takeIf(String::isNotBlank)?.let { result ->
+                            Spacer(Modifier.height(12.dp))
+                            Text("识别结果：$result", style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.testTag("stool_bristol_recognition_result"))
+                        }
                     }
                     WorkspaceRecordType.SYMPTOM -> {
                         record.payload.items.orEmpty().forEach { item ->
@@ -170,6 +199,9 @@ fun RecordDetailScreen(
                 }
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick = onEdit, enabled = !state.operation.saving, modifier = Modifier.fillMaxWidth().testTag("record_detail_edit")) { Text("编辑") }
+                onManageImages?.let { action ->
+                    OutlinedButton(onClick = action, enabled = !state.operation.saving, modifier = Modifier.fillMaxWidth().testTag("record_detail_images")) { Text("管理记录图片") }
+                }
                 TextButton(onClick = { confirm.value = true }, enabled = !state.operation.saving, modifier = Modifier.testTag("record_detail_delete")) { Text("删除") }
             }
         }
@@ -184,6 +216,28 @@ fun RecordDetailScreen(
 }
 
 @Composable
+private fun DetailSection(title: String, tag: String, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxWidth().background(GutCareSage, RoundedCornerShape(18.dp)).padding(16.dp).testTag(tag)) {
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(10.dp))
+        content()
+    }
+}
+
+@Composable
+private fun DetailValue(label: String, value: String) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(label, style = MaterialTheme.typography.labelLarge, color = GutCareMuted)
+        Text(value, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+private fun formatRecordTime(value: String): String = runCatching {
+    val time = java.time.OffsetDateTime.parse(value).atZoneSameInstant(java.time.ZoneId.systemDefault())
+    "${time.toLocalDate()} ${time.toLocalTime().withSecond(0).withNano(0)}"
+}.getOrDefault(value)
+
+@Composable
 fun RecordEditBootstrapScreen(
     type: WorkspaceRecordType,
     state: RecordsUiState,
@@ -192,7 +246,7 @@ fun RecordEditBootstrapScreen(
 ) {
     WorkspacePage("record_edit_bootstrap_screen") {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack, modifier = Modifier.testTag("record_edit_back")) { Text("‹ 返回") }
+            GutCareBackButton(onBack, testTag = "record_edit_back")
             Text("编辑${type.title}记录", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
         }
         Spacer(Modifier.height(14.dp))
@@ -232,7 +286,7 @@ fun ProtectedPlaceholderScreen(tab: RootTab, onLogout: () -> Unit = {}) {
 
 @Composable
 private fun WorkspacePage(tag: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
-    GutCarePage(modifier = Modifier.testTag(tag)) {
+    GutCarePage(modifier = Modifier.statusBarsPadding().testTag(tag)) {
         Spacer(Modifier.height(16.dp))
         content()
         Spacer(Modifier.height(24.dp))

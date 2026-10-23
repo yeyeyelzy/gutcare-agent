@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $composeFile = Join-Path $root 'compose.phone-demo.yaml'
 $envFile = Join-Path $root 'phone-demo.env'
-$project = 'gutcare-phone-demo'
+$project = 'gutcare-competition-demo'
 # Keep Go-template quotes in a PowerShell single-quoted value.  Passing the
 # value as a variable prevents PowerShell from treating the label key as a
 # command expression or stripping the inner double quotes.

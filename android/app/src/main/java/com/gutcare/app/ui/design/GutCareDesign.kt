@@ -109,6 +109,22 @@ fun GutCarePage(
     }
 }
 
+/** A shared, easy-to-hit back control for all secondary screens. */
+@Composable
+fun GutCareBackButton(
+    onClick: () -> Unit,
+    text: String = "‹ 返回",
+    testTag: String,
+    modifier: Modifier = Modifier,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).testTag(testTag),
+    ) {
+        Text(text)
+    }
+}
+
 @Composable
 fun GutCareBrand(modifier: Modifier = Modifier, center: Boolean = false) {
     Row(

@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $composeFile = Join-Path $root 'compose.phone-demo.yaml'
 $envFile = Join-Path $root 'phone-demo.env'
-$project = 'gutcare-phone-demo'
+$project = 'gutcare-competition-demo'
 $api = 'http://127.0.0.1:8000'
 $mailpit = 'http://127.0.0.1:8025'
 $client = [System.Net.Http.HttpClient]::new()
@@ -85,6 +85,20 @@ function Get-MailToken([string]$Recipient) {
     throw 'Mailpit did not provide the synthetic verification message; message contents suppressed.'
 }
 
+function Grant-AvailableConsent([string]$Bearer, [string]$ConsentType) {
+    $notice = Invoke-Api 'GET' "$api/api/v1/consent-notices?consent_type=$ConsentType" $null $Bearer
+    Assert-Status $notice 200 "$ConsentType notice"
+    if (-not (Get-Field $notice.Body 'enabled') -or -not (Get-Field $notice.Body 'policy_version')) {
+        throw "$ConsentType is disabled in phone-demo configuration."
+    }
+    $saved = Invoke-Api 'POST' "$api/api/v1/patients/me/consents" @{
+        consent_type = $ConsentType
+        policy_version = (Get-Field $notice.Body 'policy_version')
+        granted = $true
+    } $Bearer
+    Assert-Status $saved 201 "$ConsentType consent"
+}
+
 try {
     if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) { throw 'Run phone-demo-up.ps1 first.' }
     $health = Invoke-Api 'GET' "$api/health/live"
@@ -107,19 +121,23 @@ try {
     $login = Invoke-Api 'POST' "$api/api/v1/auth/login" @{ email = $email; password = $password }
     Assert-Status $login 200 'login'
     $accessToken = [string]$login.Body.access_token
+    Grant-AvailableConsent $accessToken 'third_party_ai'
     $consents = Invoke-Api 'GET' "$api/api/v1/patients/me/consents" $null $accessToken
     Assert-Status $consents 200 'consent status'
     $healthConsent = @($consents.Body | Where-Object { $_.consent_type -eq 'health_data_processing' -and $_.granted -and $_.policy_version -eq 'test-only-health-v1' })
     if ($healthConsent.Count -ne 1) { throw 'Synthetic account does not have active health-data consent.' }
 
     Add-Type -AssemblyName System.Drawing
-    $bitmap = [System.Drawing.Bitmap]::new(2, 2)
-    $bitmap.SetPixel(0, 0, [System.Drawing.Color]::FromArgb(25, 80, 130))
+    $bitmap = [System.Drawing.Bitmap]::new(1000, 700)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $font = [System.Drawing.Font]::new('Arial', 30)
     $stream = [System.IO.MemoryStream]::new()
     try {
+        $graphics.Clear([System.Drawing.Color]::White)
+        $graphics.DrawString("LAB REPORT`nWBC 5.0 10^9/L`nReference range 3.5-9.5 10^9/L", $font, [System.Drawing.Brushes]::Black, 80, 100)
         $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Jpeg)
         $jpeg = $stream.ToArray()
-    } finally { $stream.Dispose(); $bitmap.Dispose() }
+    } finally { $stream.Dispose(); $font.Dispose(); $graphics.Dispose(); $bitmap.Dispose() }
 
     $upload = Invoke-Api 'POST' "$api/api/v1/files/uploads" @{
         purpose = 'medical_document'
@@ -138,10 +156,46 @@ try {
     $document = Invoke-Api 'POST' "$api/api/v1/medical-documents" @{
         file_object_id = $fileId
         document_type = 'other'
-        processing_mode = 'store_only'
+        processing_mode = 'analyze'
     } $accessToken
-    Assert-Status $document 201 'store_only medical document'
-    if ($document.Body.parse_status -ne 'not_requested') { throw 'store_only unexpectedly created a parse request.' }
+    Assert-Status $document 201 'analyze medical document'
+    if ($document.Body.parse_status -notin @('pending', 'processing', 'needs_confirmation', 'succeeded')) {
+        throw 'Analyze document did not enter the parse lifecycle.'
+    }
+
+    $deadline = (Get-Date).AddSeconds(120)
+    $detail = $null
+    while ((Get-Date) -lt $deadline) {
+        $detail = Invoke-Api 'GET' ("$api/api/v1/medical-documents/{0}" -f $document.Body.id) $null $accessToken
+        Assert-Status $detail 200 'medical parse status'
+        if ($detail.Body.parse_status -in @('needs_confirmation', 'succeeded', 'failed')) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    if ($null -eq $detail -or $detail.Body.parse_status -notin @('needs_confirmation', 'succeeded')) {
+        throw 'Medical parse did not reach a successful terminal state.'
+    }
+
+    $candidates = Invoke-Api 'GET' ("$api/api/v1/medical-documents/{0}/candidates" -f $document.Body.id) $null $accessToken
+    Assert-Status $candidates 200 'medical field candidates'
+    $candidateItems = @($candidates.Body)
+    if ($detail.Body.parse_outcome -eq 'extracted') {
+        if ($candidateItems.Count -eq 0) { throw 'Extracted outcome did not provide confirmable candidates.' }
+        $first = $candidateItems[0]
+        $decision = Invoke-Api 'POST' ("$api/api/v1/medical-field-candidates/{0}/decision" -f $first.id) @{
+            decision = 'accept'
+            record_version = $first.record_version
+        } $accessToken ("f02-decision-" + [guid]::NewGuid().ToString('N'))
+        Assert-Status $decision 204 'first candidate confirmation'
+        $facts = Invoke-Api 'GET' "$api/api/v1/patients/me/confirmed-medical-facts" $null $accessToken
+        Assert-Status $facts 200 'confirmed medical facts'
+        if (-not @($facts.Body | Where-Object { $_.source_document_id -eq $document.Body.id }).Count) {
+            throw 'Confirmed candidate is absent from the patient fact projection.'
+        }
+    } elseif ($detail.Body.parse_outcome -in @('no_supported_facts', 'insufficient_quality')) {
+        if ($candidateItems.Count -ne 0) { throw 'Empty parse outcome unexpectedly returned candidates.' }
+    } else {
+        throw 'Medical parse completed without a controlled parse outcome.'
+    }
 
     $profile = Invoke-Api 'GET' "$api/api/v1/patients/me" $null $accessToken
     Assert-Status $profile 200 'patient profile'
@@ -176,7 +230,7 @@ with engine.begin() as connection:
 
     $unauthorized = Invoke-Api 'GET' "$api/api/v1/medical-documents"
     Assert-Status $unauthorized 401 'unauthenticated archive rejection'
-    Write-Host 'F02 synthetic store_only upload, scan, archive, and authorized download E2E passed.'
+    Write-Host ("F02 synthetic analyze dispatch, callback, outcome, archive, and authorized download E2E passed ({0})." -f $detail.Body.parse_outcome)
 } finally {
     $client.Dispose()
 }

@@ -91,11 +91,22 @@ class DietPayload(BaseModel):
     portion_note: str | None = Field(default=None, max_length=160)
     cooking_method: str | None = Field(default=None, max_length=160)
     subjective_note: str | None = Field(default=None, max_length=1000)
+    # A short-lived, patient-initiated shell that exists only so a selected image
+    # can be safely attached to this patient's own record.  It is not a food fact.
+    image_only_entry: bool = False
 
     @model_validator(mode="after")
     def require_content(self) -> "DietPayload":
-        if not (self.text_description and self.text_description.strip()) and not self.items:
+        if (
+            not self.image_only_entry
+            and not (self.text_description and self.text_description.strip())
+            and not self.items
+        ):
             raise ValueError("diet record needs a description or at least one food item")
+        if self.image_only_entry and (
+            (self.text_description and self.text_description.strip()) or self.items
+        ):
+            raise ValueError("image_only_entry cannot include manual diet content")
         return self
 
 

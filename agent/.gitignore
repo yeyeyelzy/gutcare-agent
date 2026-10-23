@@ -1,0 +1,20 @@
+# 运行期数据（任务库、临时输出）
+data/
+# 打包产物（由 tools/package_submission.py 生成）
+dist/
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+# 本地环境（绝不提交密钥）
+.env
+.env.*
+!.env.example
+# 编辑器
+.vscode/
+.idea/
+# 模型输入输出录制可能包含患者数据，先留在本机；脱敏审查后再单独交付
+replays/
+# 独立领域测试包不随联调源码发布
+testdata_v4/

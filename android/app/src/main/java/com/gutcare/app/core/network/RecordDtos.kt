@@ -15,6 +15,7 @@ data class RecordPayloadDto(
     @Json(name = "portion_note") val portionNote: String? = null,
     @Json(name = "cooking_method") val cookingMethod: String? = null,
     @Json(name = "subjective_note") val subjectiveNote: String? = null,
+    @Json(name = "image_only_entry") val imageOnlyEntry: Boolean? = null,
     @Json(name = "bristol_type") val bristolType: Int? = null,
     @Json(name = "color_code") val colorCode: String? = null,
     @Json(name = "blood_reported") val bloodReported: Boolean? = null,

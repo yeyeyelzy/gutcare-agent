@@ -9,7 +9,13 @@ from pathlib import Path
 from gutcare.config import Settings
 
 SUPPORTED_NOTICE_TYPES = frozenset(
-    {"health_data_processing", "mood_data_processing", "mood_ai_sharing", "third_party_ai"}
+    {
+        "health_data_processing",
+        "mood_data_processing",
+        "mood_ai_sharing",
+        "sensitive_image",
+        "third_party_ai",
+    }
 )
 
 
@@ -29,6 +35,7 @@ _CONFIG_SUFFIXES = {
     "health_data_processing": "HEALTH_DATA_PROCESSING",
     "mood_data_processing": "MOOD_DATA_PROCESSING",
     "mood_ai_sharing": "MOOD_AI_SHARING",
+    "sensitive_image": "SENSITIVE_IMAGE",
     "third_party_ai": "THIRD_PARTY_AI",
 }
 

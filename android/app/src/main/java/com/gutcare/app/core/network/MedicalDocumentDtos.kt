@@ -23,6 +23,15 @@ data class MedicalDocumentDto(
 
 data class MedicalDocumentPageDto(val items: List<MedicalDocumentDto>, @Json(name = "next_cursor") val nextCursor: String?)
 
+data class ConfirmedMedicalFactDto(
+    @Json(name = "source_document_id") val sourceDocumentId: String,
+    @Json(name = "field_code") val fieldCode: String,
+    @Json(name = "value_type") val valueType: String,
+    val value: Any?,
+    val unit: String? = null,
+    @Json(name = "confirmed_at") val confirmedAt: String,
+)
+
 data class MedicalFieldCandidateDto(
     val id: String,
     @Json(name = "field_code") val fieldCode: String,

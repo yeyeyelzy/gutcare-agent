@@ -77,6 +77,7 @@ interface AuthWorkflow {
     fun verifyEmail(token: String, onResult: (AuthOperationState) -> Unit)
     fun requestPasswordReset(email: String, onResult: (AuthOperationState) -> Unit)
     fun confirmPasswordReset(token: String, newPassword: String, onResult: (AuthOperationState) -> Unit)
+    fun updateProfile(nickname: String?, birthYear: Int, profileVersion: Int, onResult: (AuthOperationState) -> Unit)
 }
 
 /**
@@ -103,6 +104,10 @@ object UnconnectedAuthWorkflow : AuthWorkflow {
     }
 
     override fun confirmPasswordReset(token: String, newPassword: String, onResult: (AuthOperationState) -> Unit) {
+        onResult(AuthOperationState.Error(unavailable))
+    }
+
+    override fun updateProfile(nickname: String?, birthYear: Int, profileVersion: Int, onResult: (AuthOperationState) -> Unit) {
         onResult(AuthOperationState.Error(unavailable))
     }
 }

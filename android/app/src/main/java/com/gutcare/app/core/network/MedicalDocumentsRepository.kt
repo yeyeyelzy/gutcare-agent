@@ -23,11 +23,15 @@ interface MedicalDocumentsApi {
     suspend fun listMedicalDocuments(cursor: String?, limit: Int?): Response<MedicalDocumentPageDto>
     suspend fun getMedicalDocument(documentId: String): Response<MedicalDocumentDto>
     suspend fun listCandidates(documentId: String): Response<List<MedicalFieldCandidateDto>>
+    suspend fun listConfirmedFacts(): Response<List<ConfirmedMedicalFactDto>>
     suspend fun decideCandidate(candidateId: String, idempotencyKey: String, body: MedicalCandidateDecisionDto): Response<Unit>
     suspend fun createUpload(idempotencyKey: String, body: UploadCreateDto): Response<UploadSessionDto>
     suspend fun uploadThroughGateway(uploadUrl: String, body: RequestBody): Response<Unit>
     suspend fun completeUpload(uploadId: String): Response<FileObjectDto>
     suspend fun createMedicalDocument(body: MedicalDocumentCreateDto): Response<MedicalDocumentDto>
+    suspend fun getConsents(): Response<List<ConsentStatusDto>>
+    suspend fun getConsentNotice(type: String): Response<ConsentNoticeDto>
+    suspend fun decideConsent(body: ConsentDecisionDto): Response<ConsentDecisionDto>
 }
 
 /** Retrofit declaration stays F02-specific so shared BusinessApi need not grow for this slice. */
@@ -35,31 +39,40 @@ private interface RetrofitMedicalDocumentsApi {
     @GET("medical-documents") suspend fun list(@Query("cursor") cursor: String?, @Query("limit") limit: Int?): Response<MedicalDocumentPageDto>
     @GET("medical-documents/{document_id}") suspend fun detail(@Path("document_id") id: String): Response<MedicalDocumentDto>
     @GET("medical-documents/{document_id}/candidates") suspend fun candidates(@Path("document_id") id: String): Response<List<MedicalFieldCandidateDto>>
+    @GET("patients/me/confirmed-medical-facts") suspend fun confirmedFacts(): Response<List<ConfirmedMedicalFactDto>>
     @POST("medical-field-candidates/{candidate_id}/decision") suspend fun decide(@Path("candidate_id") id: String, @Header("Idempotency-Key") key: String, @Body body: MedicalCandidateDecisionDto): Response<Unit>
     @POST("files/uploads") suspend fun createUpload(@Header("Idempotency-Key") key: String, @Body body: UploadCreateDto): Response<UploadSessionDto>
     @PUT suspend fun gatewayUpload(@Url url: String, @Body body: RequestBody): Response<Unit>
     @POST("files/uploads/{upload_id}/complete") suspend fun complete(@Path("upload_id") id: String): Response<FileObjectDto>
     @POST("medical-documents") suspend fun create(@Body body: MedicalDocumentCreateDto): Response<MedicalDocumentDto>
+    @GET("patients/me/consents") suspend fun consents(): Response<List<ConsentStatusDto>>
+    @GET("consent-notices") suspend fun notice(@Query("consent_type") type: String): Response<ConsentNoticeDto>
+    @POST("patients/me/consents") suspend fun decideConsent(@Body body: ConsentDecisionDto): Response<ConsentDecisionDto>
 }
 
 private class RetrofitMedicalDocumentsAdapter(
     private val api: RetrofitMedicalDocumentsApi,
     private val expectedGatewayOrigin: okhttp3.HttpUrl,
+    private val allowEmulatorLoopback: Boolean,
 ) : MedicalDocumentsApi {
     override suspend fun listMedicalDocuments(cursor: String?, limit: Int?) = api.list(cursor, limit)
     override suspend fun getMedicalDocument(documentId: String) = api.detail(documentId)
     override suspend fun listCandidates(documentId: String) = api.candidates(documentId)
+    override suspend fun listConfirmedFacts() = api.confirmedFacts()
     override suspend fun decideCandidate(candidateId: String, idempotencyKey: String, body: MedicalCandidateDecisionDto) = api.decide(candidateId, idempotencyKey, body)
     override suspend fun createUpload(idempotencyKey: String, body: UploadCreateDto) = api.createUpload(idempotencyKey, body)
     override suspend fun uploadThroughGateway(uploadUrl: String, body: RequestBody): Response<Unit> {
-        val url = runCatching { uploadUrl.toHttpUrl() }.getOrNull()
-        require(url != null && url.scheme == expectedGatewayOrigin.scheme && url.host == expectedGatewayOrigin.host && url.port == expectedGatewayOrigin.port && url.encodedPath.startsWith("/uploads/")) {
+        val url = resolveMedicalUploadUrl(uploadUrl, expectedGatewayOrigin, allowEmulatorLoopback)
+        require(url != null) {
             "Upload gateway must be the configured same-origin /uploads endpoint"
         }
-        return api.gatewayUpload(uploadUrl, body)
+        return api.gatewayUpload(url.toString(), body)
     }
     override suspend fun completeUpload(uploadId: String) = api.complete(uploadId)
     override suspend fun createMedicalDocument(body: MedicalDocumentCreateDto) = api.create(body)
+    override suspend fun getConsents() = api.consents()
+    override suspend fun getConsentNotice(type: String) = api.notice(type)
+    override suspend fun decideConsent(body: ConsentDecisionDto) = api.decideConsent(body)
 }
 
 object MedicalDocumentsApiFactory {
@@ -68,8 +81,26 @@ object MedicalDocumentsApiFactory {
         val configured = client.newBuilder().addInterceptor(BearerTokenInterceptor(accessTokens)).authenticator(authenticator).build()
         val retrofit = Retrofit.Builder().baseUrl(endpoint).client(configured)
             .addConverterFactory(MoshiConverterFactory.create(Moshi.Builder().add(KotlinJsonAdapterFactory()).build())).build()
-        return RetrofitMedicalDocumentsAdapter(retrofit.create(RetrofitMedicalDocumentsApi::class.java), endpoint.toHttpUrl())
+        return RetrofitMedicalDocumentsAdapter(
+            retrofit.create(RetrofitMedicalDocumentsApi::class.java),
+            endpoint.toHttpUrl(),
+            allowEmulatorLoopback = com.gutcare.app.BuildConfig.DEBUG && com.gutcare.app.BuildConfig.ALLOW_EMULATOR_HTTP,
+        )
     }
+}
+
+internal fun resolveMedicalUploadUrl(
+    value: String,
+    origin: okhttp3.HttpUrl,
+    allowEmulatorLoopback: Boolean,
+): okhttp3.HttpUrl? {
+    val target = runCatching { value.toHttpUrl() }.getOrNull() ?: return null
+    if (target.scheme != origin.scheme || target.port != origin.port || !target.encodedPath.startsWith("/uploads/")) return null
+    if (target.host == origin.host) return target
+    if (allowEmulatorLoopback && origin.host == "10.0.2.2" && target.host in setOf("localhost", "127.0.0.1")) {
+        return target.newBuilder().host(origin.host).build()
+    }
+    return null
 }
 
 class MedicalDocumentsRepository(
@@ -80,6 +111,7 @@ class MedicalDocumentsRepository(
     suspend fun list(cursor: String? = null, limit: Int = 20) = call { api.listMedicalDocuments(cursor, limit) }
     suspend fun detail(id: String) = call { api.getMedicalDocument(id) }
     suspend fun candidates(documentId: String) = call { api.listCandidates(documentId) }
+    suspend fun confirmedFacts() = call { api.listConfirmedFacts() }
     suspend fun decide(candidateId: String, idempotencyKey: String, body: MedicalCandidateDecisionDto): ApiResult<Unit> {
         if (idempotencyKey.length !in 8..128) return ApiResult.Failure(null, "IDEMPOTENCY_KEY_INVALID")
         return call { api.decideCandidate(candidateId, idempotencyKey, body) }
@@ -97,6 +129,19 @@ class MedicalDocumentsRepository(
         return call { api.completeUpload(session.uploadId) }
     }
     suspend fun create(body: MedicalDocumentCreateDto) = call { api.createMedicalDocument(body) }
+    suspend fun consents() = call { api.getConsents() }
+    suspend fun notice(type: String) = call { api.getConsentNotice(type) }
+    suspend fun decideConsent(type: String, version: String, granted: Boolean = true): ApiResult<ConsentStatusDto> {
+        when (val saved = call { api.decideConsent(ConsentDecisionDto(type, version, granted)) }) {
+            is ApiResult.Failure -> return saved
+            is ApiResult.Success -> Unit
+        }
+        return when (val latest = consents()) {
+            is ApiResult.Success -> latest.value.firstOrNull { it.consentType == type }?.let(ApiResult<ConsentStatusDto>::Success)
+                ?: ApiResult.Failure(null, "INVALID_RESPONSE")
+            is ApiResult.Failure -> latest
+        }
+    }
 
     private suspend fun <T> call(request: suspend () -> Response<T>): ApiResult<T> = try {
         val response = request()

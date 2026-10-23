@@ -61,6 +61,22 @@ class RecordsViewModelTest {
         } finally { Dispatchers.resetMain() }
     }
 
+    @Test fun stoolRecordSavesWithoutBristolAndNeverWritesManualClassification() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val gateway = FakeGateway()
+            val model = RecordsViewModel(gateway)
+            model.setTimeZone("Asia/Shanghai")
+            model.updateDraft { it.copy(date = "2026-10-19", time = "08:30") }
+            model.save(WorkspaceRecordType.STOOL)
+            advanceUntilIdle()
+            assertEquals(null, gateway.lastRecordWrite?.payload?.bristolType)
+            assertEquals("2026-10-19T08:30+08:00", gateway.lastRecordWrite?.occurredAt)
+            assertEquals("记录已保存。", model.uiState.value.operation.feedback)
+        } finally { Dispatchers.resetMain() }
+    }
+
     @Test fun saveWaitsForProfileTimeZoneAndAcceptsTheDisplayedSlashDateFormat() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(dispatcher)

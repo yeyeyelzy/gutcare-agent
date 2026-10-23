@@ -109,6 +109,7 @@ def _settings(path: Path, artifact: dict[str, Any], env: str = "test") -> Settin
         "health_data_processing",
         "mood_data_processing",
         "mood_ai_sharing",
+        "sensitive_image",
         "third_party_ai",
     ):
         suffix = consent_type.upper()
@@ -202,6 +203,36 @@ def test_direct_grant_requires_notice_version_and_succeeds_only_on_exact_match(
     assert len(database.consents) == 1
     assert database.consents[0].metadata_json["notice_summary_hash"] == (
         "7d30d978677482a02db144506c80aed867dcc395b82a96a4a1eda90a87c578e4"
+    )
+
+
+def test_sensitive_image_notice_is_server_owned_and_can_be_explicitly_granted(
+    tmp_path: Path,
+) -> None:
+    client, database, _ = _client(tmp_path)
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    notice = client.get(
+        "/api/v1/consent-notices",
+        params={"consent_type": "sensitive_image"},
+        headers=headers,
+    )
+    assert notice.status_code == 200
+    assert notice.json()["policy_version"] == "test-only-image-v1"
+    assert notice.json()["summary"]
+
+    decision = client.post(
+        "/api/v1/patients/me/consents",
+        headers=headers,
+        json={
+            "consent_type": "sensitive_image",
+            "policy_version": notice.json()["policy_version"],
+            "granted": True,
+        },
+    )
+    assert decision.status_code == 201
+    assert database.consents[-1].consent_type == "sensitive_image"
+    assert database.consents[-1].metadata_json["notice_summary_hash"] == (
+        "70b010ece5be5847f88733cc3cf4f6f65b178a0374a6dbbc2721042e5052f36e"
     )
 
 

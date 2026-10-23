@@ -1,5 +1,0 @@
-@use './tokens.scss';
-
-* { box-sizing: border-box; }
-page { min-height: 100%; background: var(--gc-color-canvas); color: var(--gc-color-text); font-size: var(--gc-font-size-md); line-height: var(--gc-line-height); }
-button, input, textarea { font: inherit; }

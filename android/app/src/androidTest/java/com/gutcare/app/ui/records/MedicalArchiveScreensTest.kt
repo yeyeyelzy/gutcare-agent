@@ -6,8 +6,10 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.runtime.mutableStateOf
 import com.gutcare.app.core.network.MedicalDocumentDto
 import com.gutcare.app.core.network.MedicalFieldCandidateDto
 import com.gutcare.app.ui.theme.GutCareTheme
@@ -37,12 +39,12 @@ class MedicalArchiveScreensTest {
         composeRule.runOnIdle { check(refreshed && opened) }
     }
 
-    @Test fun candidateExcerptIsHiddenUntilExpandedAndTruncatedAtDisplayLimit() {
+    @Test fun pendingCandidateIsPrefilledAndHidesInternalParseDetails() {
         var decision: String? = null
         val longExcerpt = "CRP: " + "x".repeat(260)
         val candidate = MedicalFieldCandidateDto(
             id = "candidate", fieldCode = "test_result", valueType = "object",
-            value = mapOf("result" to "4.2"), unit = "mg/L", confidence = 0.91,
+            value = mapOf("result" to "4.2", "unit" to "mg/L"), unit = "mg/L", confidence = 0.91,
             excerpt = longExcerpt, reviewStatus = "pending", recordVersion = 1,
         )
         composeRule.setContent {
@@ -54,14 +56,49 @@ class MedicalArchiveScreensTest {
             }
         }
         composeRule.onNodeWithTag("medical_candidate_0").assertIsDisplayed()
+        composeRule.onNodeWithTag("medical_candidate_correct_value_0").assertTextEquals("核对并修改", "{\"result\":\"4.2\",\"unit\":\"mg/L\"}")
         composeRule.onAllNodesWithTag("medical_candidate_excerpt_0").assertCountEquals(0)
-        composeRule.onNodeWithTag("medical_candidate_excerpt_toggle_0").performScrollTo().performClick()
-        composeRule.onNodeWithTag("medical_candidate_excerpt_0").performScrollTo().assertTextEquals(
-            "报告原文：${longExcerpt.take(160)}…",
-        )
-        composeRule.onNodeWithTag("medical_candidate_correct_value_0").performScrollTo().assertIsDisplayed()
+        composeRule.onAllNodesWithText("解析模式", substring = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("不确定性", substring = true).assertCountEquals(0)
         composeRule.onNodeWithTag("medical_candidate_accept_0").performScrollTo().performClick()
         composeRule.runOnIdle { check(decision == "accept") }
+    }
+
+    @Test fun acceptedCandidateShowsPatientChosenValueOnRefresh() {
+        val fact = com.gutcare.app.core.network.ConfirmedMedicalFactDto(
+            sourceDocumentId = "document", fieldCode = "test_item", valueType = "string", value = "hs-CRP",
+            confirmedAt = "2026-10-20T00:00:00Z",
+        )
+        composeRule.setContent {
+            GutCareTheme {
+                MedicalDocumentDetailScreen(
+                    state = MedicalArchiveUiState(detail = report().copy(parseStatus = "confirmed"), confirmedFacts = listOf(fact)),
+                    onBack = {}, onRetry = {}, onDecision = { _, _, _ -> },
+                )
+            }
+        }
+        composeRule.onNodeWithTag("medical_confirmed_fact_0").assertTextEquals("检验项目：hs-CRP")
+    }
+
+    @Test fun pendingParseAutomaticallyRefreshesWhileDetailIsVisible() {
+        var refreshes = 0
+        val state = mutableStateOf(MedicalArchiveUiState(detail = report().copy(parseStatus = "pending")))
+        composeRule.setContent {
+            GutCareTheme {
+                MedicalDocumentDetailScreen(
+                    state = state.value,
+                    onBack = {},
+                    onRetry = { refreshes++ },
+                    onDecision = { _, _, _ -> },
+                )
+            }
+        }
+        composeRule.waitUntil(timeoutMillis = 7_000) { refreshes > 0 }
+        composeRule.runOnIdle {
+            state.value = state.value.copy(detail = state.value.detail?.copy(parseStatus = "needs_confirmation"))
+        }
+        composeRule.waitForIdle()
+        composeRule.runOnIdle { check(refreshes > 0) }
     }
 
     @Test fun initialArchiveLoadingAndNetworkErrorHaveExplicitRetryState() {

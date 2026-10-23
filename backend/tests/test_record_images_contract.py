@@ -45,11 +45,13 @@ def test_image_routes_match_frozen_public_operation_ids() -> None:
         "listStoolRecordImages",
         "attachStoolRecordImage",
         "deleteRecordImage",
+        "createRecordImageDownloadGrant",
         "getRecordImageRecognitionDisclosure",
         "acknowledgeRecordImageRecognitionDisclosure",
         "createDietImageRecognitionRequest",
         "createStoolImageRecognitionRequest",
         "getRecordImageRecognitionRequest",
+        "getLatestStoolImageRecognitionRequest",
         "retryRecordImageRecognitionRequest",
         "decideRecordImageCandidate",
     } <= operations
@@ -59,16 +61,64 @@ def test_image_routes_match_frozen_public_operation_ids() -> None:
         "listStoolRecordImages",
         "attachStoolRecordImage",
         "deleteRecordImage",
+        "createRecordImageDownloadGrant",
         "getRecordImageRecognitionDisclosure",
         "acknowledgeRecordImageRecognitionDisclosure",
         "createDietImageRecognitionRequest",
         "createStoolImageRecognitionRequest",
         "getRecordImageRecognitionRequest",
+        "getLatestStoolImageRecognitionRequest",
         "retryRecordImageRecognitionRequest",
         "decideRecordImageCandidate",
     }
     assert implemented <= operations
     assert implemented <= runtime_operations
+    artifact_attachment = contract["components"]["schemas"]["RecordImageAttachment"]
+    assert set(artifact_attachment["required"]) == {
+        "id",
+        "record_id",
+        "position",
+        "record_version",
+        "image_set_version",
+        "file_status",
+        "created_at",
+    }
+    assert artifact_attachment["properties"]["file_status"]["enum"] == [
+        "available",
+        "unavailable",
+    ]
+    attachment = runtime["components"]["schemas"]["RecordImageAttachmentResponse"]
+    assert set(attachment["required"]) == {
+        "id",
+        "record_id",
+        "position",
+        "record_version",
+        "image_set_version",
+        "file_status",
+        "created_at",
+    }
+    for schema_name, runtime_name, expected in (
+        ("DietRecordImageCandidate", "DietCandidateResponse", True),
+        ("StoolRecordImageCandidate", "StoolCandidateResponse", False),
+    ):
+        contract_candidate = contract["components"]["schemas"][schema_name]
+        runtime_candidate = runtime["components"]["schemas"][runtime_name]
+        assert "requires_patient_confirmation" in contract_candidate["required"]
+        assert contract_candidate["properties"]["requires_patient_confirmation"] == {
+            "type": "boolean",
+            "const": expected,
+        }
+        assert "requires_patient_confirmation" in runtime_candidate["required"]
+        runtime_confirmation = runtime_candidate["properties"]["requires_patient_confirmation"]
+        assert runtime_confirmation.get("const", runtime_confirmation.get("enum")) in (
+            expected,
+            [expected],
+        )
+    decision_409 = contract["paths"]["/record-image-candidates/{candidate_id}/decision"]["post"][
+        "responses"
+    ]["409"]
+    assert "CANDIDATE_DECISION_NOT_REQUIRED" in decision_409["description"]
+    assert "CANDIDATE_DECISION_NOT_REQUIRED" in str(decision_409["content"])
 
 
 def test_worker_routes_match_frozen_agent_contract() -> None:

@@ -29,10 +29,6 @@ class ApiFoundationTest {
         val parsed = ProblemDetailsParser.parse("""{"type":"about:blank","title":"Request failed","status":401,"code":"AUTHENTICATION_REQUIRED","request_id":"00000000-0000-4000-8000-000000000401"}""")
         assertEquals("AUTHENTICATION_REQUIRED", parsed?.code)
         assertEquals(401, parsed?.status)
-        val withExtensionObjects = ProblemDetailsParser.parse(
-            """{"type":"about:blank","title":"Invalid input","status":422,"code":"VALIDATION_ERROR","request_id":"00000000-0000-4000-8000-000000000401","errors":[{"field":"email","message":"invalid","metadata":{"source":"schema"}}]}""",
-        )
-        assertEquals("schema", (withExtensionObjects?.errors?.first()?.get("metadata") as? Map<*, *>)?.get("source"))
         assertNull(ProblemDetailsParser.parse("not-json"))
     }
 

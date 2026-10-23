@@ -1,12 +1,36 @@
 """F03-F05 payload contracts are strict and reject unconfirmed/model metadata."""
 
+from datetime import UTC, datetime
+from types import SimpleNamespace
+
 import pytest
 import yaml
 from pydantic import ValidationError
 
 from gutcare.records.api import RecordWrite, validate_payload
-from gutcare.records.service import build_risk_facts, evaluate_condition
+from gutcare.records.service import RecordService, build_risk_facts, evaluate_condition
 from gutcare.shared.errors import Problem
+
+
+@pytest.mark.parametrize(
+    ("record_type", "image_set_version"),
+    [("diet-records", 1), ("stool-records", 1), ("symptom-records", 0)],
+)
+def test_record_dto_includes_current_image_set_version(
+    record_type: str, image_set_version: int
+) -> None:
+    now = datetime(2026, 10, 21, tzinfo=UTC)
+    obj = SimpleNamespace(
+        id="record-1",
+        occurred_at=now,
+        payload={},
+        record_version=1,
+        image_set_version=image_set_version,
+        created_at=now,
+        updated_at=now,
+    )
+
+    assert RecordService._dto(obj, record_type)["image_set_version"] == image_set_version
 
 
 def test_diet_record_allows_manual_no_image_and_rejects_extra_fields() -> None:

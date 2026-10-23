@@ -1,5 +1,0 @@
-export type MedicalPickerMime = 'application/pdf' | 'image/jpeg' | 'image/png'
-export interface PickedMedicalFile { path: string; name: string; size: number; mime: MedicalPickerMime }
-export type MedicalPickerFailure = 'cancelled' | 'unsupported_type' | 'too_large' | 'unavailable'
-export function chooseMedicalFile(success: (file: PickedMedicalFile) => void, failure: (reason: MedicalPickerFailure) => void): void
-export function cleanupMedicalFile(path: string): void

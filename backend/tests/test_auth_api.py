@@ -317,6 +317,7 @@ def test_openapi_exposes_frozen_auth_operations_and_bearer_logout(client: TestCl
     assert list(paths["/api/v1/auth/register"]["post"]["responses"]["422"]["content"]) == [
         "application/problem+json"
     ]
+    assert "503" in paths["/api/v1/auth/register"]["post"]["responses"]
     assert (
         "application/problem+json"
         in paths["/api/v1/auth/logout"]["post"]["responses"]["401"]["content"]
@@ -649,6 +650,7 @@ def test_frozen_openapi_auth_shapes_match_runtime_constraints() -> None:
             "422",
             "429",
             "500",
+            "503",
         }
     )
     assert "401" not in static_register_responses

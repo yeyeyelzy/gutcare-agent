@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.agent.example
 .env.local
 phone-demo.env
 .demo-source/
@@ -25,3 +26,9 @@ __pycache__/
 /app/dist/
 .runtime/
 /.downloads/
+.gradle-codex-verify/
+android/app/src/androidTest/assets/record-image-live*.jpg
+android/.gradle-build-cache/
+android/existing-gutcare.apk
+android/local-plugin-resolution.init.gradle.kts
+/tmp/

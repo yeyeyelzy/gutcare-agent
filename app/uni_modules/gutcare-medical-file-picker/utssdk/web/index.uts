@@ -1,7 +1,0 @@
-import type { MedicalPickerFailure, PickedMedicalFile } from '../interface.uts'
-
-export function chooseMedicalFile(_success: (file: PickedMedicalFile) => void, failure: (reason: MedicalPickerFailure) => void): void {
-  failure('unavailable')
-}
-
-export function cleanupMedicalFile(_path: string): void {}

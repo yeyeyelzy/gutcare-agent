@@ -191,6 +191,20 @@ class AuthSessionRepositoryTest {
         }
     }
 
+    @Test fun profileUpdateUsesCurrentVersionAndReturnsAuthoritativeProfile() = runBlocking {
+        MockWebServer().useServer { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody(
+                """{"id":"00000000-0000-4000-8000-000000000001","nickname":"小 GutCare","birth_year":1991,"timezone":"Asia/Shanghai","profile_version":2}""",
+            ))
+            val result = repository(server, FakeSessions()).updateMyProfile("小 GutCare", 1991, 1)
+            assertEquals(AuthWorkflowResult.Success(PatientProfileDto("00000000-0000-4000-8000-000000000001", "小 GutCare", 1991, "Asia/Shanghai", 2)), result)
+            val request = server.takeRequest()
+            assertEquals("PATCH", request.method)
+            assertEquals("/api/v1/patients/me", request.path)
+            assertEquals("""{"profile_version":1,"nickname":"小 GutCare","birth_year":1991}""", request.body.readUtf8())
+        }
+    }
+
     private fun repository(server: MockWebServer, sessions: FakeSessions, notices: RegistrationNoticeProvider = RegistrationNoticeProvider { null }) =
         AuthSessionRepository(api(server), sessions, notices)
 

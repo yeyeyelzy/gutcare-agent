@@ -21,6 +21,9 @@ _SAFE_FIELDS = {
     "route",
     "status_code",
     "duration_ms",
+    "delivery_kind",
+    "attempt",
+    "exception_type",
     "code",
     "error_code",
 }
@@ -59,11 +62,18 @@ def redact_sensitive_fields(
                 )
                 else "[REDACTED]"
             )
-        elif name in {"service", "code", "error_code", "level"}:
+        elif name in {
+            "service",
+            "code",
+            "error_code",
+            "level",
+            "delivery_kind",
+            "exception_type",
+        }:
             safe[name] = (
                 value if isinstance(value, str) and _SAFE_EVENT.fullmatch(value) else "[REDACTED]"
             )
-        elif name in {"status_code", "duration_ms"}:
+        elif name in {"status_code", "duration_ms", "attempt"}:
             safe[name] = value if isinstance(value, (int, float)) else "[REDACTED]"
         else:
             # Correlation identifiers are retained only in canonical UUID form.

@@ -1,6 +1,7 @@
 package com.gutcare.app.navigation
 
 import com.gutcare.app.ui.auth.RegistrationDraft
+import com.gutcare.app.ui.auth.AuthOperationState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -40,6 +41,14 @@ class RoutePolicyTest {
     }
 
     @Test
+    fun acceptedRegistrationDoesNotLetOldProfileGuardRaceDraftClear() {
+        val clearedDraft = RegistrationDraft()
+
+        assertTrue(RoutePolicy.shouldRedirectFromInvalidRegistrationProfile(clearedDraft, AuthOperationState.Idle))
+        assertFalse(RoutePolicy.shouldRedirectFromInvalidRegistrationProfile(clearedDraft, AuthOperationState.Accepted))
+    }
+
+    @Test
     fun recordsAndHealthArchiveRoutesRemainProtected() {
         assertEquals(AppRoute.Welcome, RoutePolicy.allowedDestination(AppSessionState.Public, AppRoute.DietRecordNew))
         assertEquals(AppRoute.Welcome, RoutePolicy.allowedDestination(AppSessionState.Public, AppRoute.HealthArchive))
@@ -49,5 +58,76 @@ class RoutePolicyTest {
             AppRoute.DietRecordNew, AppRoute.StoolRecordNew, AppRoute.SymptomRecordNew, AppRoute.MoodRecordNew,
             AppRoute.HealthArchive,
         ).forEach { assertEquals(AppRoute.Welcome, RoutePolicy.allowedDestination(AppSessionState.Public, it)) }
+    }
+
+    @Test
+    fun newlyIntegratedBusinessRoutesAreProtectedAndHaveUniquePatterns() {
+        val routes = listOf(
+            AppRoute.FeatureDirectory, AppRoute.Medication, AppRoute.RiskAlerts,
+            AppRoute.RiskAlertDetail, AppRoute.Trends, AppRoute.History,
+            AppRoute.PrivacySettings, AppRoute.RecordImages,
+            AppRoute.Notifications, AppRoute.NotificationDetail, AppRoute.NotificationPreferences, AppRoute.Activity,
+        )
+        routes.forEach { route ->
+            assertTrue("${route.value} must be protected", route.value in AppRoute.protectedRoutes)
+            assertEquals(AppRoute.Welcome, RoutePolicy.allowedDestination(AppSessionState.Public, route))
+            assertEquals(route, RoutePolicy.allowedDestination(AppSessionState.Authenticated, route))
+        }
+        assertEquals("risk-alerts/abc", riskAlertDetailRoute("abc"))
+        assertEquals("records/images/diet/abc", recordImagesRoute("diet", "abc"))
+        assertEquals("notifications/c2e5c22e-8f26-4d12-9b68-2b71cdbd065f", notificationDetailRoute("c2e5c22e-8f26-4d12-9b68-2b71cdbd065f"))
+        assertTrue(routes.map(AppRoute::value).distinct().size == routes.size)
+    }
+
+    @Test
+    fun phoneDemoFeatureEntrancesAreReachableOnlyAfterAuthentication() {
+        val entrances = listOf(
+            AppRoute.Analysis,
+            AppRoute.DietRecords,
+            AppRoute.StoolRecords,
+            AppRoute.DietRecordNew,
+            AppRoute.StoolRecordNew,
+            AppRoute.RecordDetail,
+            AppRoute.RecordImages,
+        )
+
+        entrances.forEach { route ->
+            assertTrue("${route.value} must be a protected navigation destination", route.value in AppRoute.protectedRoutes)
+            assertEquals(AppRoute.Welcome, RoutePolicy.allowedDestination(AppSessionState.Public, route))
+            assertEquals(route, RoutePolicy.allowedDestination(AppSessionState.Authenticated, route))
+        }
+        assertEquals("records/detail/diet/record-1", recordDetailRoute("diet", "record-1"))
+        assertEquals("records/detail/stool/record-2", recordDetailRoute("stool", "record-2"))
+        assertEquals("records/images/diet/record-1", recordImagesRoute("diet", "record-1"))
+        assertEquals("records/images/stool/record-2", recordImagesRoute("stool", "record-2"))
+    }
+
+    @Test
+    fun restoredSecondaryRoutesHaveSafeBackFallbacks() {
+        assertEquals(AppRoute.Records.value, RoutePolicy.backFallback(AppRoute.History.value))
+        assertEquals(AppRoute.RiskAlerts.value, RoutePolicy.backFallback(AppRoute.RiskAlertDetail.value))
+        assertEquals(AppRoute.Notifications.value, RoutePolicy.backFallback(AppRoute.NotificationPreferences.value))
+        assertEquals(AppRoute.StoolRecords.value, RoutePolicy.backFallback(AppRoute.RecordDetail.value, "stool"))
+        assertEquals(
+            recordDetailRoute("diet", "record-1"),
+            RoutePolicy.backFallback(AppRoute.RecordImages.value, "diet", "record-1"),
+        )
+        assertEquals(null, RoutePolicy.backFallback(AppRoute.Records.value))
+    }
+
+    @Test
+    fun recordFormsReturnToTheirOwnCategoryOrTheTodayEntryPoint() {
+        assertEquals("records/stool/new?origin=today", recordFormRoute(AppRoute.StoolRecordNew, RecordEntryOrigin.TODAY))
+        assertEquals("records/stool/new?origin=records", recordFormRoute(AppRoute.StoolRecordNew, RecordEntryOrigin.RECORDS))
+        assertEquals(AppRoute.Today.value, RoutePolicy.backFallback(AppRoute.StoolRecordNew.value, recordOrigin = "today"))
+        assertEquals(AppRoute.StoolRecords.value, RoutePolicy.backFallback(AppRoute.StoolRecordNew.value, recordOrigin = "records"))
+        assertEquals(AppRoute.DietRecords.value, RoutePolicy.backFallback(AppRoute.DietRecordNew.value, recordOrigin = "records"))
+    }
+
+    @Test
+    fun activityReturnsToItsExplicitEntryPoint() {
+        assertEquals("activity?origin=today", activityRoute(RecordEntryOrigin.TODAY))
+        assertEquals(AppRoute.Today.value, RoutePolicy.backFallback(AppRoute.Activity.value, recordOrigin = "today"))
+        assertEquals(AppRoute.Records.value, RoutePolicy.backFallback(AppRoute.Activity.value, recordOrigin = "records"))
     }
 }

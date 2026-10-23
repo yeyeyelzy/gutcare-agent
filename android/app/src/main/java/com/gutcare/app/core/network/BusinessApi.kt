@@ -22,6 +22,7 @@ interface BusinessApi {
     @POST("auth/password/reset/request") suspend fun requestPasswordReset(@Body body: PasswordResetRequest): Response<AcceptedOperation>
     @POST("auth/password/reset/confirm") suspend fun confirmPasswordReset(@Body body: PasswordResetConfirmRequest): Response<Unit>
     @GET("patients/me") suspend fun myProfile(): Response<PatientProfileDto>
+    @PATCH("patients/me") suspend fun updateMyProfile(@Body body: PatientProfilePatchDto): Response<PatientProfileDto>
 
     @GET("{record_type}") suspend fun listRecords(
         @Path(value = "record_type", encoded = true) recordType: String,
@@ -79,7 +80,94 @@ interface BusinessApi {
         @Query("since") since: String? = null,
         @Query("until") until: String? = null,
     ): Response<HistoryPageDto>
+
+    @GET("risk-alerts") suspend fun listRiskAlerts(
+        @Query("cursor") cursor: String? = null,
+        @Query("limit") limit: Int? = null,
+        @Query("unread_only") unreadOnly: Boolean? = null,
+    ): Response<RiskAlertPageDto>
+    @GET("risk-alerts/{alert_id}") suspend fun getRiskAlert(@Path("alert_id") alertId: String): Response<RiskAlertDto>
+    @POST("risk-alerts/{alert_id}/read") suspend fun readRiskAlert(@Path("alert_id") alertId: String): Response<RiskAlertDto>
+    @POST("risk-alerts/{alert_id}/reevaluate") suspend fun reevaluateRiskAlert(@Path("alert_id") alertId: String): Response<RiskAlertDto>
+    @GET("trends") suspend fun getTrends(
+        @Query("from") from: String,
+        @Query("to") to: String,
+        @Query("bucket") bucket: String = "day",
+    ): Response<TrendResponseDto>
+
+    @GET("activity-records") suspend fun listActivityRecords(
+        @Query("cursor") cursor: String? = null,
+        @Query("limit") limit: Int? = null,
+        @Query("since") since: String? = null,
+        @Query("until") until: String? = null,
+    ): Response<ActivityPageDto>
+    @POST("activity-records") suspend fun createActivityRecord(@Body body: ActivityWriteDto): Response<ActivityRecordDto>
+    @GET("activity-records/{record_id}") suspend fun getActivityRecord(@Path("record_id") id: String): Response<ActivityRecordDto>
+    @PATCH("activity-records/{record_id}") suspend fun patchActivityRecord(
+        @Path("record_id") id: String,
+        @Body body: RequestBody,
+    ): Response<ActivityRecordDto>
+    @HTTP(method = "DELETE", path = "activity-records/{record_id}", hasBody = true)
+    suspend fun deleteActivityRecord(@Path("record_id") id: String, @Body body: RecordVersionRequestDto): Response<Unit>
+
 }
+
+data class ConsentStatusDto(
+    @Json(name = "consent_type") val consentType: String,
+    @Json(name = "policy_version") val policyVersion: String?,
+    val granted: Boolean,
+    @Json(name = "decided_at") val decidedAt: String?,
+    @Json(name = "revoked_at") val revokedAt: String?,
+)
+data class ConsentNoticeDto(
+    @Json(name = "consent_type") val consentType: String,
+    val enabled: Boolean,
+    @Json(name = "policy_version") val policyVersion: String? = null,
+    val summary: String? = null,
+    val purpose: String? = null,
+    @Json(name = "data_scope") val dataScope: String? = null,
+    val recipient: String? = null,
+    @Json(name = "withdrawal_effect") val withdrawalEffect: String? = null,
+)
+data class ConsentDecisionDto(
+    @Json(name = "consent_type") val consentType: String,
+    @Json(name = "policy_version") val policyVersion: String,
+    val granted: Boolean,
+)
+data class PrivacyDeletionAcceptedDto(
+    @Json(name = "operation_id") val operationId: String,
+    val receipt: String?,
+    val status: String,
+)
+data class DeletionStatusRequestDto(val receipt: String)
+data class PrivacyDeletionStatusDto(
+    @Json(name = "operation_id") val operationId: String,
+    val status: String,
+    @Json(name = "requested_at") val requestedAt: String,
+    @Json(name = "due_at") val dueAt: String,
+    @Json(name = "completed_at") val completedAt: String?,
+)
+data class PrivacyExportRequestDto(val categories: List<String>)
+data class PrivacyExportPreviewDto(
+    @Json(name = "export_id") val exportId: String,
+    val status: String,
+    val categories: List<String>,
+)
+data class PrivacyExportSummaryDto(
+    @Json(name = "export_id") val exportId: String,
+    val status: String,
+    val categories: List<String>,
+    @Json(name = "created_at") val createdAt: String,
+    @Json(name = "expires_at") val expiresAt: String?,
+)
+data class PrivacyExportDetailDto(
+    @Json(name = "export_id") val exportId: String,
+    val status: String,
+    val categories: List<String>,
+    @Json(name = "created_at") val createdAt: String,
+    @Json(name = "expires_at") val expiresAt: String?,
+    @Json(name = "download_capability") val downloadCapability: String?,
+)
 
 data class RegisterRequest(
     val email: String,
@@ -107,6 +195,11 @@ data class PatientProfileDto(
     @Json(name = "birth_year") val birthYear: Int,
     val timezone: String,
     @Json(name = "profile_version") val profileVersion: Int,
+)
+data class PatientProfilePatchDto(
+    @Json(name = "profile_version") val profileVersion: Int,
+    val nickname: String?,
+    @Json(name = "birth_year") val birthYear: Int,
 )
 data class ProblemDetailsDto(
     val type: String? = null,

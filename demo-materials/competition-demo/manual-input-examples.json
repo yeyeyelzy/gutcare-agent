@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0",
+  "demo_only": true,
+  "synthetic_only": true,
+  "synthetic": true,
+  "for_testing_only": true,
+  "clinical_use_allowed": false,
+  "warning": "展示用虚构数据；不适用于临床。此文件不是 demo_data.py build 的输入。",
+  "registration_profile": {
+    "email": "gutcare.register.demo+20261022@example.test",
+    "password": "LOCAL_SECRET_CARD",
+    "birth_year": 1990,
+    "privacy_policy_version": "LOCAL_DEMO_NOTICE_VERSION",
+    "health_data_processing_consent": true,
+    "health_data_processing_policy_version": "LOCAL_DEMO_NOTICE_VERSION",
+    "profile": {
+      "nickname": "演示用户甲",
+      "timezone": "Asia/Shanghai"
+    },
+    "operator_note": "密码仅为本地秘密卡片占位文本；告知版本须由与目标后端同步的获准制品提供。"
+  },
+  "manual_records": {
+    "diet": {
+      "occurred_at": "2026-01-04T12:15:00+08:00",
+      "payload": {
+        "meal_type": "lunch",
+        "items": [
+          {
+            "name": "合成米饭",
+            "category_code": "grain_staple",
+            "amount_text": "一小碗（虚构份量）"
+          },
+          {
+            "name": "合成蔬菜",
+            "category_code": "vegetable",
+            "amount_text": "一份（虚构份量）"
+          }
+        ]
+      }
+    },
+    "stool": {
+      "occurred_at": "2026-01-04T14:00:00+08:00",
+      "payload": {
+        "bristol_type": 4,
+        "color_code": null,
+        "blood_reported": null,
+        "urgency_level": null,
+        "bowel_amount": null,
+        "process_sensation": [],
+        "notes": null
+      },
+      "note": "这是手工示例值；若来自图像识别，Bristol 分类只能作为 AI 辅助显示，不写入患者确认字段。"
+    },
+    "symptom": {
+      "occurred_at": "2026-01-04T16:30:00+08:00",
+      "payload": {
+        "items": [
+          {
+            "symptom_code": "bloating",
+            "other_description": null,
+            "severity": 2,
+            "body_location": null
+          }
+        ],
+        "symptom_status": "relieved",
+        "duration_minutes": 20,
+        "notes": null,
+        "companion_signs": []
+      }
+    },
+    "mood": {
+      "occurred_at": "2026-01-04T18:00:00+08:00",
+      "mood_level": 4,
+      "emotion_tags": [
+        "calm",
+        "content"
+      ],
+      "note": null
+    },
+    "activity": {
+      "activity_type": "walking",
+      "description": null,
+      "intensity": "low",
+      "subjective_feeling": "same",
+      "duration_minutes": 15,
+      "occurred_at": "2026-01-04T17:00:00+08:00"
+    },
+    "medication": {
+      "plan": {
+        "medication_name": "合成演示片剂",
+        "dosage_text": null,
+        "route_code": null,
+        "start_date": "2026-01-01",
+        "end_date": null,
+        "source_type": "manual"
+      },
+      "schedule": {
+        "local_time": "20:00:00",
+        "timezone": "Asia/Shanghai",
+        "rrule": "FREQ=DAILY;COUNT=7",
+        "valid_from": "2026-01-01",
+        "valid_to": "2026-01-07",
+        "enabled": true
+      },
+      "checkin_example": {
+        "status": "pending",
+        "taken_at": null,
+        "note": null
+      },
+      "note": "仅演示患者手工录入计划字段和待回应打卡；不表示真实用药建议，不提供剂量或漏服处理。"
+    }
+  }
+}

@@ -207,7 +207,13 @@ def create_app(
 
             application.state.database_probe = production_database_probe
         sessions = sessionmaker(engine, expire_on_commit=False)
-        application.state.record_service = RecordService(sessions)
+        application.state.record_service = RecordService(
+            sessions,
+            allow_test_only_rules=(
+                resolved_settings.risk_test_only_rules_enabled
+                and resolved_settings.env in {"local", "test"}
+            ),
+        )
         application.state.medication_service = MedicationService(sessions)
         application.state.analysis_service = AnalysisService(
             sessions, resolved_settings.jwt_signing_key
@@ -287,6 +293,7 @@ def create_app(
                 str(resolved_settings.public_base_url),
                 resolved_settings.object_storage_bucket,
                 resolved_settings.files_capability_secret,
+                worker_sessions=analysis_worker_sessions,
             )
     if analysis_worker_sessions is not None and application.state.file_service is not None:
         application.state.record_image_worker_service = RecordImageWorkerService(

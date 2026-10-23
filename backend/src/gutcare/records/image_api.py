@@ -29,6 +29,17 @@ class AttachBody(BaseModel):
     image_set_version: int = Field(ge=1)
 
 
+class RecordImageAttachmentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: UUID
+    record_id: UUID
+    position: int = Field(ge=0, le=9)
+    record_version: int = Field(ge=1)
+    image_set_version: int = Field(ge=1)
+    file_status: Literal["available", "unavailable"]
+    created_at: datetime
+
+
 class DisclosureBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     record_id: UUID
@@ -73,6 +84,7 @@ class DietCandidateResponse(BaseModel):
     ]
     image_region: tuple[float, float, float, float] | None = None
     status: Literal["pending", "accepted", "edited", "rejected", "invalidated"]
+    requires_patient_confirmation: Literal[True]
 
 
 class StoolCandidateResponse(BaseModel):
@@ -88,6 +100,7 @@ class StoolCandidateResponse(BaseModel):
     ]
     image_region: tuple[float, float, float, float] | None = None
     status: Literal["pending", "accepted", "edited", "rejected", "invalidated"]
+    requires_patient_confirmation: Literal[False]
 
 
 class RecognitionRequestResponse(BaseModel):
@@ -188,6 +201,34 @@ def _record(
     return row
 
 
+def _compact_attachment_positions(
+    db: Session, *, table: str, patient_id: UUID, record_id: UUID
+) -> None:
+    """Close position gaps in ascending order while each target slot is already free."""
+    rows = (
+        db.execute(
+            text(
+                f"SELECT id,position FROM health.{table} "
+                "WHERE patient_id=:p AND record_id=:r AND deleted_at IS NULL "
+                "ORDER BY position,id FOR UPDATE"
+            ),
+            {"p": patient_id, "r": record_id},
+        )
+        .mappings()
+        .all()
+    )
+    for position, row in enumerate(rows):
+        if row["position"] == position:
+            continue
+        db.execute(
+            text(
+                f"UPDATE health.{table} SET position=:position "
+                "WHERE id=:id AND patient_id=:p AND record_id=:r AND deleted_at IS NULL"
+            ),
+            {"position": position, "id": row["id"], "p": patient_id, "r": record_id},
+        )
+
+
 def _attach(record_type: str, operation: str) -> Callable[..., dict[str, Any]]:
     table = "diet_record_image" if record_type == "diet" else "stool_record_image"
     record_table = "diet_record" if record_type == "diet" else "stool_record"
@@ -211,11 +252,6 @@ def _attach(record_type: str, operation: str) -> Callable[..., dict[str, Any]]:
                     {"p": str(patient_id)},
                 )
                 rec = _record(db, patient_id, record_id, record_type, lock=True)
-                if (
-                    rec["record_version"] != body.record_version
-                    or rec["image_set_version"] != body.image_set_version
-                ):
-                    raise Problem(409, "RECORD_VERSION_CONFLICT", "Record version has changed")
                 if not _consents(db, patient_id):
                     raise Problem(409, "CONSENT_REQUIRED", "Required image consent is missing")
                 digest = hashlib.sha256(
@@ -238,24 +274,31 @@ def _attach(record_type: str, operation: str) -> Callable[..., dict[str, Any]]:
                             "IDEMPOTENCY_CONFLICT",
                             "Idempotency key was used with a different request",
                         )
-                    found = (
+                    current = (
                         db.execute(
                             text(
-                                f"SELECT id,file_object_id,position,created_at FROM health.{table} WHERE id=:id AND patient_id=:p"
+                                f"SELECT a.id,a.record_id,a.position,a.created_at, "
+                                "CASE WHEN f.storage_status='available' AND f.scan_status='clean' AND f.deleted_at IS NULL "
+                                "THEN 'available' ELSE 'unavailable' END AS file_status "
+                                f"FROM health.{table} a JOIN health.file_object f ON f.id=a.file_object_id AND f.patient_id=a.patient_id "
+                                "WHERE a.id=:id AND a.patient_id=:p AND a.deleted_at IS NULL"
                             ),
                             {"id": idem["resource_id"], "p": patient_id},
                         )
                         .mappings()
                         .first()
                     )
-                    if found:
+                    if current:
                         return {
-                            **dict(found),
-                            "id": str(found["id"]),
-                            "file_object_id": str(found["file_object_id"]),
+                            **dict(current),
                             "record_version": rec["record_version"],
                             "image_set_version": rec["image_set_version"],
                         }
+                if (
+                    rec["record_version"] != body.record_version
+                    or rec["image_set_version"] != body.image_set_version
+                ):
+                    raise Problem(409, "RECORD_VERSION_CONFLICT", "Record version has changed")
                 file = db.execute(
                     text("""SELECT f.id FROM health.file_object f
                         JOIN health.upload_session u ON u.file_object_id=f.id AND u.patient_id=f.patient_id
@@ -281,7 +324,7 @@ def _attach(record_type: str, operation: str) -> Callable[..., dict[str, Any]]:
                 row = (
                     db.execute(
                         text(
-                            f"INSERT INTO health.{table}(patient_id,record_id,file_object_id,position) VALUES (:p,:r,:f,:pos) RETURNING id,file_object_id,position,created_at"
+                            f"INSERT INTO health.{table}(patient_id,record_id,file_object_id,position) VALUES (:p,:r,:f,:pos) RETURNING id,record_id,position,created_at"
                         ),
                         {
                             "p": patient_id,
@@ -311,8 +354,9 @@ def _attach(record_type: str, operation: str) -> Callable[..., dict[str, Any]]:
                 )
                 return {
                     "id": str(row["id"]),
-                    "file_object_id": str(row["file_object_id"]),
+                    "record_id": str(row["record_id"]),
                     "position": row["position"],
+                    "file_status": "available",
                     "created_at": row["created_at"].isoformat(),
                     "record_version": rec["record_version"] + 1,
                     "image_set_version": rec["image_set_version"] + 1,
@@ -334,18 +378,25 @@ def _list_images(record_type: str) -> Callable[..., list[dict[str, Any]]]:
         db = _session(request)
         try:
             patient_id = _patient(db, context)
-            _record(db, patient_id, record_id, record_type)
+            rec = _record(db, patient_id, record_id, record_type)
             rows = db.execute(
                 text(
-                    f"SELECT id,file_object_id,position,created_at FROM health.{table} WHERE patient_id=:p AND record_id=:r AND deleted_at IS NULL ORDER BY position"
+                    f"SELECT a.id,a.record_id,a.position,a.created_at, "
+                    "CASE WHEN f.storage_status='available' AND f.scan_status='clean' AND f.deleted_at IS NULL "
+                    "THEN 'available' ELSE 'unavailable' END AS file_status "
+                    f"FROM health.{table} a JOIN health.file_object f ON f.id=a.file_object_id AND f.patient_id=a.patient_id "
+                    "WHERE a.patient_id=:p AND a.record_id=:r AND a.deleted_at IS NULL ORDER BY a.position"
                 ),
                 {"p": patient_id, "r": record_id},
             ).mappings()
             return [
                 {
                     "id": str(r["id"]),
-                    "file_object_id": str(r["file_object_id"]),
+                    "record_id": str(r["record_id"]),
                     "position": r["position"],
+                    "record_version": rec["record_version"],
+                    "image_set_version": rec["image_set_version"],
+                    "file_status": r["file_status"],
                     "created_at": r["created_at"].isoformat(),
                 }
                 for r in rows
@@ -357,7 +408,10 @@ def _list_images(record_type: str) -> Callable[..., list[dict[str, Any]]]:
 
 
 @router.get(
-    "/dietary-records/{record_id}/images", operation_id="listDietRecordImages", tags=["Records"]
+    "/dietary-records/{record_id}/images",
+    operation_id="listDietRecordImages",
+    tags=["Records"],
+    response_model=list[RecordImageAttachmentResponse],
 )
 def list_diet_images(
     record_id: UUID,
@@ -372,6 +426,7 @@ def list_diet_images(
     status_code=201,
     operation_id="attachDietRecordImage",
     tags=["Records"],
+    response_model=RecordImageAttachmentResponse,
 )
 def attach_diet_image(
     record_id: UUID,
@@ -384,7 +439,10 @@ def attach_diet_image(
 
 
 @router.get(
-    "/stool-records/{record_id}/images", operation_id="listStoolRecordImages", tags=["Records"]
+    "/stool-records/{record_id}/images",
+    operation_id="listStoolRecordImages",
+    tags=["Records"],
+    response_model=list[RecordImageAttachmentResponse],
 )
 def list_stool_images(
     record_id: UUID,
@@ -399,6 +457,7 @@ def list_stool_images(
     status_code=201,
     operation_id="attachStoolRecordImage",
     tags=["Records"],
+    response_model=RecordImageAttachmentResponse,
 )
 def attach_stool_image(
     record_id: UUID,
@@ -467,6 +526,9 @@ def delete_record_image(
             db.execute(
                 text(f"UPDATE health.{table} SET deleted_at=now() WHERE id=:id AND patient_id=:p"),
                 {"id": image_id, "p": patient_id},
+            )
+            _compact_attachment_positions(
+                db, table=table, patient_id=patient_id, record_id=found["record_id"]
             )
             db.execute(
                 text(
@@ -626,7 +688,7 @@ def acknowledge_disclosure(
                 },
             )
         return {
-            "token": token,
+            "disclosure_token": token,
             "expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
             "purpose": body.purpose,
             "policy_version": body.policy_version,
@@ -716,53 +778,96 @@ def get_recognition_request(
         )
         if row is None:
             raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
-        candidates = db.execute(
-            text("""SELECT id,attachment_id,candidate_type,candidate_group_key,confidence_band,value,locator,uncertainty,
-                candidate_version,status FROM analysis.record_image_candidate
-                WHERE request_id=:id AND patient_id=:patient_id ORDER BY created_at,id"""),
-            {"id": request_id, "patient_id": patient_id},
-        ).mappings()
-        return {
-            "id": str(row["id"]),
-            "recognition_type": row["recognition_type"],
-            "status": row["status"],
-            "record_version": row["record_version"],
-            "image_set_version": row["image_set_version"],
-            "decision_record_version": row["decision_record_version"],
-            "attempt": row["attempt"],
-            "retry_of_request_id": (
-                str(row["retry_of_request_id"]) if row["retry_of_request_id"] else None
-            ),
-            "reason_code": {
-                "invalid_image": "unsupported_image",
-                "timeout": "agent_unavailable",
-                "internal_processing_error": "agent_unavailable",
-                "agent_unavailable": "agent_unavailable",
-            }.get(row["failure_code"]),
-            "candidates": [
-                {
-                    "id": str(candidate["id"]),
-                    "attachment_id": str(candidate["attachment_id"]),
-                    "candidate_type": candidate["candidate_type"],
-                    **(
-                        {"candidate_group_key": str(candidate["candidate_group_key"])}
-                        if row["recognition_type"] == "diet_image_recognition"
-                        else {}
-                    ),
-                    "value": candidate["value"],
-                    "confidence_band": candidate["confidence_band"],
-                    "image_region": candidate["locator"],
-                    "uncertainty_code": candidate["uncertainty"],
-                    "candidate_version": candidate["candidate_version"],
-                    "status": candidate["status"],
-                }
-                for candidate in candidates
-            ],
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-        }
+        return _recognition_request_response(db, row, patient_id)
     finally:
         db.close()
+
+
+@router.get(
+    "/stool-records/{record_id}/image-recognition-requests/latest",
+    response_model=RecognitionRequestResponse,
+    operation_id="getLatestStoolImageRecognitionRequest",
+    tags=["Records"],
+)
+def get_latest_stool_recognition_request(
+    record_id: UUID,
+    request: Request,
+    context: Annotated[AuthContext, Depends(current_auth_context)],
+) -> dict[str, Any]:
+    """Return the newest persisted image-recognition task for the caller's stool record."""
+    db = _session(request)
+    try:
+        patient_id = _patient(db, context)
+        _record(db, patient_id, record_id, "stool")
+        row = (
+            db.execute(
+                text("""SELECT id,recognition_type,status,record_version,
+                decision_record_version,image_set_version,attempt,retry_of_request_id,
+                failure_code,created_at,updated_at
+                FROM analysis.record_image_recognition_request
+                WHERE patient_id=:patient_id AND record_id=:record_id
+                  AND recognition_type='stool_image_recognition'
+                ORDER BY created_at DESC,id DESC LIMIT 1"""),
+                {"record_id": record_id, "patient_id": patient_id},
+            )
+            .mappings()
+            .first()
+        )
+        if row is None:
+            raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
+        return _recognition_request_response(db, row, patient_id)
+    finally:
+        db.close()
+
+
+def _recognition_request_response(db: Session, row: Any, patient_id: UUID) -> dict[str, Any]:
+    candidates = db.execute(
+        text("""SELECT id,attachment_id,candidate_type,candidate_group_key,confidence_band,value,locator,uncertainty,
+            candidate_version,status FROM analysis.record_image_candidate
+            WHERE request_id=:id AND patient_id=:patient_id ORDER BY created_at,id"""),
+        {"id": row["id"], "patient_id": patient_id},
+    ).mappings()
+    is_diet = row["recognition_type"] == "diet_image_recognition"
+    return {
+        "id": str(row["id"]),
+        "recognition_type": row["recognition_type"],
+        "status": row["status"],
+        "record_version": row["record_version"],
+        "image_set_version": row["image_set_version"],
+        "decision_record_version": row["decision_record_version"],
+        "attempt": row["attempt"],
+        "retry_of_request_id": (
+            str(row["retry_of_request_id"]) if row["retry_of_request_id"] else None
+        ),
+        "reason_code": {
+            "invalid_image": "unsupported_image",
+            "timeout": "agent_unavailable",
+            "internal_processing_error": "agent_unavailable",
+            "agent_unavailable": "agent_unavailable",
+        }.get(row["failure_code"]),
+        "candidates": [
+            {
+                "id": str(candidate["id"]),
+                "attachment_id": str(candidate["attachment_id"]),
+                "candidate_type": candidate["candidate_type"],
+                **(
+                    {"candidate_group_key": str(candidate["candidate_group_key"])}
+                    if is_diet
+                    else {}
+                ),
+                "value": candidate["value"],
+                "confidence_band": candidate["confidence_band"],
+                "image_region": candidate["locator"],
+                "uncertainty_code": candidate["uncertainty"],
+                "candidate_version": candidate["candidate_version"],
+                "status": candidate["status"],
+                "requires_patient_confirmation": is_diet,
+            }
+            for candidate in candidates
+        ],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
 
 
 @router.post(
@@ -800,6 +905,12 @@ def decide_record_image_candidate(
             )
             if probe is None:
                 raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
+            if probe["recognition_type"] == "stool_image_recognition":
+                raise Problem(
+                    409,
+                    "CANDIDATE_DECISION_NOT_REQUIRED",
+                    "Stool image recognition candidates do not require patient decisions",
+                )
             kind = "diet" if probe["recognition_type"] == "diet_image_recognition" else "stool"
             rec = _record(db, patient_id, probe["record_id"], kind, lock=True)
             request_row = (

@@ -1,6 +1,7 @@
 package com.gutcare.app.core.network
 
 import android.content.Context
+import com.gutcare.app.BuildConfig
 import com.gutcare.app.core.security.AndroidKeystoreSecretStore
 import com.gutcare.app.core.security.DefaultSecureSessionStore
 import com.gutcare.app.core.security.SecureSessionStore
@@ -103,15 +104,29 @@ class AndroidAuthComposition(context: Context) {
     private val invalidateSession = { mutableSessionInvalidations.update { it + 1 } }
     private val tokens = SecureSessionAccessTokens(sessions, invalidateSession)
     private val plainApi = BusinessApiFactory.createPlainConfigured()
-    private val authenticatedApi = BusinessApiFactory.createConfigured(
-        accessTokens = tokens,
-        authenticator = sessionAuthenticator(tokens, plainApi),
-    )
+    private val authenticator = sessionAuthenticator(tokens, plainApi)
+    private val authenticatedApi = BusinessApiFactory.createConfigured(accessTokens = tokens, authenticator = authenticator)
     val notices = AndroidRegistrationNoticeProvider(context.applicationContext)
     val repository = AuthSessionRepository(BusinessApiRouter(plainApi, authenticatedApi), sessions, notices, invalidateSession)
     val recordsRepository = RecordsRepository(authenticatedApi, sessions, invalidateSession)
+    val activityRecordsRepository = ActivityRecordsRepository(authenticatedApi, sessions, invalidateSession)
+    val medicationRepository = MedicationRepository(
+        MedicationGatewayFactory.createConfigured(tokens, authenticator), sessions, invalidateSession,
+    )
+    val analysisAdviceRepository = AnalysisAdviceRepository(
+        AnalysisAdviceApiFactory.createConfigured(tokens, authenticator),
+    )
+    val privacyRepository = PrivacyRepository(
+        PrivacyApiFactory.createConfigured(tokens, authenticator), sessions, invalidateSession,
+    )
+    val recordImagesRepository = RecordImagesRepository(
+        RecordImagesApiFactory.createConfigured(tokens, authenticator), sessions, invalidateSession,
+    )
+    val notificationRepository = NotificationRepository(
+        NotificationApiFactory.createConfigured(tokens, authenticator), sessions, invalidateSession,
+    )
     val medicalDocumentsRepository = MedicalDocumentsRepository(
-        MedicalDocumentsApiFactory.createConfigured(tokens, sessionAuthenticator(tokens, plainApi)),
+        MedicalDocumentsApiFactory.createConfigured(tokens, authenticator),
         sessions,
         invalidateSession,
     )
@@ -131,6 +146,7 @@ class AndroidAuthComposition(context: Context) {
         override suspend fun requestPasswordReset(body: PasswordResetRequest) = plain.requestPasswordReset(body)
         override suspend fun confirmPasswordReset(body: PasswordResetConfirmRequest) = plain.confirmPasswordReset(body)
         override suspend fun myProfile() = authenticated.myProfile()
+        override suspend fun updateMyProfile(body: PatientProfilePatchDto) = authenticated.updateMyProfile(body)
         override suspend fun listRecords(recordType: String, cursor: String?, limit: Int?, since: String?, until: String?) = authenticated.listRecords(recordType, cursor, limit, since, until)
         override suspend fun createRecord(recordType: String, idempotencyKey: String, body: RecordWriteDto) = authenticated.createRecord(recordType, idempotencyKey, body)
         override suspend fun getRecord(recordType: String, recordId: String) = authenticated.getRecord(recordType, recordId)
@@ -143,6 +159,16 @@ class AndroidAuthComposition(context: Context) {
         override suspend fun updateMoodRecord(recordId: String, body: okhttp3.RequestBody) = authenticated.updateMoodRecord(recordId, body)
         override suspend fun deleteMoodRecord(recordId: String, body: RecordVersionRequestDto) = authenticated.deleteMoodRecord(recordId, body)
         override suspend fun historyTimeline(cursor: String?, limit: Int?, categories: List<String>?, since: String?, until: String?) = authenticated.historyTimeline(cursor, limit, categories, since, until)
+        override suspend fun listRiskAlerts(cursor: String?, limit: Int?, unreadOnly: Boolean?) = authenticated.listRiskAlerts(cursor, limit, unreadOnly)
+        override suspend fun getRiskAlert(alertId: String) = authenticated.getRiskAlert(alertId)
+        override suspend fun readRiskAlert(alertId: String) = authenticated.readRiskAlert(alertId)
+        override suspend fun reevaluateRiskAlert(alertId: String) = authenticated.reevaluateRiskAlert(alertId)
+        override suspend fun getTrends(from: String, to: String, bucket: String) = authenticated.getTrends(from, to, bucket)
+        override suspend fun listActivityRecords(cursor: String?, limit: Int?, since: String?, until: String?) = authenticated.listActivityRecords(cursor, limit, since, until)
+        override suspend fun createActivityRecord(body: ActivityWriteDto) = authenticated.createActivityRecord(body)
+        override suspend fun getActivityRecord(id: String) = authenticated.getActivityRecord(id)
+        override suspend fun patchActivityRecord(id: String, body: okhttp3.RequestBody) = authenticated.patchActivityRecord(id, body)
+        override suspend fun deleteActivityRecord(id: String, body: RecordVersionRequestDto) = authenticated.deleteActivityRecord(id, body)
     }
 }
 
@@ -186,6 +212,15 @@ class RuntimeAuthWorkflow(
             .onFailure { onResult(networkError()) }
     }.let { }
 
+    override fun updateProfile(nickname: String?, birthYear: Int, profileVersion: Int, onResult: (com.gutcare.app.ui.auth.AuthOperationState) -> Unit) = scope.launch {
+        runCatching { repository.updateMyProfile(nickname?.trim()?.takeIf(String::isNotEmpty), birthYear, profileVersion) }
+            .onSuccess { result ->
+                if (result is AuthWorkflowResult.Success) onAuthenticated(result.profile)
+                onResult(result.toUiState())
+            }
+            .onFailure { onResult(networkError()) }
+    }.let { }
+
     override fun verifyEmail(token: String, onResult: (com.gutcare.app.ui.auth.AuthOperationState) -> Unit) {
         scope.launch {
             runCatching { repository.verifyEmail(token) }
@@ -205,9 +240,7 @@ class RuntimeAuthWorkflow(
     private fun AuthWorkflowResult.toUiState() = when (this) {
         is AuthWorkflowResult.Success -> com.gutcare.app.ui.auth.AuthOperationState.Accepted
         is AuthWorkflowResult.Accepted -> com.gutcare.app.ui.auth.AuthOperationState.Accepted
-        is AuthWorkflowResult.Failure -> com.gutcare.app.ui.auth.AuthOperationState.Error(
-            listOfNotNull(code ?: "REQUEST_FAILED", status?.let { "HTTP $it" }, requestId?.let { "request_id: $it" }).joinToString(" · "),
-        )
+        is AuthWorkflowResult.Failure -> com.gutcare.app.ui.auth.AuthOperationState.Error(reason.name)
     }
 
     private fun networkError() = com.gutcare.app.ui.auth.AuthOperationState.Error("NETWORK_ERROR · 请检查网络后重试。")

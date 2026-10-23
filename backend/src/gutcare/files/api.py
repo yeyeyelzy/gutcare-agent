@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from gutcare.auth.api import current_auth_context
 from gutcare.auth.service import AuthContext
 from gutcare.files.service import (
+    ConfirmedMedicalFactData,
     DocumentPageData,
     DownloadGrantData,
     FileObjectData,
@@ -84,9 +85,17 @@ class FileServicePort(Protocol):
 
     def create_download_grant(self, context: AuthContext, file_id: UUID) -> DownloadGrantData: ...
 
+    def create_record_image_download_grant(
+        self, context: AuthContext, attachment_id: UUID
+    ) -> DownloadGrantData: ...
+
     def download_by_capability(self, capability: str) -> tuple[bytes, str, str]: ...
 
     def list_medical_candidates(self, context: AuthContext, document_id: UUID) -> list[Any]: ...
+
+    def list_confirmed_medical_facts(
+        self, context: AuthContext
+    ) -> list[ConfirmedMedicalFactData]: ...
 
     def decide_medical_candidate(
         self,
@@ -124,6 +133,8 @@ class FileServicePort(Protocol):
     def fail_medical_parse_request(
         self, request_id: UUID, callback_id: UUID, error_code: str
     ) -> None: ...
+
+    def claim_medical_parse_request(self) -> UUID | None: ...
 
 
 class UploadRequest(BaseModel):
@@ -268,6 +279,8 @@ class MedicalFactConflictResolutionResponse(BaseModel):
 
 
 class CandidateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     field_code: str
     value_type: str
@@ -280,6 +293,19 @@ class CandidateResponse(BaseModel):
     review_status: str
     record_version: int
     chosen_value: Any
+
+
+class ConfirmedMedicalFactResponse(BaseModel):
+    """Patient-approved projection; deliberately excludes candidate evidence and model metadata."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    source_document_id: UUID
+    field_code: str
+    value_type: str
+    value: Any
+    unit: str | None
+    confirmed_at: datetime
 
 
 class AgentCandidate(BaseModel):
@@ -366,6 +392,26 @@ def get_file_service(request: Request) -> FileServicePort:
     if service is None:
         raise Problem(503, "FILE_STORAGE_UNAVAILABLE", "File services are temporarily unavailable")
     return service
+
+
+class AgentMedicalParseClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: UUID | None
+
+
+@agent_router.post(
+    "/medical-parse-requests/claim",
+    operation_id="claimMedicalParseRequest",
+    response_model=AgentMedicalParseClaim,
+)
+def claim_medical_parse_request(
+    request: Request,
+    service: Annotated[FileServicePort, Depends(get_file_service)],
+    authorization: Annotated[str | None, Header()] = None,
+) -> AgentMedicalParseClaim:
+    _require_agent(request, authorization)
+    return AgentMedicalParseClaim(request_id=service.claim_medical_parse_request())
 
 
 @router.post(
@@ -508,6 +554,22 @@ def create_download_grant(
     return DownloadGrantResponse.from_domain(service.create_download_grant(context, file_id))
 
 
+@router.post(
+    "/record-images/{attachment_id}/download-grants",
+    operation_id="createRecordImageDownloadGrant",
+    response_model=DownloadGrantResponse,
+    tags=["Records"],
+)
+def create_record_image_download_grant(
+    attachment_id: UUID,
+    context: Annotated[AuthContext, Depends(current_auth_context)],
+    service: Annotated[FileServicePort, Depends(get_file_service)],
+) -> DownloadGrantResponse:
+    return DownloadGrantResponse.from_domain(
+        service.create_record_image_download_grant(context, attachment_id)
+    )
+
+
 @router.get(
     "/medical-documents/{document_id}/candidates",
     response_model=list[CandidateResponse],
@@ -522,6 +584,22 @@ def list_medical_candidates(
     return [
         CandidateResponse.model_validate(item)
         for item in service.list_medical_candidates(context, document_id)
+    ]
+
+
+@router.get(
+    "/patients/me/confirmed-medical-facts",
+    response_model=list[ConfirmedMedicalFactResponse],
+    operation_id="listMyConfirmedMedicalFacts",
+    tags=["Records"],
+)
+def list_my_confirmed_medical_facts(
+    context: Annotated[AuthContext, Depends(current_auth_context)],
+    service: Annotated[FileServicePort, Depends(get_file_service)],
+) -> list[ConfirmedMedicalFactResponse]:
+    return [
+        ConfirmedMedicalFactResponse.model_validate(item)
+        for item in service.list_confirmed_medical_facts(context)
     ]
 
 

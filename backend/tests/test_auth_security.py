@@ -1,5 +1,6 @@
 """Unit tests for account lookup, email encryption, and token digest helpers."""
 
+import smtplib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from threading import Event, Lock, local
@@ -19,7 +20,13 @@ from gutcare.auth.security import (
     token_digest,
     utc_now,
 )
-from gutcare.auth.service import AuthService, password_hasher
+from gutcare.auth.service import (
+    SMTP_DELIVERY_MAX_ATTEMPTS,
+    SMTP_DELIVERY_TIMEOUT_SECONDS,
+    AuthService,
+    SmtpEmailVerificationProvider,
+    password_hasher,
+)
 from gutcare.config import Settings
 from gutcare.shared.errors import Problem
 
@@ -447,3 +454,138 @@ def test_registration_records_distinct_privacy_and_health_data_consents() -> Non
     assert by_type["privacy_policy"].metadata_json["notice_summary_hash"] == privacy_hash
     assert by_type["health_data_processing"].document_version == "health-v2"
     assert by_type["health_data_processing"].metadata_json["notice_summary_hash"] == health_hash
+
+
+def test_smtp_delivery_has_bounded_retries_and_low_sensitivity_logs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[tuple[str, int, int]] = []
+    log_events: list[tuple[str, dict[str, object]]] = []
+
+    class UnavailableSmtp:
+        def __init__(self, host: str, port: int, timeout: int) -> None:
+            attempts.append((host, port, timeout))
+            raise OSError("failure text that must not be logged")
+
+    monkeypatch.setattr(smtplib, "SMTP", UnavailableSmtp)
+    monkeypatch.setattr(
+        "gutcare.auth.service.logger.warning",
+        lambda event, **fields: log_events.append((event, fields)),
+    )
+    provider = SmtpEmailVerificationProvider(
+        Settings(env="test", smtp_host="mail.invalid", smtp_port=1025)
+    )
+
+    with pytest.raises(OSError):
+        provider.send_verification(
+            "sensitive-patient@example.com", "opaque-sensitive-verification-token"
+        )
+
+    assert (
+        attempts
+        == [("mail.invalid", 1025, SMTP_DELIVERY_TIMEOUT_SECONDS)] * SMTP_DELIVERY_MAX_ATTEMPTS
+    )
+    assert log_events == [
+        (
+            "smtp_delivery_attempt_failed",
+            {
+                "delivery_kind": "verification",
+                "attempt": attempt,
+                "exception_type": "OSError",
+            },
+        )
+        for attempt in range(1, SMTP_DELIVERY_MAX_ATTEMPTS + 1)
+    ]
+    rendered = repr(log_events)
+    assert "sensitive-patient@example.com" not in rendered
+    assert "opaque-sensitive-verification-token" not in rendered
+    assert "failure text that must not be logged" not in rendered
+
+
+def test_smtp_delivery_logs_low_sensitivity_success_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    log_events: list[tuple[str, dict[str, object]]] = []
+
+    class SuccessfulSmtp:
+        def __init__(self, host: str, port: int, timeout: int) -> None:
+            assert timeout == SMTP_DELIVERY_TIMEOUT_SECONDS
+
+        def __enter__(self) -> "SuccessfulSmtp":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def send_message(self, message: object) -> None:
+            return None
+
+    monkeypatch.setattr(smtplib, "SMTP", SuccessfulSmtp)
+    monkeypatch.setattr(
+        "gutcare.auth.service.logger.info",
+        lambda event, **fields: log_events.append((event, fields)),
+    )
+    provider = SmtpEmailVerificationProvider(
+        Settings(env="test", smtp_host="mail.invalid", smtp_port=1025)
+    )
+
+    provider.send_verification("sensitive-patient@example.com", "opaque-sensitive-token")
+
+    assert log_events == [
+        (
+            "smtp_delivery_succeeded",
+            {"delivery_kind": "verification", "attempt": 1},
+        )
+    ]
+    rendered = repr(log_events)
+    assert "sensitive-patient@example.com" not in rendered
+    assert "opaque-sensitive-token" not in rendered
+
+
+def test_registration_maps_email_delivery_failure_to_stable_503() -> None:
+    database = _FakeAuthDatabase(None, [])
+
+    class Factory:
+        def begin(self) -> _FakeTransaction:
+            return database.begin()
+
+    class NoopLimiter:
+        def check(self, scope: str, actor_hash: str, source_hash: str, limit: int) -> None:
+            return None
+
+    class UnavailableEmailProvider:
+        def send_verification(self, recipient: str, token: str) -> None:
+            raise smtplib.SMTPServerDisconnected("unavailable")
+
+        def send_password_reset(self, recipient: str, token: str) -> None:
+            raise AssertionError("unexpected password reset")
+
+    service = AuthService(
+        Settings(
+            env="test",
+            email_lookup_pepper="p" * 32,
+            email_encryption_key=_KEY,
+            privacy_policy_summary_hash="1" * 64,
+            health_data_processing_summary_hash="2" * 64,
+            privacy_policy_version="privacy-v1",
+            health_data_processing_policy_version="health-v2",
+        ),
+        Factory(),  # type: ignore[arg-type]
+        email_provider=UnavailableEmailProvider(),
+        rate_limiter=NoopLimiter(),
+    )
+
+    with pytest.raises(Problem) as error:
+        service.register(
+            "patient@example.com",
+            "correct-horse-battery",
+            1990,
+            "privacy-v1",
+            True,
+            "health-v2",
+            "192.0.2.1",
+        )
+
+    assert (error.value.status, error.value.code, error.value.title) == (
+        503,
+        "EMAIL_DELIVERY_UNAVAILABLE",
+        "Email delivery is temporarily unavailable",
+    )

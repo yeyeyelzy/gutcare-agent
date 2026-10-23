@@ -46,6 +46,7 @@ import com.gutcare.app.ui.design.GutCareSecondaryButton
 import com.gutcare.app.ui.design.GutCareTextField
 import com.gutcare.app.ui.design.ScreenStatus
 import com.gutcare.app.ui.design.WelcomeChecklistIllustration
+import com.gutcare.app.core.network.PatientProfileDto
 import com.gutcare.app.ui.theme.GutCareBrandGreen
 import com.gutcare.app.ui.theme.GutCareDanger
 import com.gutcare.app.ui.theme.GutCareLine
@@ -539,6 +540,64 @@ fun PasswordResetConfirmScreen(
 }
 
 @Composable
+fun MyProfileScreen(
+    profile: PatientProfileDto?,
+    operation: AuthOperationState,
+    onSave: (nickname: String?, birthYear: Int, profileVersion: Int) -> Unit,
+    onLogout: () -> Unit,
+    modifier: Modifier = Modifier,
+    onOpenFeatures: () -> Unit = {},
+) {
+    var nickname by remember(profile?.id, profile?.nickname) { mutableStateOf(profile?.nickname.orEmpty()) }
+    var birthYear by remember(profile?.id, profile?.birthYear) { mutableStateOf(profile?.birthYear?.toString().orEmpty()) }
+    val parsedYear = birthYear.toIntOrNull()
+    val valid = profile != null && parsedYear != null && parsedYear in 1900..2100 && nickname.length <= 64
+    GutCarePage(modifier = modifier.testTag("my_profile_screen")) {
+        Spacer(Modifier.height(20.dp))
+        Text("个人中心", style = MaterialTheme.typography.displayLarge)
+        Text("管理你的基础资料", color = GutCareMuted, style = MaterialTheme.typography.bodyLarge)
+        Spacer(Modifier.height(20.dp))
+        if (profile == null) {
+            ScreenStatus("正在读取本人资料…", Modifier.testTag("profile_load_state"))
+        } else {
+            GutCareCard {
+                Text("账户资料", style = MaterialTheme.typography.titleLarge)
+                Text("资料版本 ${profile.profileVersion}", color = GutCareMuted, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(12.dp))
+                GutCareTextField(
+                    value = nickname,
+                    onValueChange = { nickname = it.take(64) },
+                    label = "昵称（可留空）",
+                    testTag = "profile_nickname",
+                )
+                Spacer(Modifier.height(12.dp))
+                GutCareTextField(
+                    value = birthYear,
+                    onValueChange = { birthYear = it.filter(Char::isDigit).take(4) },
+                    label = "出生年份",
+                    supportingText = if (birthYear.isNotEmpty() && (parsedYear == null || parsedYear !in 1900..2100)) "请输入 1900 至 2100 的四位年份" else "仅保存年份",
+                    isError = birthYear.isNotEmpty() && (parsedYear == null || parsedYear !in 1900..2100),
+                    testTag = "profile_birth_year",
+                )
+            }
+            AuthOperationMessage(operation)
+            Spacer(Modifier.height(16.dp))
+            GutCarePrimaryButton(
+                label = "保存资料",
+                onClick = { onSave(nickname.trim().ifEmpty { null }, parsedYear!!, profile.profileVersion) },
+                enabled = valid && operation !is AuthOperationState.Loading,
+                loading = operation is AuthOperationState.Loading,
+                testTag = "profile_save",
+            )
+            Spacer(Modifier.height(8.dp))
+            GutCareSecondaryButton("更多健康功能", onOpenFeatures, modifier = Modifier.testTag("profile_open_features"))
+            Spacer(Modifier.height(12.dp))
+            GutCareSecondaryButton("退出登录", onLogout, modifier = Modifier.testTag("logout"))
+        }
+    }
+}
+
+@Composable
 private fun AuthPageHeader(
     title: String,
     subtitle: String,
@@ -595,14 +654,23 @@ private fun BackButton(onClick: () -> Unit) {
 private fun AuthOperationMessage(operation: AuthOperationState) {
     when (operation) {
         AuthOperationState.Idle -> Unit
-        AuthOperationState.Loading -> ScreenStatus("正在安全处理，请稍候。", Modifier.padding(top = 12.dp))
-        AuthOperationState.Accepted -> ScreenStatus("请求已受理，请按后续提示继续。", Modifier.padding(top = 12.dp))
+        AuthOperationState.Loading -> ScreenStatus(
+            "正在安全处理，请稍候。",
+            Modifier.padding(top = 12.dp).testTag("auth_operation_loading")
+                .semantics { contentDescription = "loading" },
+        )
+        AuthOperationState.Accepted -> ScreenStatus(
+            "请求已受理，请按后续提示继续。",
+            Modifier.padding(top = 12.dp).testTag("auth_operation_accepted")
+                .semantics { contentDescription = "accepted" },
+        )
         is AuthOperationState.Error -> Text(
             operation.message,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 12.dp)
-                .semantics { contentDescription = "操作失败：${operation.message}" },
+                .testTag("auth_operation_error")
+                .semantics { contentDescription = "error" },
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
             color = GutCareDanger,

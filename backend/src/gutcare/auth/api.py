@@ -212,7 +212,11 @@ class ConsentNoticeResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     consent_type: Literal[
-        "health_data_processing", "mood_data_processing", "mood_ai_sharing", "third_party_ai"
+        "health_data_processing",
+        "mood_data_processing",
+        "mood_ai_sharing",
+        "sensitive_image",
+        "third_party_ai",
     ]
     enabled: bool
     policy_version: str | None = None
@@ -300,6 +304,7 @@ def current_auth_context(
     responses={
         422: problem_response("请求字段无效"),
         429: problem_response("请求频率受限"),
+        503: problem_response("验证邮件投递服务暂不可用"),
         500: problem_response("内部错误"),
     },
     tags=["Auth"],
@@ -575,7 +580,11 @@ def get_my_consents(
 def get_consent_notice(
     request: Request,
     consent_type: Literal[
-        "health_data_processing", "mood_data_processing", "mood_ai_sharing", "third_party_ai"
+        "health_data_processing",
+        "mood_data_processing",
+        "mood_ai_sharing",
+        "sensitive_image",
+        "third_party_ai",
     ],
     _context: Annotated[AuthContext, Depends(current_auth_context)],
 ) -> ConsentNoticeResponse:

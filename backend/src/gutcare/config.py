@@ -20,6 +20,14 @@ class Settings(BaseSettings):
         default="local",
         validation_alias=AliasChoices("APP__ENV", "APP_ENV", "env"),
     )
+    risk_test_only_rules_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "SAFETY__RISK_TEST_ONLY_RULES_ENABLED",
+            "RISK_TEST_ONLY_RULES_ENABLED",
+            "risk_test_only_rules_enabled",
+        ),
+    )
     consent_notices_path: Path | None = Field(
         default=None,
         validation_alias=AliasChoices(

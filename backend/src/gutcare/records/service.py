@@ -212,8 +212,11 @@ def evaluate_condition(node: Any, facts: dict[str, Any]) -> bool:
 
 
 class RecordService:
-    def __init__(self, sessions: sessionmaker[Session]) -> None:
+    def __init__(
+        self, sessions: sessionmaker[Session], *, allow_test_only_rules: bool = False
+    ) -> None:
         self._sessions = sessions
+        self._allow_test_only_rules = allow_test_only_rules
 
     @staticmethod
     def _scope(session: Session, patient_id: UUID) -> None:
@@ -280,11 +283,20 @@ class RecordService:
         if record_type == "diet-records":
             text_value = payload.get("text_description")
             items = payload.get("items", [])
-            if not (isinstance(text_value, str) and text_value.strip()) and not items:
+            image_only_entry = payload.get("image_only_entry") is True
+            if (
+                not image_only_entry
+                and not (isinstance(text_value, str) and text_value.strip())
+                and not items
+            ):
                 raise Problem(
                     422,
                     "VALIDATION_ERROR",
                     "Diet record needs a description or at least one food item",
+                )
+            if image_only_entry and ((isinstance(text_value, str) and text_value.strip()) or items):
+                raise Problem(
+                    422, "VALIDATION_ERROR", "Image-only diet entry cannot include manual content"
                 )
             if not isinstance(items, list) or any(
                 not isinstance(item, dict)
@@ -342,14 +354,16 @@ class RecordService:
             value = getattr(obj, name, None)
             if value is not None:
                 payload[name] = value
-        return {
+        dto = {
             "id": str(obj.id),
             "occurred_at": obj.occurred_at.isoformat(),
             "payload": payload,
             "record_version": obj.record_version,
+            "image_set_version": getattr(obj, "image_set_version", 0),
             "created_at": obj.created_at.isoformat(),
             "updated_at": obj.updated_at.isoformat(),
         }
+        return dto
 
     def _items(
         self, session: Session, record_type: str, obj: Any, patient_id: UUID
@@ -440,10 +454,13 @@ class RecordService:
         payload: dict[str, Any],
     ) -> None:
         now = _utcnow()
+        environments = (
+            ("production", "test_only") if self._allow_test_only_rules else ("production",)
+        )
         rules = session.scalars(
             select(RiskRule).where(
                 RiskRule.review_status == "approved",
-                RiskRule.environment == "production",
+                RiskRule.environment.in_(environments),
                 RiskRule.reviewed_by.is_not(None),
                 RiskRule.reviewed_at.is_not(None),
                 RiskRule.expires_at > now,
@@ -486,6 +503,7 @@ class RecordService:
                             "record_type": record_type,
                             "record_id": str(record_id),
                             "record_version": version,
+                            "rule_environment": rule.environment,
                         },
                     )
                     .on_conflict_do_nothing(index_elements=["patient_id", "deduplication_key"])
@@ -597,6 +615,7 @@ class RecordService:
                         "duration_minutes",
                         "notes",
                         "symptom_status",
+                        "image_only_entry",
                     }
                 },
                 "source_type": "patient_manual",
@@ -792,6 +811,7 @@ class RecordService:
                     "duration_minutes",
                     "notes",
                     "symptom_status",
+                    "image_only_entry",
                 }
             }
             if record_type == "diet-records":
@@ -936,6 +956,7 @@ class RecordService:
     def _alert_dto(x: RiskAlert) -> dict[str, Any]:
         return {
             "id": str(x.id),
+            "environment": x.evidence_summary.get("rule_environment", "production"),
             "severity": x.severity,
             "message": x.message,
             "recommended_action": x.recommended_action,

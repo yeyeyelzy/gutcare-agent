@@ -1724,7 +1724,9 @@ def test_t105_mood_crud_consent_idempotency_rls_and_database_checks(database: An
         )
 
 
-def test_f03_f05_postgres_rls_composite_ownership_and_rule_review_gate(database: Any) -> None:
+def test_f03_f05_postgres_rls_composite_ownership_and_rule_review_gate(
+    database: Any, request: pytest.FixtureRequest
+) -> None:
     app_engine, migrator_engine = database
     user_a, patient_a = _seed_patient(app_engine, nickname="records-a")
     user_b, patient_b = _seed_patient(app_engine, nickname="records-b")
@@ -1851,6 +1853,58 @@ def test_f03_f05_postgres_rls_composite_ownership_and_rule_review_gate(database:
             source_refs=[],
         )
         db.add(rule)
+    # Phone-demo opt-in may evaluate an explicitly synthetic test_only rule.
+    # Default service instances must continue to ignore it.
+    test_only_code = f"PHONE_DEMO_OPT_IN_{uuid4().hex[:12]}"
+    test_only_message = f"Synthetic phone-demo fixture {test_only_code}"
+    with _sessions(migrator_engine).begin() as db:
+        test_only_rule = RiskRule(
+            rule_code=test_only_code,
+            version=1,
+            severity="attention",
+            condition_json={
+                "all": [
+                    {"field": "record_type", "op": "eq", "value": "symptom-records"},
+                    {"field": "symptom_codes", "op": "in", "value": ["other"]},
+                ]
+            },
+            message=test_only_message,
+            recommended_action="Synthetic test-only action",
+            review_status="approved",
+            environment="test_only",
+            reviewed_by="synthetic-integration-fixture",
+            reviewed_at=utc_now(),
+            source_refs=["synthetic:nonclinical"],
+            effective_from=utc_now() - timedelta(minutes=1),
+            expires_at=utc_now() + timedelta(days=1),
+        )
+        db.add(test_only_rule)
+        db.flush()
+        test_only_rule_id = test_only_rule.id
+
+    def cleanup_test_only_rule() -> None:
+        with _sessions(migrator_engine).begin() as db:
+            db.execute(
+                text("SELECT set_config('app.patient_id', :patient_id, true)"),
+                {"patient_id": str(patient_a)},
+            )
+            db.execute(
+                text(
+                    "DELETE FROM safety.alert_evidence WHERE alert_id IN "
+                    "(SELECT id FROM safety.risk_alert WHERE rule_id=:rule_id)"
+                ),
+                {"rule_id": test_only_rule_id},
+            )
+            db.execute(
+                text("DELETE FROM safety.risk_alert WHERE rule_id=:rule_id"),
+                {"rule_id": test_only_rule_id},
+            )
+            db.execute(
+                text("DELETE FROM safety.risk_rule WHERE id=:rule_id"),
+                {"rule_id": test_only_rule_id},
+            )
+
+    request.addfinalizer(cleanup_test_only_rule)
     with pytest.raises(IntegrityError):
         with _sessions(migrator_engine).begin() as db:
             db.add(
@@ -1876,7 +1930,25 @@ def test_f03_f05_postgres_rls_composite_ownership_and_rule_review_gate(database:
     )
     alert_count_after = service.alerts(context_a, limit=100, cursor=None)["items"]
     assert alert_count_after == alert_count_before
-
+    service.create(
+        context_a,
+        "symptom-records",
+        utc_now(),
+        {"items": [{"symptom_code": "other", "other_description": "synthetic symptom"}]},
+        "synthetic-test-only-default-disabled",
+    )
+    default_test_alerts = service.alerts(context_a, limit=100, cursor=None)["items"]
+    assert not any(item["message"] == test_only_message for item in default_test_alerts)
+    opted_in_service = RecordService(_sessions(app_engine), allow_test_only_rules=True)
+    opted_in_service.create(
+        context_a,
+        "symptom-records",
+        utc_now(),
+        {"items": [{"symptom_code": "other", "other_description": "synthetic symptom"}]},
+        "synthetic-test-only-opt-in-enabled",
+    )
+    opted_in_alerts = opted_in_service.alerts(context_a, limit=100, cursor=None)["items"]
+    assert any(item["message"] == test_only_message for item in opted_in_alerts)
     # A synthetic reviewed rule exercises lifecycle semantics without clinical thresholds.
     with _sessions(migrator_engine).begin() as db:
         db.add(
@@ -2444,6 +2516,14 @@ def test_f02_real_minio_clamav_upload_document_delete_and_patient_isolation(data
     assert reviewed_by_field["medication_name"].value == "旧药名"
     assert reviewed_by_field["recommendation"].review_status in {"accepted", "rejected"}
     assert service.get_medical_document(context_a, analyze_doc.id).parse_status == "confirmed"
+    patient_facts = service.list_confirmed_medical_facts(context_a)
+    assert all(fact.source_document_id == analyze_doc.id for fact in patient_facts)
+    assert {fact.field_code for fact in patient_facts} == {
+        "diagnosis",
+        "document_date",
+        "medication_name",
+    } | ({"recommendation"} if race_results[0] == "accept" else set())
+    assert service.list_confirmed_medical_facts(context_b) == []
     service.decide_medical_candidate(
         context_a,
         candidates[0].id,
@@ -4119,7 +4199,7 @@ def test_f03_f04_image_recognition_real_object_consent_callback_and_decision(
             },
         )
         assert response.status_code == 201, response.text
-        return record_version, image_set_version, response.json()["token"]
+        return record_version, image_set_version, response.json()["disclosure_token"]
 
     try:
         diet = app.state.record_service.create(
@@ -4145,10 +4225,108 @@ def test_f03_f04_image_recognition_real_object_consent_callback_and_decision(
                 },
             )
             assert response.status_code == 201, response.text
+            assert set(response.json()) == {
+                "id",
+                "record_id",
+                "position",
+                "record_version",
+                "image_set_version",
+                "file_status",
+                "created_at",
+            }
+            assert response.json()["record_id"] == str(diet_id)
+            assert response.json()["file_status"] == "available"
             diet_images.append(response.json())
             record_version = response.json()["record_version"]
             image_set_version = response.json()["image_set_version"]
         assert [item["position"] for item in diet_images] == list(range(10))
+        replay_attach = client.post(
+            f"/api/v1/dietary-records/{diet_id}/images",
+            headers={"Idempotency-Key": f"diet-attach-{diet_file_ids[0]}"},
+            json={
+                "file_object_id": str(diet_file_ids[0]),
+                "record_version": 1,
+                "image_set_version": 1,
+            },
+        )
+        assert replay_attach.status_code == 201
+        assert replay_attach.json()["id"] == diet_images[0]["id"]
+        assert replay_attach.json()["record_version"] == record_version
+        assert replay_attach.json()["image_set_version"] == image_set_version
+        listed_images = client.get(f"/api/v1/dietary-records/{diet_id}/images")
+        assert listed_images.status_code == 200
+        assert listed_images.json() == diet_images
+        preview_grant = client.post(f"/api/v1/record-images/{diet_images[0]['id']}/download-grants")
+        assert preview_grant.status_code == 200, preview_grant.text
+        preview_url = preview_grant.json()["download_url"]
+        preview_capability = preview_url.rsplit("/", 1)[-1]
+        preview_response = client.get(f"/uploads/{preview_capability}")
+        assert preview_response.status_code == 200
+        assert preview_response.content == image_bytes
+        # Attachment ids are patient-scoped even when another patient owns the file bytes.
+        app.dependency_overrides[current_auth_context] = lambda: AuthContext(user_b, uuid4())
+        foreign_preview = client.post(
+            f"/api/v1/record-images/{diet_images[0]['id']}/download-grants"
+        )
+        assert foreign_preview.status_code == 404
+        app.dependency_overrides[current_auth_context] = lambda: context_a
+
+        compact_record = app.state.record_service.create(
+            context_a,
+            "diet-records",
+            utc_now(),
+            {"text_description": "position compaction fixture"},
+            "image-position-compaction-record-001",
+        )
+        compact_record_id = UUID(compact_record["id"])
+        compact_images = []
+        compact_rv, compact_iv = int(compact_record["record_version"]), 1
+        compact_files = [uploaded("diet_image", f"compact-{index}") for index in range(4)]
+        for index, file_id in enumerate(compact_files[:3]):
+            attached = client.post(
+                f"/api/v1/dietary-records/{compact_record_id}/images",
+                headers={"Idempotency-Key": f"compact-image-attach-{index:03d}"},
+                json={
+                    "file_object_id": str(file_id),
+                    "record_version": compact_rv,
+                    "image_set_version": compact_iv,
+                },
+            )
+            assert attached.status_code == 201, attached.text
+            compact_images.append(attached.json())
+            compact_rv, compact_iv = (
+                attached.json()["record_version"],
+                attached.json()["image_set_version"],
+            )
+        removed = client.delete(
+            f"/api/v1/record-images/{compact_images[1]['id']}",
+            params={"record_version": compact_rv, "image_set_version": compact_iv},
+        )
+        assert removed.status_code == 204, removed.text
+        compact_listing = client.get(f"/api/v1/dietary-records/{compact_record_id}/images")
+        assert compact_listing.status_code == 200
+        assert [item["id"] for item in compact_listing.json()] == [
+            compact_images[0]["id"],
+            compact_images[2]["id"],
+        ]
+        assert [item["position"] for item in compact_listing.json()] == [0, 1]
+        compact_rv, compact_iv = current_versions(compact_record_id, "diet_record")
+        appended = client.post(
+            f"/api/v1/dietary-records/{compact_record_id}/images",
+            headers={"Idempotency-Key": "compact-image-attach-fourth-001"},
+            json={
+                "file_object_id": str(compact_files[3]),
+                "record_version": compact_rv,
+                "image_set_version": compact_iv,
+            },
+        )
+        assert appended.status_code == 201, appended.text
+        assert appended.json()["position"] == 2
+        final_listing = client.get(f"/api/v1/dietary-records/{compact_record_id}/images")
+        assert [item["position"] for item in final_listing.json()] == [0, 1, 2]
+        assert final_listing.json()[-1]["record_version"] == appended.json()["record_version"]
+        assert final_listing.json()[-1]["image_set_version"] == appended.json()["image_set_version"]
+
         over_limit = client.post(
             f"/api/v1/dietary-records/{diet_id}/images",
             headers={"Idempotency-Key": "diet-attachment-eleven-001"},
@@ -4517,6 +4695,12 @@ def test_f03_f04_image_recognition_real_object_consent_callback_and_decision(
             == 204
         )
         stool_candidate_id = UUID(stool_callback["images"][0]["candidates"][0]["candidate_id"])
+        with _sessions(app_engine)() as db:
+            db.execute(text("SELECT set_config('app.patient_id',:p,true)"), {"p": str(patient_a)})
+            bristol_before_candidate_decision = db.scalar(
+                text("SELECT bristol_type FROM health.stool_record WHERE id=:id"),
+                {"id": stool_id},
+            )
         stool_decision = client.post(
             f"/api/v1/record-image-candidates/{stool_candidate_id}/decision",
             headers={"Idempotency-Key": "stool-bristol-accept-001"},
@@ -4527,7 +4711,8 @@ def test_f03_f04_image_recognition_real_object_consent_callback_and_decision(
                 "image_set_version": stool_iv,
             },
         )
-        assert stool_decision.status_code == 204
+        assert stool_decision.status_code == 409
+        assert stool_decision.json()["code"] == "CANDIDATE_DECISION_NOT_REQUIRED"
         with _sessions(app_engine)() as db:
             db.execute(text("SELECT set_config('app.patient_id',:p,true)"), {"p": str(patient_a)})
             assert (
@@ -4535,7 +4720,7 @@ def test_f03_f04_image_recognition_real_object_consent_callback_and_decision(
                     text("SELECT bristol_type FROM health.stool_record WHERE id=:id"),
                     {"id": stool_id},
                 )
-                == 4
+                == bristol_before_candidate_decision
             )
 
         # A terminal failure can be explicitly retried with a new disclosure;
@@ -4706,6 +4891,7 @@ def test_f03_f04_image_recognition_real_object_consent_callback_and_decision(
         # Record deletion queues the original ten files for seven-day cleanup.
         diet_rv, _diet_iv = current_versions(diet_id, "diet_record")
         app.state.record_service.delete(context_a, "diet-records", diet_id, diet_rv)
+        assert client.get(f"/uploads/{preview_capability}").status_code == 404
         with _sessions(migrator_engine)() as db:
             db.execute(text("SELECT set_config('app.patient_id',:p,true)"), {"p": str(patient_a)})
             queued = int(

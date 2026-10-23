@@ -11,6 +11,8 @@
     "MOOD_DATA_PROCESSING_SUMMARY_HASH": "7d30d978677482a02db144506c80aed867dcc395b82a96a4a1eda90a87c578e4",
     "MOOD_AI_SHARING_POLICY_VERSION": "test-only-mood-ai-v1",
     "MOOD_AI_SHARING_SUMMARY_HASH": "b21634c2767bb3134f265cd057eac0e3a1d2363b93850400190e4a20f18f0de8",
+    "SENSITIVE_IMAGE_POLICY_VERSION": "test-only-image-v1",
+    "SENSITIVE_IMAGE_SUMMARY_HASH": "70b010ece5be5847f88733cc3cf4f6f65b178a0374a6dbbc2721042e5052f36e",
     "THIRD_PARTY_AI_POLICY_VERSION": "test-only-third-party-ai-v1",
     "THIRD_PARTY_AI_SUMMARY_HASH": "37ae67bc63b6571098aeda40b399ba03ae65270d7aaa451484d06279cdcaa95b"
   },
@@ -47,6 +49,17 @@
       "data_scope": "符合任务范围的 mood_level、occurred_at、受控 emotion_tags 与来源引用；不包括 note。",
       "recipient": "GutCare 业务服务和当前配置的智能体服务；智能体只读取任务冻结快照。",
       "withdrawal_effect": "停止新的含心情分析快照输入，并取消尚未完成且含心情的分析任务；其他符合条件的健康分析不因此阻断。"
+    },
+    {
+      "consent_type": "sensitive_image",
+      "policy_version": "test-only-image-v1",
+      "enabled": true,
+      "summary": "本测试构建仅使用你主动选择的合成或测试图片验证饮食、排便图片上传与识别流程。图片先由 GutCare 业务服务进行安全扫描和受控存储；仅在你随后针对单次识别再次确认时，最少必要的图片与记录信息才会经短时任务能力交给当前配置的智能服务。上传本身不会发起智能识别。该文案未经过法律审核，不得用于生产环境。",
+      "summary_sha256": "70b010ece5be5847f88733cc3cf4f6f65b178a0374a6dbbc2721042e5052f36e",
+      "purpose": "仅在 development/test 环境验证饮食、排便敏感图片的上传、受控读取和后续单次识别流程。",
+      "data_scope": "你主动选择的 JPEG/PNG 饮食或排便图片，以及关联记录所需的最少版本信息。",
+      "recipient": "GutCare 业务服务和安全扫描组件；只有在后续单次识别另行确认后，当前配置的智能服务才可短时读取必要图片和记录信息。",
+      "withdrawal_effect": "停止新的图片上传、读取和识别，并取消在途图片识别；本人查看或删除既有记录的能力依服务端规则保留。"
     },
     {
       "consent_type": "third_party_ai",

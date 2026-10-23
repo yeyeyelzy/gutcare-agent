@@ -113,12 +113,12 @@ def _service(database: _ProfileDatabase) -> AuthService:
             / "contracts/consent/consent-notices.json",
             privacy_policy_summary_hash=hashes[0],
             health_data_processing_summary_hash=config["HEALTH_DATA_PROCESSING_SUMMARY_HASH"],
-            sensitive_image_summary_hash=hashes[2],
+            sensitive_image_summary_hash=config["SENSITIVE_IMAGE_SUMMARY_HASH"],
             third_party_ai_summary_hash=config["THIRD_PARTY_AI_SUMMARY_HASH"],
             push_notification_summary_hash=hashes[4],
             privacy_policy_version="privacy-v1",
             health_data_processing_policy_version=config["HEALTH_DATA_PROCESSING_POLICY_VERSION"],
-            sensitive_image_policy_version="sensitive_image-v1",
+            sensitive_image_policy_version=config["SENSITIVE_IMAGE_POLICY_VERSION"],
             third_party_ai_policy_version=config["THIRD_PARTY_AI_POLICY_VERSION"],
             push_notification_policy_version="push_notification-v1",
         ),
@@ -254,7 +254,7 @@ def test_each_consent_type_uses_its_own_server_notice_hash() -> None:
         "health_data_processing": (
             "c3c38f369746498cab3b6e9c96bfda09c42230e44e257d56dc47c972e5139be1"
         ),
-        "sensitive_image": "3" * 64,
+        "sensitive_image": "70b010ece5be5847f88733cc3cf4f6f65b178a0374a6dbbc2721042e5052f36e",
         "third_party_ai": "37ae67bc63b6571098aeda40b399ba03ae65270d7aaa451484d06279cdcaa95b",
         "push_notification": "5" * 64,
     }
@@ -262,6 +262,7 @@ def test_each_consent_type_uses_its_own_server_notice_hash() -> None:
     for consent_type in expected_hashes:
         version = {
             "health_data_processing": "test-only-health-v1",
+            "sensitive_image": "test-only-image-v1",
             "third_party_ai": "test-only-third-party-ai-v1",
         }.get(consent_type, f"{consent_type}-v1")
         service.record_consent(context, consent_type, version, True)  # type: ignore[arg-type]

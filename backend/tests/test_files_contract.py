@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+from uuid import UUID
+
 import pytest
 from fastapi import FastAPI
 from pydantic import ValidationError
@@ -6,12 +9,20 @@ from gutcare.files.api import (
     AgentCandidate,
     AgentCandidateSubmission,
     CandidateDecisionRequest,
+    CandidateResponse,
+    ConfirmedMedicalFactResponse,
     MedicalDocumentCreate,
     MedicalDocumentPatch,
     agent_router,
     router,
 )
-from gutcare.files.service import FileService, _canonical_decimal
+from gutcare.files.medical_parse_dispatcher import MedicalParseDispatcher
+from gutcare.files.service import (
+    ConfirmedMedicalFactData,
+    FileService,
+    MedicalCandidateData,
+    _canonical_decimal,
+)
 from gutcare.shared.errors import Problem
 
 
@@ -91,6 +102,20 @@ def test_t104_test_result_unit_comparison_is_normalized(unit: str) -> None:
         "value_type": "object",
         "value": {"result": "5.00", "unit": unit},
         "unit": "mg/L",
+        "confidence": 0.8,
+        "uncertainty": None,
+        "source_locator": {"page": 1, "char_start": 0, "char_end": 1},
+        "excerpt": "result",
+    }
+    FileService.validate_medical_candidate(candidate)
+
+
+def test_t104_test_result_accepts_ug_per_g_unit() -> None:
+    candidate = {
+        "field_code": "test_result",
+        "value_type": "object",
+        "value": {"result": "125", "unit": "ug/g"},
+        "unit": "ug/g",
         "confidence": 0.8,
         "uncertainty": None,
         "source_locator": {"page": 1, "char_start": 0, "char_end": 1},
@@ -184,6 +209,42 @@ def test_t63_decision_api_requires_explicit_single_field_choice_and_version() ->
     assert "additionalProperties" not in schema or schema["additionalProperties"] is False
 
 
+def test_medical_candidate_response_validates_service_dataclass_attributes() -> None:
+    candidate = MedicalCandidateData(
+        id=UUID("00000000-0000-4000-8000-000000000001"),
+        field_code="diagnosis",
+        value_type="diagnosis",
+        value={"text": "test", "certainty": "suspected"},
+        unit=None,
+        confidence=0.5,
+        uncertainty=None,
+        source_locator={"page": 1},
+        excerpt="sample",
+        review_status="pending",
+        record_version=1,
+        chosen_value=None,
+    )
+    response = CandidateResponse.model_validate(candidate)
+    assert response.id == candidate.id
+    assert response.value == candidate.value
+    assert response.review_status == candidate.review_status
+
+
+def test_confirmed_fact_response_validates_service_dataclass_attributes() -> None:
+    fact = ConfirmedMedicalFactData(
+        source_document_id=UUID("00000000-0000-4000-8000-000000000002"),
+        field_code="test_result",
+        value_type="object",
+        value={"result": "5.0"},
+        unit="mg/L",
+        confirmed_at=datetime(2026, 10, 22, tzinfo=UTC),
+    )
+    response = ConfirmedMedicalFactResponse.model_validate(fact)
+    assert response.source_document_id == fact.source_document_id
+    assert response.value == fact.value
+    assert response.confirmed_at == fact.confirmed_at
+
+
 def test_t65_patient_decision_endpoint_is_204_without_response_body() -> None:
     app = FastAPI()
     app.include_router(router)
@@ -192,6 +253,27 @@ def test_t65_patient_decision_endpoint_is_204_without_response_body() -> None:
     ]
     assert "204" in operation["responses"]
     assert "content" not in operation["responses"]["204"]
+
+
+def test_confirmed_facts_endpoint_is_patient_scoped_and_excludes_candidate_evidence() -> None:
+    app = FastAPI()
+    app.include_router(router)
+    operation = app.openapi()["paths"]["/api/v1/patients/me/confirmed-medical-facts"]["get"]
+    schema_ref = operation["responses"]["200"]["content"]["application/json"]["schema"]["items"][
+        "$ref"
+    ]
+    fact_schema = app.openapi()["components"]["schemas"][schema_ref.rsplit("/", 1)[-1]]
+    properties = fact_schema["properties"]
+    assert set(properties) == {
+        "source_document_id",
+        "field_code",
+        "value_type",
+        "value",
+        "unit",
+        "confirmed_at",
+    }
+    forbidden = {"confidence", "excerpt", "source_locator", "prompt", "candidate_id"}
+    assert not forbidden.intersection(properties)
 
 
 def test_t61_internal_agent_contract_is_task_scoped_and_uses_service_bearer() -> None:
@@ -211,6 +293,37 @@ def test_t61_internal_agent_contract_is_task_scoped_and_uses_service_bearer() ->
         "no_supported_facts",
         "insufficient_quality",
     ]
+
+
+def test_f02_worker_claim_endpoint_is_internal_and_returns_nullable_request_id() -> None:
+    app = FastAPI()
+    app.include_router(agent_router)
+    operation = app.openapi()["paths"]["/internal/v1/agent/medical-parse-requests/claim"]["post"]
+    assert operation["operationId"] == "claimMedicalParseRequest"
+    response = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    response = app.openapi()["components"]["schemas"][response["$ref"].rsplit("/", 1)[-1]]
+    assert response["properties"]["request_id"]["anyOf"][1]["type"] == "null"
+
+
+def test_f02_dispatcher_sends_only_task_id_and_schema_with_idempotency(monkeypatch) -> None:
+    dispatcher = MedicalParseDispatcher("https://business", "https://agent", "svc", "agent")
+    calls = []
+
+    def request(url, token, payload=None, idempotency_key=None):
+        calls.append((url, token, payload, idempotency_key))
+        if len(calls) == 1:
+            return 200, {"request_id": "00000000-0000-4000-8000-000000000001"}
+        return 202, {}
+
+    monkeypatch.setattr(dispatcher, "_request", request)
+    assert dispatcher.dispatch_one()
+    assert calls[0][0].endswith("/internal/v1/agent/medical-parse-requests/claim")
+    assert calls[1] == (
+        "https://agent/internal/v1/medical-parse-requests",
+        "agent",
+        {"request_id": "00000000-0000-4000-8000-000000000001", "schema_version": "1.0"},
+        "00000000-0000-4000-8000-000000000001",
+    )
 
 
 def test_t64_source_locator_requires_a_real_page_range_or_normalized_box() -> None:

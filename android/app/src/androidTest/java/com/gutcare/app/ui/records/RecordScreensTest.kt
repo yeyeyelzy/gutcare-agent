@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.gutcare.app.ui.theme.GutCareTheme
@@ -94,20 +95,87 @@ class RecordScreensTest {
     }
 
     @Test
-    fun bowelRecordExposesItsCoreInputs() {
-        var bristolType: Int? = null
+    fun bowelRecordCanBeSavedWithoutAUserChosenBristolType() {
         composeRule.setContent {
             GutCareTheme {
                 BowelRecordScreen(
                     uiState = BowelRecordUiState(),
-                    callbacks = BowelRecordCallbacks(onSelectBristolType = { bristolType = it }),
+                    callbacks = BowelRecordCallbacks(),
                 )
             }
         }
         composeRule.onNodeWithTag("bowel_record_screen").assertIsDisplayed()
-        composeRule.onNodeWithTag("bowel_bristol_4").performClick()
+        composeRule.onNodeWithTag("bowel_images_after_save").assertIsDisplayed()
         composeRule.onNodeWithTag("bowel_save").performScrollTo().assertIsDisplayed()
-        check(bristolType == 4)
+    }
+
+    @Test
+    fun dietEditExposesImageManagementAndCreationExplainsSaveFirst() {
+        var opened = false
+        composeRule.setContent {
+            GutCareTheme {
+                DietRecordScreen(DietRecordUiState(isEditing = true), DietRecordCallbacks(onManageImages = { opened = true }))
+            }
+        }
+        composeRule.onNodeWithTag("diet_manage_images").performScrollTo().performClick()
+        composeRule.runOnIdle { check(opened) }
+    }
+
+    @Test
+    fun dietCreationExplainsImagesAreAvailableAfterSave() {
+        composeRule.setContent { GutCareTheme { DietRecordScreen(DietRecordUiState(), DietRecordCallbacks()) } }
+        composeRule.onNodeWithTag("diet_images_after_save").assertIsDisplayed()
+    }
+
+    @Test
+    fun bowelEditExposesImageManagementEntryPoint() {
+        var opened = false
+        composeRule.setContent {
+            GutCareTheme { BowelRecordScreen(BowelRecordUiState(isEditing = true), BowelRecordCallbacks(onManageImages = { opened = true })) }
+        }
+        composeRule.onNodeWithTag("bowel_manage_images").performScrollTo().performClick()
+        composeRule.runOnIdle { check(opened) }
+    }
+
+    @Test
+    fun recordDetailExposesImageManagementAction() {
+        var opened = false
+        composeRule.setContent {
+            GutCareTheme {
+                RecordDetailScreen(
+                    type = WorkspaceRecordType.DIET,
+                    state = RecordsUiState(detailState = RecordDetailLoadState.Loaded(
+                        RecordDetailModel("diet-1", 2, "2026-10-19T08:30:00+08:00", com.gutcare.app.core.network.RecordPayloadDto()),
+                    )),
+                    onBack = {}, onRetry = {}, onEdit = {}, onDelete = {}, onManageImages = { opened = true },
+                )
+            }
+        }
+        composeRule.onNodeWithTag("record_detail_images").performClick()
+        composeRule.runOnIdle { check(opened) }
+    }
+
+    @Test
+    fun stoolDetailShowsOnlyPatientFieldsAndKeepsBristolOutOfRecordFacts() {
+        composeRule.setContent {
+            GutCareTheme {
+                RecordDetailScreen(
+                    type = WorkspaceRecordType.STOOL,
+                    state = RecordsUiState(detailState = RecordDetailLoadState.Loaded(
+                        RecordDetailModel("stool-1", 8, "2026-10-19T08:30:00+08:00", com.gutcare.app.core.network.RecordPayloadDto(
+                            bristolType = 4, colorCode = "棕色", bowelAmount = "一般", processSensation = listOf("腹胀"), notes = "日常备注",
+                        ), imageSetVersion = 2),
+                    )),
+                    onBack = {}, onRetry = {}, onEdit = {}, onDelete = {},
+                )
+            }
+        }
+        composeRule.onNodeWithTag("stool_detail_bowel").assertIsDisplayed()
+        composeRule.onNodeWithTag("stool_detail_notes").assertIsDisplayed()
+        composeRule.onNodeWithTag("stool_bristol_image_only").assertIsDisplayed()
+        composeRule.onNodeWithText("Bristol 类型：4").assertDoesNotExist()
+        composeRule.onNodeWithText("record_version").assertDoesNotExist()
+        composeRule.onNodeWithText("image_set_version").assertDoesNotExist()
     }
 
     @Test
@@ -175,7 +243,7 @@ class RecordScreensTest {
         var archiveOpened = false
         composeRule.setContent {
             GutCareTheme {
-                RecordsHubScreen(onOpenCategory = { selected = it }, onOpenArchive = { archiveOpened = true })
+                RecordsHubScreen(onOpenCategory = { selected = it }, onOpenActivity = {}, onOpenArchive = { archiveOpened = true })
             }
         }
         composeRule.onNodeWithTag("records_hub_screen").assertIsDisplayed()

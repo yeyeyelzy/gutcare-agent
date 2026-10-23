@@ -19,16 +19,23 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavHostController
+import com.gutcare.app.navigation.AppRoute
 import com.gutcare.app.navigation.GutCareNavHost
 import com.gutcare.app.core.network.RegistrationNoticeSummaries
+import com.gutcare.app.core.network.PatientProfileDto
+import com.gutcare.app.ui.auth.AuthWorkflow
 import com.gutcare.app.ui.theme.GutCareTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 
 class AuthScreensTest {
     @get:Rule
@@ -156,6 +163,25 @@ class AuthScreensTest {
     }
 
     @Test
+    fun profileEditorRequiresValidYearAndSendsCurrentVersion() {
+        var saved: Triple<String?, Int, Int>? = null
+        composeRule.setContent {
+            GutCareTheme {
+                MyProfileScreen(
+                    profile = PatientProfileDto("patient", "旧昵称", 1990, "Asia/Shanghai", 4),
+                    operation = AuthOperationState.Idle,
+                    onSave = { nickname, year, version -> saved = Triple(nickname, year, version) },
+                    onLogout = {},
+                )
+            }
+        }
+        composeRule.onNodeWithTag("profile_save").assertIsEnabled().performClick()
+        composeRule.runOnIdle { assertEquals(Triple("旧昵称", 1990, 4), saved) }
+        composeRule.onNodeWithTag("profile_birth_year").performTextInput("9")
+        composeRule.onNodeWithTag("profile_save").assertIsNotEnabled()
+    }
+
+    @Test
     fun passwordResetShowsGenericRequestCopyAndOnlyContinuesAfterAcceptance() {
         composeRule.setContent {
             var operation by remember { mutableStateOf<AuthOperationState>(AuthOperationState.Idle) }
@@ -236,6 +262,59 @@ class AuthScreensTest {
         assertEditableTextEmpty("register_password")
         assertEditableTextEmpty("register_confirmation")
         composeRule.onNodeWithTag("privacy_policy_consent").assertIsOff()
+    }
+
+    @Test
+    fun asynchronousRegistrationAcceptedCallbackNavigatesToEmailVerificationWithoutNetwork() {
+        var registerCalled = false
+        lateinit var registrationCallback: (AuthOperationState) -> Unit
+        lateinit var navController: NavHostController
+        val workflow = object : AuthWorkflow {
+            override fun login(email: String, password: String, onResult: (AuthOperationState) -> Unit) = Unit
+            override fun register(draft: RegistrationDraft, onResult: (AuthOperationState) -> Unit) {
+                registerCalled = true
+                registrationCallback = onResult
+            }
+            override fun verifyEmail(token: String, onResult: (AuthOperationState) -> Unit) = Unit
+            override fun requestPasswordReset(email: String, onResult: (AuthOperationState) -> Unit) = Unit
+            override fun confirmPasswordReset(token: String, newPassword: String, onResult: (AuthOperationState) -> Unit) = Unit
+            override fun updateProfile(nickname: String?, birthYear: Int, profileVersion: Int, onResult: (AuthOperationState) -> Unit) = Unit
+        }
+        composeRule.setContent {
+            GutCareTheme {
+                navController = rememberNavController()
+                GutCareNavHost(
+                    navController = navController,
+                    authWorkflow = workflow,
+                    registrationNoticeSummaries = testNotices,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("welcome_register").performClick()
+        composeRule.onNodeWithTag("register_email").performTextInput("local@example.test")
+        composeRule.onNodeWithTag("register_password").performTextInput("a-secure-password")
+        composeRule.onNodeWithTag("register_confirmation").performTextInput("a-secure-password")
+        composeRule.onNodeWithTag("privacy_policy_consent").performScrollTo().performClick()
+        composeRule.onNodeWithTag("register_continue").performScrollTo().assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("profile_bootstrap_screen").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("health_data_consent").performScrollTo().performClick()
+        composeRule.onNodeWithTag("birth_year").performTextInput("1990")
+        composeRule.onNodeWithTag("profile_submit").performScrollTo().assertIsEnabled().performClick()
+        composeRule.runOnIdle { assertTrue("fake workflow must receive submission", registerCalled) }
+        Thread { registrationCallback(AuthOperationState.Accepted) }.start()
+        composeRule.waitUntil(5_000) {
+            navController.currentDestination?.route == AppRoute.EmailVerification.value
+        }
+        composeRule.onAllNodesWithTag("email_verification_screen").assertCountEquals(1)
+
+        composeRule.runOnIdle { composeRule.activity.onBackPressedDispatcher.onBackPressed() }
+        composeRule.onNodeWithTag("welcome_screen").assertIsDisplayed()
+        composeRule.onNodeWithTag("welcome_register").performClick()
+        assertEditableTextEmpty("register_email")
+        assertEditableTextEmpty("register_password")
+        assertEditableTextEmpty("register_confirmation")
     }
 
     private fun assertEditableTextEmpty(testTag: String) {

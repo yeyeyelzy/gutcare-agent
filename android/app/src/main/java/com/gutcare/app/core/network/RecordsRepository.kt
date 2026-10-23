@@ -39,6 +39,12 @@ class RecordsRepository(
         call { api.deleteMoodRecord(id, RecordVersionRequestDto(recordVersion)) }
     suspend fun history(cursor: String? = null, limit: Int? = null, categories: List<String>? = null, since: String? = null, until: String? = null) =
         call { api.historyTimeline(cursor, limit, categories, since, until) }
+    suspend fun listRiskAlerts(cursor: String? = null, limit: Int? = null, unreadOnly: Boolean? = null) =
+        call { api.listRiskAlerts(cursor, limit, unreadOnly) }
+    suspend fun riskAlert(id: String) = call { api.getRiskAlert(id) }
+    suspend fun markRiskAlertRead(id: String) = call { api.readRiskAlert(id) }
+    suspend fun reevaluateRiskAlert(id: String) = call { api.reevaluateRiskAlert(id) }
+    suspend fun trends(from: String, to: String, bucket: String = "day") = call { api.getTrends(from, to, bucket) }
 
     private suspend fun <T> call(request: suspend () -> Response<T>): ApiResult<T> = try {
         val response = request()

@@ -16,12 +16,12 @@ import retrofit2.Retrofit
 import com.gutcare.app.core.security.SecureSessionStore
 
 class RecordsRepositoryTest {
-    @Test fun recordResponseUsesFrozenOpenApiFieldsAndDefaultsAbsentAttachmentVersion() {
+    @Test fun recordResponseUsesServerAttachmentVersion() {
         val adapter = Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(RecordDto::class.java)
         val response = adapter.fromJson(
-            """{"id":"record-1","record_version":1,"occurred_at":"2026-10-01T08:00:00Z","payload":{},"created_at":"2026-10-01T08:00:00Z","updated_at":"2026-10-01T08:00:00Z"}""",
+            """{"id":"record-1","record_version":1,"image_set_version":1,"occurred_at":"2026-10-01T08:00:00Z","payload":{},"created_at":"2026-10-01T08:00:00Z","updated_at":"2026-10-01T08:00:00Z"}""",
         )
-        assertEquals(0, response?.imageSetVersion)
+        assertEquals(1, response?.imageSetVersion)
     }
 
     @Test fun recordPageAcceptsOmittedNextCursor() {

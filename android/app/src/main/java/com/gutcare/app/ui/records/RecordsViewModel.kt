@@ -17,6 +17,8 @@ import com.gutcare.app.core.network.RecordPatchDto
 import com.gutcare.app.core.network.RecordPayloadDto
 import com.gutcare.app.core.network.RecordWriteDto
 import com.gutcare.app.core.network.RecordsRepository
+import com.gutcare.app.core.network.RecordImageRecognitionRequestDto
+import com.gutcare.app.core.network.RecordImagesRepository
 import com.gutcare.app.core.network.SymptomStatusEventDto
 import com.gutcare.app.core.network.SymptomStatusHistoryDto
 import java.time.OffsetDateTime
@@ -40,6 +42,8 @@ interface RecordsGateway {
     suspend fun createMood(idempotencyKey: String, body: MoodWriteDto): ApiResult<MoodDetailDto>
     suspend fun updateMood(id: String, body: MoodPatchDto): ApiResult<MoodDetailDto>
     suspend fun deleteMood(id: String, version: Int): ApiResult<Unit>
+    suspend fun latestStoolRecognition(recordId: String): ApiResult<RecordImageRecognitionRequestDto> =
+        ApiResult.Failure(null, "RESOURCE_NOT_FOUND")
 }
 
 class RecordsViewModelFactory(private val gateway: RecordsGateway) : ViewModelProvider.Factory {
@@ -65,7 +69,10 @@ class UnavailableRecordsGateway : RecordsGateway {
     override suspend fun deleteMood(id: String, version: Int) = unavailable<Unit>()
 }
 
-class RepositoryRecordsGateway(private val repository: RecordsRepository) : RecordsGateway {
+class RepositoryRecordsGateway(
+    private val repository: RecordsRepository,
+    private val recordImagesRepository: RecordImagesRepository? = null,
+) : RecordsGateway {
     override suspend fun list(type: WorkspaceRecordType, cursor: String?) =
         if (type == WorkspaceRecordType.MOOD) repository.listMood(cursor = cursor, limit = 30).mapMoodPage()
         else repository.list(type.apiType(), cursor = cursor, limit = 30)
@@ -98,6 +105,9 @@ class RepositoryRecordsGateway(private val repository: RecordsRepository) : Reco
     override suspend fun createMood(idempotencyKey: String, body: MoodWriteDto) = repository.createMood(idempotencyKey, body)
     override suspend fun updateMood(id: String, body: MoodPatchDto) = repository.updateMood(id, body)
     override suspend fun deleteMood(id: String, version: Int) = repository.deleteMood(id, version)
+    override suspend fun latestStoolRecognition(recordId: String) =
+        recordImagesRepository?.latestStoolRecognition(recordId)
+            ?: ApiResult.Failure(null, "SERVICE_UNAVAILABLE")
 }
 
 data class RecordRow(val id: String, val version: Int, val label: String, val occurredAt: String)
@@ -111,6 +121,8 @@ data class RecordDetailModel(
     val note: String? = null,
     val statusHistory: List<SymptomStatusEventDto> = emptyList(),
     val statusHistoryError: String? = null,
+    val imageSetVersion: Int = 0,
+    val stoolRecognitionResult: String? = null,
 )
 sealed interface RecordsLoadState {
     data object Idle : RecordsLoadState
@@ -130,6 +142,8 @@ data class RecordOperationState(
     val feedback: String? = null,
     val conflict: Boolean = false,
     val savedRecordId: String? = null,
+    /** The empty record is an image-upload shell, never a confirmed food fact. */
+    val savedForImageUpload: Boolean = false,
 )
 data class RecordDraft(
     val date: String = "",
@@ -140,7 +154,6 @@ data class RecordDraft(
     val cookingMethod: String? = null,
     val subjectiveNote: String? = null,
     val dietItems: List<RecordItemDto> = emptyList(),
-    val bristolType: Int? = null,
     val bowelNote: String = "",
     val discomfort: String? = null,
     val bowelAmount: String? = null,
@@ -248,6 +261,15 @@ class RecordsViewModel(private val gateway: RecordsGateway) : ViewModel() {
                             is ApiResult.Failure -> detail.copy(statusHistoryError = history.errorText())
                         }
                     }
+                    if (type == WorkspaceRecordType.STOOL) {
+                        val recognition = gateway.latestStoolRecognition(id)
+                        if (recognition is ApiResult.Success && recognition.value.status == "candidates_ready") {
+                            val result = recognition.value.candidates
+                                .firstOrNull { it.candidateType == "bristol_type" && it.status != "invalidated" }
+                                ?.value?.toString()?.takeIf(String::isNotBlank)
+                            detail = detail.copy(stoolRecognitionResult = result)
+                        }
+                    }
                     if (epoch == sessionEpoch && request == detailRequest) {
                         mutableState.value = mutableState.value.copy(detailState = RecordDetailLoadState.Loaded(detail))
                     }
@@ -271,7 +293,7 @@ class RecordsViewModel(private val gateway: RecordsGateway) : ViewModel() {
             )
             WorkspaceRecordType.STOOL -> RecordDraft(
                 date = local?.toLocalDate()?.toString().orEmpty(), time = local?.toLocalTime()?.withSecond(0)?.withNano(0)?.toString().orEmpty(),
-                bristolType = payload.bristolType, bowelNote = payload.notes.orEmpty(), discomfort = payload.processSensation?.firstOrNull(),
+                bowelNote = payload.notes.orEmpty(), discomfort = payload.processSensation?.firstOrNull(),
                 bowelAmount = payload.bowelAmount, colorCode = payload.colorCode, bloodReported = payload.bloodReported,
                 urgencyLevel = payload.urgencyLevel,
             )
@@ -305,12 +327,12 @@ class RecordsViewModel(private val gateway: RecordsGateway) : ViewModel() {
 
     fun removeDietItem(index: Int) = updateDraft { it.copy(dietItems = it.dietItems.filterIndexed { i, _ -> i != index }) }
 
-    fun save(type: WorkspaceRecordType) {
+    fun save(type: WorkspaceRecordType, forImageUpload: Boolean = false) {
         val current = mutableState.value
         val draft = current.draft
         if (current.operation.saving) return
         when {
-            type == WorkspaceRecordType.DIET && draft.description.isBlank() && draft.dietItems.isEmpty() -> return message("请填写饮食描述或添加食物。")
+            type == WorkspaceRecordType.DIET && !forImageUpload && draft.description.isBlank() && draft.dietItems.isEmpty() -> return message("请填写饮食描述或添加食物。")
             type == WorkspaceRecordType.SYMPTOM && draft.symptomCode == null -> return message("请选择一项症状。")
             type == WorkspaceRecordType.SYMPTOM && draft.symptomCode == "other" && draft.otherDescription.isBlank() -> return message("请填写“其他”症状描述。")
             type == WorkspaceRecordType.SYMPTOM && draft.otherDescription.length > 160 -> return message("“其他”症状描述最多 160 字。")
@@ -344,7 +366,7 @@ class RecordsViewModel(private val gateway: RecordsGateway) : ViewModel() {
                     }
                 }
             } else {
-                val payload = draft.toPayload(type, duration)
+                val payload = draft.toPayload(type, duration, forImageUpload)
                 if (editingId != null && version != null) gateway.update(type, editingId, RecordPatchDto(version, occurredAt, payload))
                 else gateway.create(type, key, RecordWriteDto(occurredAt, payload))
             }
@@ -352,7 +374,11 @@ class RecordsViewModel(private val gateway: RecordsGateway) : ViewModel() {
             when (result) {
                 is ApiResult.Failure -> mutableState.value = mutableState.value.copy(operation = result.toOperationError())
                 is ApiResult.Success -> mutableState.value = mutableState.value.copy(
-                    operation = RecordOperationState(feedback = if (editingId == null) "记录已保存。" else "修改已保存。", savedRecordId = result.value.id),
+                    operation = RecordOperationState(
+                        feedback = if (editingId == null) "记录已保存。" else "修改已保存。",
+                        savedRecordId = result.value.id,
+                        savedForImageUpload = forImageUpload,
+                    ),
                     detailState = RecordDetailLoadState.Loaded(result.value),
                 )
             }
@@ -407,13 +433,14 @@ class RecordsViewModel(private val gateway: RecordsGateway) : ViewModel() {
     private fun message(text: String) { mutableState.value = mutableState.value.copy(operation = RecordOperationState(feedback = text)) }
 }
 
-private fun RecordDraft.toPayload(type: WorkspaceRecordType, duration: Int?): RecordPayloadDto = when (type) {
+private fun RecordDraft.toPayload(type: WorkspaceRecordType, duration: Int?, forImageUpload: Boolean = false): RecordPayloadDto = when (type) {
     WorkspaceRecordType.DIET -> RecordPayloadDto(
         mealType = mealType, textDescription = description.trim().ifEmpty { null }, items = dietItems.takeIf { it.isNotEmpty() },
         portionNote = portionNote, cookingMethod = cookingMethod, subjectiveNote = subjectiveNote,
+        imageOnlyEntry = forImageUpload,
     )
     WorkspaceRecordType.STOOL -> RecordPayloadDto(
-        bristolType = bristolType, colorCode = colorCode, bloodReported = bloodReported, urgencyLevel = urgencyLevel,
+        bristolType = null, colorCode = colorCode, bloodReported = bloodReported, urgencyLevel = urgencyLevel,
         bowelAmount = bowelAmount, processSensation = discomfort?.let(::listOf) ?: emptyList(), notes = bowelNote.trim().ifEmpty { null },
     )
     WorkspaceRecordType.SYMPTOM -> RecordPayloadDto(
@@ -441,13 +468,18 @@ private fun ApiResult<MoodPageDto>.mapMoodPage(): ApiResult<RecordPageDto> = whe
 private fun RecordDto.toRecordDetail(type: WorkspaceRecordType) = RecordDetailModel(
     id, recordVersion, occurredAt, payload,
     statusHistory = emptyList(),
+    imageSetVersion = imageSetVersion,
 )
 private fun MoodDetailDto.toRecordDetail() = RecordDetailModel(
     id, recordVersion, occurredAt, RecordPayloadDto(textDescription = "心情等级 $moodLevel"), moodLevel, emotionTags, note,
 )
 private fun RecordDto.toRow(type: WorkspaceRecordType) = RecordRow(
     id, recordVersion,
-    if (type == WorkspaceRecordType.MOOD) payload.textDescription ?: "心情记录" else payload.textDescription ?: payload.notes ?: payload.items?.joinToString { it.name ?: it.otherDescription ?: it.symptomCode.orEmpty() } ?: "本人记录",
+    when (type) {
+        WorkspaceRecordType.STOOL -> "排便记录"
+        WorkspaceRecordType.MOOD -> payload.textDescription ?: "心情记录"
+        else -> payload.textDescription ?: payload.notes ?: payload.items?.joinToString { it.name ?: it.otherDescription ?: it.symptomCode.orEmpty() } ?: "本人记录"
+    },
     occurredAt,
 )
 

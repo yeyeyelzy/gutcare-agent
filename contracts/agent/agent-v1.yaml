@@ -189,6 +189,25 @@ paths:
         '404': {$ref: '#/components/responses/Problem'}
         '409': {$ref: '#/components/responses/Problem'}
         '422': {$ref: '#/components/responses/Problem'}
+  /agent/medical-parse-requests/claim:
+    post:
+      operationId: claimMedicalParseRequest
+      summary: 由业务 Worker 领取一个待解析医疗文档请求
+      servers:
+        - url: https://business.internal.invalid/internal/v1
+      responses:
+        '200':
+          description: 返回唯一领取的解析请求；无可领取请求时 request_id 为 null
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [request_id]
+                properties:
+                  request_id: {type: [string, 'null'], format: uuid}
+        '401': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
   /agent/medical-parse-requests/{request_id}/inputs:
     get:
       operationId: getMedicalParseRequestInputs

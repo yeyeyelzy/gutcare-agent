@@ -539,6 +539,7 @@ class ActivityService:
                     DietRecord.occurred_at >= start,
                     DietRecord.occurred_at < end,
                     DietItem.confirmed_by_patient.is_(True),
+                    DietItem.category_code.is_not(None),
                 )
                 .group_by(diet_bucket, DietItem.category_code)
                 .order_by(diet_bucket, DietItem.category_code)
