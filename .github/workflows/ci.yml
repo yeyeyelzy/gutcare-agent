@@ -55,4 +55,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build, unit test, and lint native Android app
         working-directory: android
-        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --max-workers=2
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --max-workers=2
