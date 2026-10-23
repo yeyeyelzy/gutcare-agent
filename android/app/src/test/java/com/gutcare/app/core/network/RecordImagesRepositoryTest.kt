@@ -83,7 +83,7 @@ class RecordImagesRepositoryTest {
                 .addConverterFactory(MoshiConverterFactory.create(moshi)).build().create(RecordImagesApi::class.java)
             val api = SameOriginRecordImagesApi(authenticated, origin, capabilityClient, allowEmulatorLoopback = true)
             val result = RecordImagesRepository(api).downloadPreview("attachment-id")
-            assertTrue(result is ApiResult.Success)
+            assertTrue("Expected preview bytes, got $result", result is ApiResult.Success)
             assertTrue((result as ApiResult.Success).value.contentEquals(byteArrayOf(1, 2, 3)))
             val grant = server.takeRequest()
             assertEquals("POST", grant.method)
@@ -152,7 +152,7 @@ class RecordImagesRepositoryTest {
             val repository = RecordImagesRepository(SameOriginRecordImagesApi(api, origin, allowEmulatorLoopback = true))
             val result = repository.uploadAndAttach(PatientRecordType.DIET, "record-1", 3, 1,
                 "create-key-123", "meal.jpg", "image/jpeg", byteArrayOf(1, 2, 3).toRequestBody("image/jpeg".toMediaType()), 3)
-            assertTrue(result is ApiResult.Success)
+            assertTrue("Expected uploaded attachment, got $result", result is ApiResult.Success)
             val created = server.takeRequest()
             assertEquals("POST", created.method)
             assertEquals("/api/v1/files/uploads", created.path)

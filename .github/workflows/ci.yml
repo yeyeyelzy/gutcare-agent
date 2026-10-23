@@ -73,7 +73,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --max-workers=2
       - name: Run native Android unit tests
         working-directory: android
-        run: ./gradlew :app:testDebugUnitTest --no-daemon --max-workers=2
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --max-workers=2 --info
       - name: Lint native Android app
         working-directory: android
         run: ./gradlew :app:lintDebug --no-daemon --max-workers=2
